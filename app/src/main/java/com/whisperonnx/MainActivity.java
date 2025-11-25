@@ -47,7 +47,7 @@ import com.whisperonnx.utils.LanguagePairAdapter;
 import com.whisperonnx.utils.ThemeUtils;
 import com.whisperonnx.voice_translation.neural_networks.voice.Recognizer;
 
-import org.woheller69.freeDroidWarn.FreeDroidWarn;
+import org.DevilVed.freeDroidWarn.FreeDroidWarn;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -116,13 +116,15 @@ public class MainActivity extends AppCompatActivity {
                         int result = tts.setLanguage(Locale.US);
                         if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
                             runOnUiThread(() -> {
-                                Toast.makeText(mContext, mContext.getString(R.string.tts_language_not_supported),Toast.LENGTH_SHORT).show();
+                                Toast.makeText(mContext, mContext.getString(R.string.tts_language_not_supported),
+                                        Toast.LENGTH_SHORT).show();
                                 modeTTS.setChecked(false);
                             });
 
                         }
                     } else {
-                        runOnUiThread(() -> Toast.makeText(mContext, mContext.getString(R.string.tts_initialization_failed),Toast.LENGTH_SHORT).show());
+                        runOnUiThread(() -> Toast.makeText(mContext,
+                                mContext.getString(R.string.tts_initialization_failed), Toast.LENGTH_SHORT).show());
                     }
                 });
             } else {
@@ -132,21 +134,23 @@ public class MainActivity extends AppCompatActivity {
 
         translate = findViewById(R.id.mode_translate);
         translate.setOnCheckedChangeListener((compoundButton, isChecked) -> {
-            layoutTTS.setVisibility(isChecked ? View.VISIBLE:View.GONE);
-            if (layoutTTS.getVisibility() == View.GONE) modeTTS.setChecked(false);
+            layoutTTS.setVisibility(isChecked ? View.VISIBLE : View.GONE);
+            if (layoutTTS.getVisibility() == View.GONE)
+                modeTTS.setChecked(false);
         });
-
 
         // Initialize default model to use
         initModel();
 
         btnInfo = findViewById(R.id.btnInfo);
-        btnInfo.setOnClickListener(view -> startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/woheller69/whisperIMEplus#Donate"))));
+        btnInfo.setOnClickListener(view -> startActivity(
+                new Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/DevilVed/whisperIMEplus#Donate"))));
 
         spinnerLanguage = findViewById(R.id.spnrLanguage);
 
         List<Pair<String, String>> languagePairs = LanguagePairAdapter.getLanguagePairs(this);
-        LanguagePairAdapter languagePairAdapter = new LanguagePairAdapter(this, android.R.layout.simple_spinner_item, languagePairs);
+        LanguagePairAdapter languagePairAdapter = new LanguagePairAdapter(this, android.R.layout.simple_spinner_item,
+                languagePairs);
         languagePairAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
         spinnerLanguage.setAdapter(languagePairAdapter);
         langCode = sp.getString("language", "auto");
@@ -157,7 +161,7 @@ public class MainActivity extends AppCompatActivity {
             public void onItemSelected(AdapterView<?> adapterView, View view, int i, long l) {
                 langCode = languagePairs.get(i).first;
                 SharedPreferences.Editor editor = sp.edit();
-                editor.putString("language",languagePairs.get(i).first);
+                editor.putString("language", languagePairs.get(i).first);
                 editor.apply();
             }
 
@@ -184,11 +188,14 @@ public class MainActivity extends AppCompatActivity {
                         public void onTick(long l) {
                             runOnUiThread(() -> processingBar.setProgress((int) (l / 300)));
                         }
+
                         @Override
-                        public void onFinish() {}
+                        public void onFinish() {
+                        }
                     };
                     countDownTimer.start();
-                } else (Toast.makeText(this,getString(R.string.please_wait),Toast.LENGTH_SHORT)).show();
+                } else
+                    (Toast.makeText(this, getString(R.string.please_wait), Toast.LENGTH_SHORT)).show();
 
             } else if (event.getAction() == MotionEvent.ACTION_UP) {
                 // Released
@@ -203,7 +210,7 @@ public class MainActivity extends AppCompatActivity {
 
         layoutModeChinese = findViewById(R.id.layout_mode_chinese);
         modeSimpleChinese = findViewById(R.id.mode_simple_chinese);
-        modeSimpleChinese.setChecked(sp.getBoolean("simpleChinese",false));  //default to traditional Chinese
+        modeSimpleChinese.setChecked(sp.getBoolean("simpleChinese", false)); // default to traditional Chinese
         modeSimpleChinese.setOnCheckedChangeListener((compoundButton, isChecked) -> {
             SharedPreferences.Editor editor = sp.edit();
             editor.putBoolean("simpleChinese", isChecked);
@@ -231,18 +238,23 @@ public class MainActivity extends AppCompatActivity {
             public void onUpdateReceived(String message) {
                 Log.d(TAG, "Update is received, Message: " + message);
                 if (message.equals(Recorder.MSG_RECORDING)) {
-                    runOnUiThread(() -> tvStatus.setText(getString(R.string.record_button) +"…"));
-                    if (!append.isChecked()) runOnUiThread(() -> tvResult.setText(""));
+                    runOnUiThread(() -> tvStatus.setText(getString(R.string.record_button) + "…"));
+                    if (!append.isChecked())
+                        runOnUiThread(() -> tvResult.setText(""));
                     runOnUiThread(() -> btnRecord.setBackgroundResource(R.drawable.rounded_button_background_pressed));
                 } else if (message.equals(Recorder.MSG_RECORDING_DONE)) {
                     HapticFeedback.vibrate(mContext);
                     runOnUiThread(() -> btnRecord.setBackgroundResource(R.drawable.rounded_button_background));
 
-                    if (translate.isChecked()) startProcessing(ACTION_TRANSLATE);
-                    else startProcessing(ACTION_TRANSCRIBE);
+                    if (translate.isChecked())
+                        startProcessing(ACTION_TRANSLATE);
+                    else
+                        startProcessing(ACTION_TRANSCRIBE);
                 } else if (message.equals(Recorder.MSG_RECORDING_ERROR)) {
                     HapticFeedback.vibrate(mContext);
-                    if (countDownTimer!=null) { countDownTimer.cancel();}
+                    if (countDownTimer != null) {
+                        countDownTimer.cancel();
+                    }
                     runOnUiThread(() -> {
                         btnRecord.setBackgroundResource(R.drawable.rounded_button_background);
                         processingBar.setProgress(0);
@@ -253,7 +265,8 @@ public class MainActivity extends AppCompatActivity {
 
         });
         FreeDroidWarn.showWarningOnUpgrade(this, BuildConfig.VERSION_CODE);
-        if (GithubStar.shouldShowStarDialog(this)) GithubStar.starDialog(this, "https://github.com/woheller69/whisperIMEplus");
+        if (GithubStar.shouldShowStarDialog(this))
+            GithubStar.starDialog(this, "https://github.com/DevilVed/whisperIMEplus");
         // Assume this Activity is the current activity, check record permission
         checkPermissions();
 
@@ -295,19 +308,25 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onResultReceived(WhisperResult whisperResult) {
                 long timeTaken = System.currentTimeMillis() - startTime;
-                runOnUiThread(() -> tvStatus.setText(getString(R.string.processing_done) + timeTaken + "\u2009ms" + "\n"+ getString(R.string.language) + " " + new Locale(whisperResult.getLanguage()).getDisplayLanguage() + " " + (whisperResult.getTask() == ACTION_TRANSCRIBE ? getString(R.string.mode_transcription) : getString(R.string.mode_translation))));
+                runOnUiThread(() -> tvStatus.setText(getString(R.string.processing_done) + timeTaken + "\u2009ms" + "\n"
+                        + getString(R.string.language) + " "
+                        + new Locale(whisperResult.getLanguage()).getDisplayLanguage() + " "
+                        + (whisperResult.getTask() == ACTION_TRANSCRIBE ? getString(R.string.mode_transcription)
+                                : getString(R.string.mode_translation))));
                 runOnUiThread(() -> processingBar.setIndeterminate(false));
-                Log.d(TAG, "Result: " + whisperResult.getResult() + " " + whisperResult.getLanguage() + " " + (whisperResult.getTask() == ACTION_TRANSCRIBE ? "transcribing" : "translating"));
-                if ((whisperResult.getLanguage().equals("zh")) && (whisperResult.getTask() == ACTION_TRANSCRIBE)){
+                Log.d(TAG, "Result: " + whisperResult.getResult() + " " + whisperResult.getLanguage() + " "
+                        + (whisperResult.getTask() == ACTION_TRANSCRIBE ? "transcribing" : "translating"));
+                if ((whisperResult.getLanguage().equals("zh")) && (whisperResult.getTask() == ACTION_TRANSCRIBE)) {
                     runOnUiThread(() -> layoutModeChinese.setVisibility(View.VISIBLE));
-                    boolean simpleChinese = sp.getBoolean("simpleChinese",false);  //convert to desired Chinese mode
-                    String result = simpleChinese ? ZhConverterUtil.toSimple(whisperResult.getResult()) : ZhConverterUtil.toTraditional(whisperResult.getResult());
+                    boolean simpleChinese = sp.getBoolean("simpleChinese", false); // convert to desired Chinese mode
+                    String result = simpleChinese ? ZhConverterUtil.toSimple(whisperResult.getResult())
+                            : ZhConverterUtil.toTraditional(whisperResult.getResult());
                     runOnUiThread(() -> tvResult.append(result));
                 } else {
                     runOnUiThread(() -> layoutModeChinese.setVisibility(View.GONE));
                     runOnUiThread(() -> tvResult.append(whisperResult.getResult()));
                 }
-                if (modeTTS.isChecked()){
+                if (modeTTS.isChecked()) {
                     tts.speak(whisperResult.getResult(), TextToSpeech.QUEUE_FLUSH, null, null);
                 }
             }
@@ -321,7 +340,7 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    private void deinitTTS(){
+    private void deinitTTS() {
         if (tts != null) {
             tts.stop();
             tts.shutdown();
@@ -330,11 +349,13 @@ public class MainActivity extends AppCompatActivity {
 
     private void checkPermissions() {
         List<String> perms = new ArrayList<>();
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+        if (ContextCompat.checkSelfPermission(this,
+                Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             perms.add(Manifest.permission.RECORD_AUDIO);
             Toast.makeText(this, getString(R.string.need_record_audio_permission), Toast.LENGTH_SHORT).show();
         }
-        if ((Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) && (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)){
+        if ((Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) && (ContextCompat.checkSelfPermission(this,
+                Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)) {
             perms.add(Manifest.permission.POST_NOTIFICATIONS);
         }
         if (!perms.isEmpty()) {
@@ -364,7 +385,9 @@ public class MainActivity extends AppCompatActivity {
 
     // Transcription calls
     private void startProcessing(Recognizer.Action action) {
-        if (countDownTimer!=null) { countDownTimer.cancel();}
+        if (countDownTimer != null) {
+            countDownTimer.cancel();
+        }
         runOnUiThread(() -> {
             processingBar.setProgress(0);
             processingBar.setIndeterminate(true);
@@ -376,7 +399,8 @@ public class MainActivity extends AppCompatActivity {
 
     private void stopProcessing() {
         processingBar.setIndeterminate(false);
-        if (mWhisper != null && mWhisper.isInProgress()) mWhisper.stop();
+        if (mWhisper != null && mWhisper.isInProgress())
+            mWhisper.stop();
     }
 
 }

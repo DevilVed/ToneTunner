@@ -13,5 +13,5 @@ dependencyResolutionManagement {
         maven { url 'https://jitpack.io' }
     }
 }
-rootProject.name = "WhisperIME-RTRAN"
+rootProject.name = "ToneTunner"
 include ':app'

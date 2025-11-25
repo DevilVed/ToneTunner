@@ -12,7 +12,7 @@ android {
     }
     
     defaultConfig {
-        applicationId "org.woheller69.whisperplus"
+        applicationId "org.DevilVed.whisperplus"
         minSdk 28
         targetSdk 35
         versionCode 14
@@ -67,6 +67,6 @@ dependencies {
     //ONNX Runtime
     implementation 'com.microsoft.onnxruntime:onnxruntime-android:1.19.0'  //latest.release
     implementation 'com.microsoft.onnxruntime:onnxruntime-extensions-android:0.12.4'   //latest.release
-    implementation 'com.github.woheller69:FreeDroidWarn:+'
+    implementation 'com.github.DevilVed:FreeDroidWarn:+'
 
 }

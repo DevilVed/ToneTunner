@@ -1,4 +1,4 @@
-A Whisper+ egy hangfelismerésen alapuló beviteli módszer-szerkesztő (IME), amely a Whisper
+A ToneTunner egy hangfelismerésen alapuló beviteli módszer-szerkesztő (IME), amely a Whisper
 
 Önálló alkalmazásként is működhet, és olyan IME-t is kínál, amely például aktiválható
 a <a href="https://f-droid.org/packages/helium314.keyboard/">HeliBoard</a> mikrofon gombjával.
@@ -7,9 +7,9 @@ Első indításkor le kell tölteni a Whisper modelleket az Hugging Face-ről.
 
 A hangfelismerés teljesen offline működik.
 
-Önálló alkalmazásként a Whisper+ bármely támogatott nyelvet le tud fordítani angolra.
+Önálló alkalmazásként a ToneTunner bármely támogatott nyelvet le tud fordítani angolra.
 
-Ahhoz, hogy a legtöbbet hozza ki a Whisper+:
+Ahhoz, hogy a legtöbbet hozza ki a ToneTunner:
 <ul>
 <li>Nyomja meg és tartsa lenyomva a gombot beszéd közben</li>
 <li>Rövid szünet a beszéd megkezdése előtt</li>

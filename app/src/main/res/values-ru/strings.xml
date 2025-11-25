@@ -27,6 +27,6 @@
     <string name="simple_chinese">Китайский (упрощённый):</string>
     <string name="text_to_speech">Синтез речи:</string>
     <string name="tts_language_not_supported">TTS: Язык не поддерживается</string>
-    <string name="voice_input">Источник голоса для Whisper+</string>
+    <string name="voice_input">Источник голоса для ToneTunner</string>
     <string name="instructions">Нажмите и удерживайте микрофон пока говорите.</string>
 </resources>
