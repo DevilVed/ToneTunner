@@ -20,7 +20,8 @@
                 android:layout_height="wrap_content"
                 android:textSize="16sp"
                 android:textColor="@color/colorAccent"
-                android:text="@string/language" />
+                android:text="@string/language"
+                android:labelFor="@+id/spnrLanguage" />
 
             <Spinner
                 android:id="@+id/spnrLanguage"
