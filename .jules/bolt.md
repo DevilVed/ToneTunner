@@ -1,0 +1,3 @@
+## 2025-02-18 - O(N²) Memory Copying in Audio Loop
+**Learning:** Calling `ByteArrayOutputStream.toByteArray()` inside a high-frequency loop (like audio recording) creates a new copy of the entire accumulated buffer on every iteration. This results in O(N²) memory allocation and copying, which degrades performance significantly as recording duration increases.
+**Action:** Always check if the required data is already available in a local buffer (like the read buffer) before converting the entire stream to an array. If access to the full history is needed, consider using a more efficient data structure (like a circular buffer or a list of chunks) or only copy the tail if absolutely necessary.
