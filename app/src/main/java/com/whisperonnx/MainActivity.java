@@ -31,6 +31,7 @@ import android.widget.ImageButton;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.Spinner;
+import android.content.res.ColorStateList;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -60,9 +61,9 @@ public class MainActivity extends AppCompatActivity {
     private TextView tvStatus;
     private TextView tvResult;
     private FloatingActionButton fabCopy;
-    private ImageButton btnRecord;
-    private LinearLayout layoutModeChinese;
-    private LinearLayout layoutTTS;
+    private FloatingActionButton btnRecord;
+    private View layoutModeChinese;
+    private View layoutTTS;
     private CheckBox append;
     private CheckBox translate;
     private CheckBox modeSimpleChinese;
@@ -173,7 +174,7 @@ public class MainActivity extends AppCompatActivity {
         btnRecord.setOnTouchListener((v, event) -> {
             if (event.getAction() == MotionEvent.ACTION_DOWN) {
                 // Pressed
-                runOnUiThread(() -> btnRecord.setBackgroundResource(R.drawable.rounded_button_background_pressed));
+                runOnUiThread(() -> btnRecord.setBackgroundTintList(ColorStateList.valueOf(getColor(R.color.colorAccentDark))));
                 Log.d(TAG, "Start recording...");
                 if (!mWhisper.isInProgress()) {
                     HapticFeedback.vibrate(this);
@@ -192,7 +193,7 @@ public class MainActivity extends AppCompatActivity {
 
             } else if (event.getAction() == MotionEvent.ACTION_UP) {
                 // Released
-                runOnUiThread(() -> btnRecord.setBackgroundResource(R.drawable.rounded_button_background));
+                runOnUiThread(() -> btnRecord.setBackgroundTintList(ColorStateList.valueOf(getColor(R.color.colorAccent))));
                 if (mRecorder != null && mRecorder.isInProgress()) {
                     Log.d(TAG, "Recording is in progress... stopping...");
                     stopRecording();
@@ -233,10 +234,10 @@ public class MainActivity extends AppCompatActivity {
                 if (message.equals(Recorder.MSG_RECORDING)) {
                     runOnUiThread(() -> tvStatus.setText(getString(R.string.record_button) +"…"));
                     if (!append.isChecked()) runOnUiThread(() -> tvResult.setText(""));
-                    runOnUiThread(() -> btnRecord.setBackgroundResource(R.drawable.rounded_button_background_pressed));
+                    runOnUiThread(() -> btnRecord.setBackgroundTintList(ColorStateList.valueOf(getColor(R.color.colorAccentDark))));
                 } else if (message.equals(Recorder.MSG_RECORDING_DONE)) {
                     HapticFeedback.vibrate(mContext);
-                    runOnUiThread(() -> btnRecord.setBackgroundResource(R.drawable.rounded_button_background));
+                    runOnUiThread(() -> btnRecord.setBackgroundTintList(ColorStateList.valueOf(getColor(R.color.colorAccent))));
 
                     if (translate.isChecked()) startProcessing(ACTION_TRANSLATE);
                     else startProcessing(ACTION_TRANSCRIBE);
@@ -244,7 +245,7 @@ public class MainActivity extends AppCompatActivity {
                     HapticFeedback.vibrate(mContext);
                     if (countDownTimer!=null) { countDownTimer.cancel();}
                     runOnUiThread(() -> {
-                        btnRecord.setBackgroundResource(R.drawable.rounded_button_background);
+                        btnRecord.setBackgroundTintList(ColorStateList.valueOf(getColor(R.color.colorAccent))));
                         processingBar.setProgress(0);
                         tvStatus.setText(getString(R.string.error_no_input));
                     });
