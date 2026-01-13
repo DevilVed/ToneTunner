@@ -84,6 +84,18 @@ public class SetupActivity extends AppCompatActivity {
                     try (ZipInputStream zipInputStream = new ZipInputStream(src)) {
                         while ((zipEntry = zipInputStream.getNextEntry()) != null) {
                             File extractedFile = new File(targetDir ,zipEntry.getName());
+
+                            if (!extractedFile.getCanonicalPath().startsWith(targetDir.getCanonicalPath() + File.separator)) {
+                                throw new SecurityException("Zip Path Traversal Vulnerability detected: " + zipEntry.getName());
+                            }
+
+                            if (zipEntry.isDirectory()) {
+                                if (!extractedFile.exists()) {
+                                    extractedFile.mkdirs();
+                                }
+                                continue;
+                            }
+
                             runOnUiThread(()->{
                                 extractedFileTV.setVisibility(View.VISIBLE);
                                 extractedFileTV.setText(extractedFile.getName());
