@@ -1,0 +1,3 @@
+## 2024-05-23 - [O(N²) Memory Allocation in Recording Loop]
+**Learning:** Found a critical performance anti-pattern in `Recorder.java` where `ByteArrayOutputStream.toByteArray()` was called inside a high-frequency audio processing loop (every ~30ms). This creates a new byte array copy of the *entire* recorded session so far, leading to O(N²) memory allocation over time (triangle number series).
+**Action:** Always verify "optimized" code claims. When processing streaming data, use ring buffers or sliding windows to process only the latest data chunk instead of copying the growing history. Avoid `toByteArray()` or similar full-copy methods inside loops.
