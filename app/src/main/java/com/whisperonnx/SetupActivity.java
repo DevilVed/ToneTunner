@@ -84,6 +84,14 @@ public class SetupActivity extends AppCompatActivity {
                     try (ZipInputStream zipInputStream = new ZipInputStream(src)) {
                         while ((zipEntry = zipInputStream.getNextEntry()) != null) {
                             File extractedFile = new File(targetDir ,zipEntry.getName());
+
+                            // 🛡️ Sentinel: Fix Zip Slip vulnerability
+                            String canonicalPath = extractedFile.getCanonicalPath();
+                            String canonicalTarget = targetDir.getCanonicalPath();
+                            if (!canonicalPath.startsWith(canonicalTarget + File.separator)) {
+                                throw new SecurityException("Zip Slip vulnerability detected: " + zipEntry.getName());
+                            }
+
                             runOnUiThread(()->{
                                 extractedFileTV.setVisibility(View.VISIBLE);
                                 extractedFileTV.setText(extractedFile.getName());
@@ -103,6 +111,13 @@ public class SetupActivity extends AppCompatActivity {
                     }
                 } catch (IOException ioException) {
                     ioException.printStackTrace();
+                    runOnUiThread(() -> Toast.makeText(context, "Extraction failed", Toast.LENGTH_SHORT).show());
+                } catch (SecurityException se) {
+                    Log.e("SetupActivity", "Security Exception", se);
+                    runOnUiThread(() -> {
+                        progressBar.setVisibility(View.GONE);
+                        Toast.makeText(context, "Security Error: " + se.getMessage(), Toast.LENGTH_LONG).show();
+                    });
                 }
             } catch (FileNotFoundException e) {
                 e.printStackTrace();
