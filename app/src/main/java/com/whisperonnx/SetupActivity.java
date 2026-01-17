@@ -82,8 +82,14 @@ public class SetupActivity extends AppCompatActivity {
                 InputStream src = context.getContentResolver().openInputStream(zipFile);
                 try {
                     try (ZipInputStream zipInputStream = new ZipInputStream(src)) {
+                        String canonicalTargetPath = targetDir.getCanonicalPath() + File.separator;
                         while ((zipEntry = zipInputStream.getNextEntry()) != null) {
                             File extractedFile = new File(targetDir ,zipEntry.getName());
+
+                            if (!extractedFile.getCanonicalPath().startsWith(canonicalTargetPath)) {
+                                throw new SecurityException("Zip Slip vulnerability detected: " + extractedFile.getName());
+                            }
+
                             runOnUiThread(()->{
                                 extractedFileTV.setVisibility(View.VISIBLE);
                                 extractedFileTV.setText(extractedFile.getName());
