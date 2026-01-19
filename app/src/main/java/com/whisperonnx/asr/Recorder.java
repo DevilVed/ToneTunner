@@ -200,24 +200,33 @@ public class Recorder {
                 break;
             }
 
-            if (useVAD){
-                byte[] outputBufferByteArray = outputBuffer.toByteArray();
-                if (outputBufferByteArray.length >= VAD_FRAME_SIZE * 2) {
-                    // Always use the last VAD_FRAME_SIZE * 2 bytes (16 bit) from outputBuffer for VAD
-                    System.arraycopy(outputBufferByteArray, outputBufferByteArray.length - VAD_FRAME_SIZE * 2, vadAudioBuffer, 0, VAD_FRAME_SIZE * 2);
-
+            if (useVAD) {
+                // Optimization: avoid toByteArray() if we just read a full VAD frame
+                if (bytesRead == VAD_FRAME_SIZE * 2) {
+                    System.arraycopy(audioData, 0, vadAudioBuffer, 0, VAD_FRAME_SIZE * 2);
                     isSpeech = vad.isSpeech(vadAudioBuffer);
-                    if (isSpeech) {
-                        if (!isRecording) {
-                            Log.d(TAG, "VAD Speech detected: recording starts");
-                            sendUpdate(MSG_RECORDING);
-                        }
-                        isRecording = true;
+                } else {
+                    // Fallback for partial reads or initial accumulation
+                    byte[] outputBufferByteArray = outputBuffer.toByteArray();
+                    if (outputBufferByteArray.length >= VAD_FRAME_SIZE * 2) {
+                        // Always use the last VAD_FRAME_SIZE * 2 bytes (16 bit) from outputBuffer for VAD
+                        System.arraycopy(outputBufferByteArray, outputBufferByteArray.length - VAD_FRAME_SIZE * 2, vadAudioBuffer, 0, VAD_FRAME_SIZE * 2);
+                        isSpeech = vad.isSpeech(vadAudioBuffer);
                     } else {
-                        if (isRecording) {
-                            isRecording = false;
-                            mInProgress.set(false);
-                        }
+                        isSpeech = false;
+                    }
+                }
+
+                if (isSpeech) {
+                    if (!isRecording) {
+                        Log.d(TAG, "VAD Speech detected: recording starts");
+                        sendUpdate(MSG_RECORDING);
+                    }
+                    isRecording = true;
+                } else {
+                    if (isRecording) {
+                        isRecording = false;
+                        mInProgress.set(false);
                     }
                 }
             } else {
