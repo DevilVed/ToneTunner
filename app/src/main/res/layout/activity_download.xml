@@ -17,8 +17,7 @@
             android:layout_height="0dp"
             android:layout_weight="2"
             android:foregroundGravity="top"
-            android:focusableInTouchMode="true"
-            android:focusable="true"
+            android:importantForAccessibility="no"
             android:src="@drawable/mic_dark_48dp" />
         <LinearLayout
             android:layout_width="match_parent"
@@ -42,7 +41,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:gravity="center"
-                    android:textSize="22dp"
+                    android:textSize="22sp"
                     android:text="@string/download_model"
                     android:onClick="downloadModel"/>
 
@@ -52,7 +51,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:gravity="center"
-                    android:textSize="22dp"
+                    android:textSize="22sp"
                     android:text="@string/install_model"
                     android:onClick="installModel"/>
 
@@ -84,7 +83,7 @@
                 android:layout_gravity="center_horizontal"
                 android:text="@string/start"
                 android:visibility="gone"
-                android:textSize="22dp"
+                android:textSize="22sp"
                 android:textAllCaps="true"
                 android:onClick="startMain"/>
         </LinearLayout>
