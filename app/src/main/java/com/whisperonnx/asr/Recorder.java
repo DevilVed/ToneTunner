@@ -200,12 +200,22 @@ public class Recorder {
                 break;
             }
 
-            if (useVAD){
-                byte[] outputBufferByteArray = outputBuffer.toByteArray();
-                if (outputBufferByteArray.length >= VAD_FRAME_SIZE * 2) {
-                    // Always use the last VAD_FRAME_SIZE * 2 bytes (16 bit) from outputBuffer for VAD
-                    System.arraycopy(outputBufferByteArray, outputBufferByteArray.length - VAD_FRAME_SIZE * 2, vadAudioBuffer, 0, VAD_FRAME_SIZE * 2);
+            if (useVAD) {
+                boolean vadDataReady = false;
+                // Optimization: If we read a full frame, copy directly from the read buffer to avoid O(N^2) copying
+                if (bytesRead == VAD_FRAME_SIZE * 2) {
+                    System.arraycopy(audioData, 0, vadAudioBuffer, 0, VAD_FRAME_SIZE * 2);
+                    vadDataReady = true;
+                } else {
+                    byte[] outputBufferByteArray = outputBuffer.toByteArray();
+                    if (outputBufferByteArray.length >= VAD_FRAME_SIZE * 2) {
+                        // Always use the last VAD_FRAME_SIZE * 2 bytes (16 bit) from outputBuffer for VAD
+                        System.arraycopy(outputBufferByteArray, outputBufferByteArray.length - VAD_FRAME_SIZE * 2, vadAudioBuffer, 0, VAD_FRAME_SIZE * 2);
+                        vadDataReady = true;
+                    }
+                }
 
+                if (vadDataReady) {
                     isSpeech = vad.isSpeech(vadAudioBuffer);
                     if (isSpeech) {
                         if (!isRecording) {
