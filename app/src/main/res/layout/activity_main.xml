@@ -20,6 +20,7 @@
                 android:layout_height="wrap_content"
                 android:textSize="16sp"
                 android:textColor="@color/colorAccent"
+                android:labelFor="@+id/spnrLanguage"
                 android:text="@string/language" />
 
             <Spinner
@@ -40,6 +41,7 @@
                 android:layout_height="wrap_content"
                 android:textSize="16sp"
                 android:textColor="@color/colorAccent"
+                android:labelFor="@+id/tvStatus"
                 android:text="@string/status"
                 android:layout_marginEnd="8dp" />
 
@@ -48,6 +50,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:textSize="16sp"
+                android:accessibilityLiveRegion="polite"
                 android:layout_marginStart="8dp" />
         </LinearLayout>
 
@@ -151,6 +154,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:indeterminate="false"
+            android:importantForAccessibility="no"
             android:indeterminateTint="@color/colorAccent"
             style="?android:attr/progressBarStyleHorizontal"/>
         <RelativeLayout
