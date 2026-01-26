@@ -264,6 +264,13 @@ public class MainActivity extends AppCompatActivity {
             }
 
         });
+        // Enhance touch targets
+        findViewById(R.id.layout_language).setOnClickListener(v -> spinnerLanguage.performClick());
+        findViewById(R.id.layout_mode_append).setOnClickListener(v -> append.performClick());
+        findViewById(R.id.layout_mode_translate).setOnClickListener(v -> translate.performClick());
+        layoutTTS.setOnClickListener(v -> modeTTS.performClick());
+        layoutModeChinese.setOnClickListener(v -> modeSimpleChinese.performClick());
+
         FreeDroidWarn.showWarningOnUpgrade(this, BuildConfig.VERSION_CODE);
         if (GithubStar.shouldShowStarDialog(this))
             GithubStar.starDialog(this, "https://github.com/DevilVed/whisperIMEplus");

@@ -13,14 +13,19 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginBottom="10dp"
-            android:orientation="horizontal">
+            android:orientation="horizontal"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?android:attr/selectableItemBackground">
 
             <TextView
+                android:id="@+id/tvLanguageLabel"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:textSize="16sp"
                 android:textColor="@color/colorAccent"
-                android:text="@string/language" />
+                android:text="@string/language"
+                android:labelFor="@+id/spnrLanguage"/>
 
             <Spinner
                 android:id="@+id/spnrLanguage"
@@ -52,9 +57,13 @@
         </LinearLayout>
 
         <LinearLayout
+            android:id="@+id/layout_mode_append"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:gravity="start">
+            android:gravity="start"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?android:attr/selectableItemBackground">
 
             <TextView
                 android:layout_width="wrap_content"
@@ -75,9 +84,13 @@
         </LinearLayout>
 
         <LinearLayout
+            android:id="@+id/layout_mode_translate"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:gravity="start">
+            android:gravity="start"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?android:attr/selectableItemBackground">
 
             <TextView
                 android:layout_width="wrap_content"
@@ -102,7 +115,10 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:visibility="gone"
-            android:gravity="start">
+            android:gravity="start"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?android:attr/selectableItemBackground">
 
             <TextView
                 android:layout_width="wrap_content"
@@ -127,7 +143,10 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:visibility="gone"
-            android:gravity="start">
+            android:gravity="start"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?android:attr/selectableItemBackground">
 
             <TextView
                 android:layout_width="wrap_content"
@@ -152,6 +171,7 @@
             android:layout_height="wrap_content"
             android:indeterminate="false"
             android:indeterminateTint="@color/colorAccent"
+            android:importantForAccessibility="no"
             style="?android:attr/progressBarStyleHorizontal"/>
         <RelativeLayout
             android:layout_width="match_parent"
