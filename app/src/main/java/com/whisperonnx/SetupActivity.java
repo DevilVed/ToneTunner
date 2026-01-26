@@ -82,15 +82,34 @@ public class SetupActivity extends AppCompatActivity {
                 InputStream src = context.getContentResolver().openInputStream(zipFile);
                 try {
                     try (ZipInputStream zipInputStream = new ZipInputStream(src)) {
+                        String canonicalTarget = targetDir.getCanonicalPath();
+                        if (!canonicalTarget.endsWith(File.separator)) {
+                            canonicalTarget += File.separator;
+                        }
+
                         while ((zipEntry = zipInputStream.getNextEntry()) != null) {
                             File extractedFile = new File(targetDir ,zipEntry.getName());
+
+                            // Prevent Zip Slip vulnerability
+                            String canonicalPath = extractedFile.getCanonicalPath();
+                            if (!canonicalPath.startsWith(canonicalTarget)) {
+                                throw new SecurityException("Zip Slip vulnerability detected: " + zipEntry.getName());
+                            }
+
                             runOnUiThread(()->{
                                 extractedFileTV.setVisibility(View.VISIBLE);
                                 extractedFileTV.setText(extractedFile.getName());
                             });
-                            try (OutputStream outputStream = Files.newOutputStream(extractedFile.toPath())) {
-                                while ((readLen = zipInputStream.read(readBuffer)) != -1) {
-                                    outputStream.write(readBuffer, 0, readLen);
+
+                            if (zipEntry.isDirectory()) {
+                                extractedFile.mkdirs();
+                            } else {
+                                File parent = extractedFile.getParentFile();
+                                if (parent != null) parent.mkdirs();
+                                try (OutputStream outputStream = Files.newOutputStream(extractedFile.toPath())) {
+                                    while ((readLen = zipInputStream.read(readBuffer)) != -1) {
+                                        outputStream.write(readBuffer, 0, readLen);
+                                    }
                                 }
                             }
                         }

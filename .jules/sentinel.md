@@ -1,0 +1,4 @@
+## 2025-02-21 - Zip Slip Vulnerability in SetupActivity
+**Vulnerability:** The application was vulnerable to Zip Slip, where a malicious zip archive could exploit `SetupActivity` to write files outside the intended destination directory using `../` path traversal.
+**Learning:** `java.util.zip.ZipEntry` does not sanitize file names, and blindly concatenating `targetDir` with `entry.getName()` allows path traversal. Android's `Files.newOutputStream` will create files at the resolved path if the parent directory exists, enabling overwrites of critical app files or data.
+**Prevention:** Always resolve the destination file to its canonical path (`file.getCanonicalPath()`) and verify it starts with the canonical path of the intended target directory. Ensure the target directory path ends with `File.separator` to prevent partial path matches.
