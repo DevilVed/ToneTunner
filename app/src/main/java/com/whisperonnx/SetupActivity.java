@@ -82,15 +82,33 @@ public class SetupActivity extends AppCompatActivity {
                 InputStream src = context.getContentResolver().openInputStream(zipFile);
                 try {
                     try (ZipInputStream zipInputStream = new ZipInputStream(src)) {
+                        String targetDirPath = targetDir.getCanonicalPath();
+                        if (!targetDirPath.endsWith(File.separator)) {
+                            targetDirPath += File.separator;
+                        }
                         while ((zipEntry = zipInputStream.getNextEntry()) != null) {
                             File extractedFile = new File(targetDir ,zipEntry.getName());
-                            runOnUiThread(()->{
-                                extractedFileTV.setVisibility(View.VISIBLE);
-                                extractedFileTV.setText(extractedFile.getName());
-                            });
-                            try (OutputStream outputStream = Files.newOutputStream(extractedFile.toPath())) {
-                                while ((readLen = zipInputStream.read(readBuffer)) != -1) {
-                                    outputStream.write(readBuffer, 0, readLen);
+                            String extractedPath = extractedFile.getCanonicalPath();
+                            if (!extractedPath.startsWith(targetDirPath)) {
+                                throw new SecurityException("Zip Slip vulnerability detected: " + extractedPath);
+                            }
+                            if (zipEntry.isDirectory()) {
+                                if (!extractedFile.isDirectory() && !extractedFile.mkdirs()) {
+                                    throw new IOException("Failed to create directory " + extractedFile);
+                                }
+                            } else {
+                                File parent = extractedFile.getParentFile();
+                                if (parent != null && !parent.isDirectory() && !parent.mkdirs()) {
+                                    throw new IOException("Failed to create parent directory " + parent);
+                                }
+                                runOnUiThread(()->{
+                                    extractedFileTV.setVisibility(View.VISIBLE);
+                                    extractedFileTV.setText(extractedFile.getName());
+                                });
+                                try (OutputStream outputStream = Files.newOutputStream(extractedFile.toPath())) {
+                                    while ((readLen = zipInputStream.read(readBuffer)) != -1) {
+                                        outputStream.write(readBuffer, 0, readLen);
+                                    }
                                 }
                             }
                         }
