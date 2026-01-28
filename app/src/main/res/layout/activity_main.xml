@@ -20,7 +20,8 @@
                 android:layout_height="wrap_content"
                 android:textSize="16sp"
                 android:textColor="@color/colorAccent"
-                android:text="@string/language" />
+                android:text="@string/language"
+                android:labelFor="@+id/spnrLanguage" />
 
             <Spinner
                 android:id="@+id/spnrLanguage"
@@ -48,13 +49,18 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:textSize="16sp"
-                android:layout_marginStart="8dp" />
+                android:layout_marginStart="8dp"
+                android:accessibilityLiveRegion="polite" />
         </LinearLayout>
 
         <LinearLayout
+            android:id="@+id/layout_mode_append"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:gravity="start">
+            android:gravity="start"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?android:attr/selectableItemBackground">
 
             <TextView
                 android:layout_width="wrap_content"
@@ -75,9 +81,13 @@
         </LinearLayout>
 
         <LinearLayout
+            android:id="@+id/layout_mode_translate"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:gravity="start">
+            android:gravity="start"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?android:attr/selectableItemBackground">
 
             <TextView
                 android:layout_width="wrap_content"
@@ -102,7 +112,10 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:visibility="gone"
-            android:gravity="start">
+            android:gravity="start"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?android:attr/selectableItemBackground">
 
             <TextView
                 android:layout_width="wrap_content"
@@ -127,7 +140,10 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:visibility="gone"
-            android:gravity="start">
+            android:gravity="start"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?android:attr/selectableItemBackground">
 
             <TextView
                 android:layout_width="wrap_content"
@@ -152,7 +168,8 @@
             android:layout_height="wrap_content"
             android:indeterminate="false"
             android:indeterminateTint="@color/colorAccent"
-            style="?android:attr/progressBarStyleHorizontal"/>
+            style="?android:attr/progressBarStyleHorizontal"
+            android:importantForAccessibility="no"/>
         <RelativeLayout
             android:layout_width="match_parent"
             android:layout_height="0dp"
