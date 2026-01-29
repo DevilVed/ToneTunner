@@ -20,6 +20,7 @@
                 android:layout_height="wrap_content"
                 android:textSize="16sp"
                 android:textColor="@color/colorAccent"
+                android:labelFor="@id/spnrLanguage"
                 android:text="@string/language" />
 
             <Spinner
@@ -48,12 +49,17 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:textSize="16sp"
-                android:layout_marginStart="8dp" />
+                android:layout_marginStart="8dp"
+                android:accessibilityLiveRegion="polite" />
         </LinearLayout>
 
         <LinearLayout
+            android:id="@+id/layout_mode_append"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?attr/selectableItemBackground"
             android:gravity="start">
 
             <TextView
@@ -62,6 +68,7 @@
                 android:gravity="center_vertical"
                 android:textSize="16sp"
                 android:textColor="@color/colorAccent"
+                android:labelFor="@id/mode_append"
                 android:text="@string/append" />
 
             <CheckBox
@@ -75,8 +82,12 @@
         </LinearLayout>
 
         <LinearLayout
+            android:id="@+id/layout_mode_translate"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?attr/selectableItemBackground"
             android:gravity="start">
 
             <TextView
@@ -85,6 +96,7 @@
                 android:gravity="center_vertical"
                 android:textSize="16sp"
                 android:textColor="@color/colorAccent"
+                android:labelFor="@id/mode_translate"
                 android:text="@string/translate" />
 
             <CheckBox
@@ -101,6 +113,9 @@
             android:id="@+id/layout_tts"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?attr/selectableItemBackground"
             android:visibility="gone"
             android:gravity="start">
 
@@ -110,6 +125,7 @@
                 android:gravity="center_vertical"
                 android:textSize="16sp"
                 android:textColor="@color/colorAccent"
+                android:labelFor="@id/mode_tts"
                 android:text="@string/text_to_speech" />
 
             <CheckBox
@@ -126,6 +142,9 @@
             android:id="@+id/layout_mode_chinese"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?attr/selectableItemBackground"
             android:visibility="gone"
             android:gravity="start">
 
@@ -135,6 +154,7 @@
                 android:gravity="center_vertical"
                 android:textSize="16sp"
                 android:textColor="@color/colorAccent"
+                android:labelFor="@id/mode_simple_chinese"
                 android:text="@string/simple_chinese" />
 
             <CheckBox
@@ -151,6 +171,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:indeterminate="false"
+            android:importantForAccessibility="no"
             android:indeterminateTint="@color/colorAccent"
             style="?android:attr/progressBarStyleHorizontal"/>
         <RelativeLayout
