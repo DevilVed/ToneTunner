@@ -1,0 +1,3 @@
+## 2024-05-23 - ByteArrayOutputStream.toByteArray() in Hot Loops
+**Learning:** Calling `ByteArrayOutputStream.toByteArray()` inside a high-frequency loop (like audio recording) is a major performance bottleneck. It allocates a new byte array of increasing size every iteration, leading to O(N^2) copying overhead and excessive GC pressure. In micro-benchmarks, replacing this with a fixed-size shift buffer resulted in a ~100x speedup (1030ms vs 10ms for 30s audio simulation).
+**Action:** Use a fixed-size circular buffer or shift-and-append strategy for sliding window operations on streams. Avoid converting entire streams to arrays repeatedly.

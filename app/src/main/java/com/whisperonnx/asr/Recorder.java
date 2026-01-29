@@ -195,17 +195,25 @@ public class Recorder {
             if (bytesRead > 0) {
                 outputBuffer.write(audioData, 0, bytesRead);  // Save all bytes read up to 30 seconds
                 totalBytesRead += bytesRead;
+
+                // ⚡ Bolt Optimization: Update VAD buffer incrementally
+                // Avoids outputBuffer.toByteArray() which is O(N) allocation inside loop
+                if (useVAD) {
+                    if (bytesRead >= VAD_FRAME_SIZE * 2) {
+                        System.arraycopy(audioData, bytesRead - VAD_FRAME_SIZE * 2, vadAudioBuffer, 0, VAD_FRAME_SIZE * 2);
+                    } else {
+                        System.arraycopy(vadAudioBuffer, bytesRead, vadAudioBuffer, 0, VAD_FRAME_SIZE * 2 - bytesRead);
+                        System.arraycopy(audioData, 0, vadAudioBuffer, VAD_FRAME_SIZE * 2 - bytesRead, bytesRead);
+                    }
+                }
             } else {
                 Log.d(TAG, "AudioRecord error, bytes read: " + bytesRead);
                 break;
             }
 
             if (useVAD){
-                byte[] outputBufferByteArray = outputBuffer.toByteArray();
-                if (outputBufferByteArray.length >= VAD_FRAME_SIZE * 2) {
-                    // Always use the last VAD_FRAME_SIZE * 2 bytes (16 bit) from outputBuffer for VAD
-                    System.arraycopy(outputBufferByteArray, outputBufferByteArray.length - VAD_FRAME_SIZE * 2, vadAudioBuffer, 0, VAD_FRAME_SIZE * 2);
-
+                // Only run VAD if we have accumulated enough data to fill one frame
+                if (totalBytesRead >= VAD_FRAME_SIZE * 2) {
                     isSpeech = vad.isSpeech(vadAudioBuffer);
                     if (isSpeech) {
                         if (!isRecording) {
