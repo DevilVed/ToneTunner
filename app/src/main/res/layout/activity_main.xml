@@ -52,9 +52,13 @@
         </LinearLayout>
 
         <LinearLayout
+            android:id="@+id/layout_mode_append"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:gravity="start">
+            android:gravity="start"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?attr/selectableItemBackground">
 
             <TextView
                 android:layout_width="wrap_content"
@@ -75,9 +79,13 @@
         </LinearLayout>
 
         <LinearLayout
+            android:id="@+id/layout_mode_translate"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:gravity="start">
+            android:gravity="start"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?attr/selectableItemBackground">
 
             <TextView
                 android:layout_width="wrap_content"
@@ -102,7 +110,10 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:visibility="gone"
-            android:gravity="start">
+            android:gravity="start"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?attr/selectableItemBackground">
 
             <TextView
                 android:layout_width="wrap_content"
@@ -127,7 +138,10 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:visibility="gone"
-            android:gravity="start">
+            android:gravity="start"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?attr/selectableItemBackground">
 
             <TextView
                 android:layout_width="wrap_content"
