@@ -48,13 +48,18 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:textSize="16sp"
-                android:layout_marginStart="8dp" />
+                android:layout_marginStart="8dp"
+                android:accessibilityLiveRegion="polite" />
         </LinearLayout>
 
         <LinearLayout
+            android:id="@+id/layout_mode_append"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:gravity="start">
+            android:gravity="start"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?attr/selectableItemBackground">
 
             <TextView
                 android:layout_width="wrap_content"
@@ -70,14 +75,20 @@
                 android:layout_height="wrap_content"
                 android:minWidth="0dp"
                 android:minHeight="0dp"
+                android:clickable="false"
+                android:focusable="false"
                 android:contentDescription="@string/append"/>
 
         </LinearLayout>
 
         <LinearLayout
+            android:id="@+id/layout_mode_translate"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:gravity="start">
+            android:gravity="start"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?attr/selectableItemBackground">
 
             <TextView
                 android:layout_width="wrap_content"
@@ -93,6 +104,8 @@
                 android:layout_height="wrap_content"
                 android:minWidth="0dp"
                 android:minHeight="0dp"
+                android:clickable="false"
+                android:focusable="false"
                 android:contentDescription="@string/translate"/>
 
         </LinearLayout>
@@ -102,7 +115,10 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:visibility="gone"
-            android:gravity="start">
+            android:gravity="start"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?attr/selectableItemBackground">
 
             <TextView
                 android:layout_width="wrap_content"
@@ -118,6 +134,8 @@
                 android:layout_height="wrap_content"
                 android:minWidth="0dp"
                 android:minHeight="0dp"
+                android:clickable="false"
+                android:focusable="false"
                 android:contentDescription="@string/text_to_speech"/>
 
         </LinearLayout>
@@ -127,7 +145,10 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:visibility="gone"
-            android:gravity="start">
+            android:gravity="start"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?attr/selectableItemBackground">
 
             <TextView
                 android:layout_width="wrap_content"
@@ -143,6 +164,8 @@
                 android:layout_height="wrap_content"
                 android:minWidth="0dp"
                 android:minHeight="0dp"
+                android:clickable="false"
+                android:focusable="false"
                 android:contentDescription="@string/simple_chinese"/>
 
         </LinearLayout>
@@ -152,6 +175,7 @@
             android:layout_height="wrap_content"
             android:indeterminate="false"
             android:indeterminateTint="@color/colorAccent"
+            android:importantForAccessibility="no"
             style="?android:attr/progressBarStyleHorizontal"/>
         <RelativeLayout
             android:layout_width="match_parent"
