@@ -30,6 +30,7 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
 public class SetupActivity extends AppCompatActivity {
+    private static final String TAG = "SetupActivity";
     ActivityResultLauncher<Intent> install;
     ProgressBar progressBar;
     TextView extractedFileTV;
@@ -74,65 +75,113 @@ public class SetupActivity extends AppCompatActivity {
     public void zipExtract(Context context, File targetDir, Uri zipFile) {
         progressBar.setVisibility(View.VISIBLE);
         progressBar.setIndeterminate(true);
+        startButton.setVisibility(View.GONE);
+
         Thread thread = new Thread(() -> {
             ZipEntry zipEntry;
             int readLen;
             byte[] readBuffer = new byte[4096];
+            boolean success = false;
+            String errorMessage = "";
+
             try {
                 InputStream src = context.getContentResolver().openInputStream(zipFile);
-                try {
-                    try (ZipInputStream zipInputStream = new ZipInputStream(src)) {
-                        // Pre-compute target directory canonical path for performance and security
-                        String canonicalTarget = targetDir.getCanonicalPath();
-                        if (!canonicalTarget.endsWith(File.separator)) {
-                            canonicalTarget += File.separator;
-                        }
+                if (src == null) {
+                    throw new IOException("Cannot open input stream for selected file");
+                }
 
-                        while ((zipEntry = zipInputStream.getNextEntry()) != null) {
-                            File extractedFile = new File(targetDir ,zipEntry.getName());
-
-                            // Zip Slip protection
-                            String canonicalPath = extractedFile.getCanonicalPath();
-                            if (!canonicalPath.startsWith(canonicalTarget)) {
-                                throw new SecurityException("Zip Slip vulnerability detected: " + canonicalPath);
-                            }
-
-                            if (zipEntry.isDirectory()) {
-                                if (!extractedFile.isDirectory() && !extractedFile.mkdirs()) {
-                                    throw new IOException("Failed to create directory " + extractedFile);
-                                }
-                                continue;
-                            }
-
-                            // Ensure parent directories exist
-                            File parent = extractedFile.getParentFile();
-                            if (parent != null && !parent.exists() && !parent.mkdirs()) {
-                                throw new IOException("Failed to create directory " + parent);
-                            }
-
-                            runOnUiThread(()->{
-                                extractedFileTV.setVisibility(View.VISIBLE);
-                                extractedFileTV.setText(extractedFile.getName());
-                            });
-                            try (OutputStream outputStream = Files.newOutputStream(extractedFile.toPath())) {
-                                while ((readLen = zipInputStream.read(readBuffer)) != -1) {
-                                    outputStream.write(readBuffer, 0, readLen);
-                                }
-                            }
-                        }
-                        runOnUiThread(()->{
-                            progressBar.setIndeterminate(false);
-                            progressBar.setVisibility(View.GONE);
-                            extractedFileTV.setVisibility(View.GONE);
-                            startButton.setVisibility(View.VISIBLE);
-                        });
+                try (ZipInputStream zipInputStream = new ZipInputStream(src)) {
+                    // Pre-compute target directory canonical path for performance and security
+                    String canonicalTarget = targetDir.getCanonicalPath();
+                    if (!canonicalTarget.endsWith(File.separator)) {
+                        canonicalTarget += File.separator;
                     }
-                } catch (IOException ioException) {
-                    ioException.printStackTrace();
+
+                    int fileCount = 0;
+                    long lastUiUpdateTime = 0;
+
+                    while ((zipEntry = zipInputStream.getNextEntry()) != null) {
+                        String entryName = zipEntry.getName();
+
+                        // Skip macOS metadata files and directories
+                        if (entryName.startsWith("__MACOSX") || entryName.startsWith("._") || zipEntry.isDirectory()) {
+                            zipInputStream.closeEntry();
+                            continue;
+                        }
+
+                        File extractedFile = new File(targetDir, entryName);
+
+                        // Zip Slip protection
+                        String canonicalPath = extractedFile.getCanonicalPath();
+                        if (!canonicalPath.startsWith(canonicalTarget)) {
+                            throw new SecurityException("Zip Slip vulnerability detected: " + canonicalPath);
+                        }
+
+                        // Ensure parent directories exist
+                        File parentDir = extractedFile.getParentFile();
+                        if (parentDir != null && !parentDir.exists() && !parentDir.mkdirs()) {
+                            throw new IOException("Failed to create directory " + parentDir);
+                        }
+
+                        // Throttle UI updates to every 100ms
+                        long currentTime = System.currentTimeMillis();
+                        if (currentTime - lastUiUpdateTime > 100) {
+                            final String fileName = extractedFile.getName();
+                            runOnUiThread(() -> {
+                                extractedFileTV.setVisibility(View.VISIBLE);
+                                extractedFileTV.setText(fileName);
+                            });
+                            lastUiUpdateTime = currentTime;
+                        }
+
+                        try (OutputStream outputStream = Files.newOutputStream(extractedFile.toPath())) {
+                            while ((readLen = zipInputStream.read(readBuffer)) != -1) {
+                                outputStream.write(readBuffer, 0, readLen);
+                            }
+                        }
+                        zipInputStream.closeEntry();
+                        fileCount++;
+                    }
+
+                    if (fileCount > 0) {
+                        success = true;
+                    } else {
+                        errorMessage = "No valid files found in ZIP";
+                    }
                 }
             } catch (FileNotFoundException e) {
-                e.printStackTrace();
+                Log.e(TAG, "File not found", e);
+                errorMessage = "Selected file not found";
+            } catch (IOException e) {
+                Log.e(TAG, "Error extracting ZIP", e);
+                errorMessage = "Extraction failed: " + e.getMessage();
+            } catch (SecurityException e) {
+                Log.e(TAG, "Security violation", e);
+                errorMessage = e.getMessage();
+            } catch (Exception e) {
+                Log.e(TAG, "Unexpected error", e);
+                errorMessage = "Unexpected error: " + e.getMessage();
             }
+
+            final boolean finalSuccess = success;
+            final String finalError = errorMessage;
+
+            runOnUiThread(() -> {
+                progressBar.setIndeterminate(false);
+                progressBar.setVisibility(View.GONE);
+                extractedFileTV.setVisibility(View.GONE);
+
+                if (finalSuccess) {
+                    startButton.setVisibility(View.VISIBLE);
+                    Toast.makeText(context, "Model installed successfully", Toast.LENGTH_SHORT).show();
+                } else {
+                    extractedFileTV.setVisibility(View.VISIBLE);
+                    extractedFileTV.setText(finalError);
+                    extractedFileTV.setTextColor(0xFFFF0000); // Red color for error
+                    startButton.setVisibility(View.GONE);
+                    Toast.makeText(context, finalError, Toast.LENGTH_LONG).show();
+                }
+            });
         });
         thread.start();
     }

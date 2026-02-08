@@ -65,7 +65,6 @@ public class Recorder {
         this.mListener = listener;
     }
 
-
     public void start() {
         if (!mInProgress.compareAndSet(false, true)) {
             Log.d(TAG, "Recording is already in progress...");
@@ -81,7 +80,7 @@ public class Recorder {
         }
     }
 
-    public void initVad(){
+    public void initVad() {
         vad = Vad.builder()
                 .setSampleRate(SampleRate.SAMPLE_RATE_16K)
                 .setFrameSize(FrameSize.FRAME_SIZE_480)
@@ -92,7 +91,6 @@ public class Recorder {
         useVAD = true;
         Log.d(TAG, "VAD initialized");
     }
-
 
     public void stop() {
         Log.d(TAG, "Recording stopped");
@@ -116,7 +114,6 @@ public class Recorder {
         if (mListener != null)
             mListener.onUpdateReceived(message);
     }
-
 
     private void recordLoop() {
         while (true) {
@@ -146,7 +143,8 @@ public class Recorder {
     }
 
     private void recordAudio() {
-        if (ActivityCompat.checkSelfPermission(mContext, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+        if (ActivityCompat.checkSelfPermission(mContext,
+                Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             Log.d(TAG, "AudioRecord permission is not granted");
             sendUpdate(mContext.getString(R.string.need_record_audio_permission));
             return;
@@ -160,7 +158,8 @@ public class Recorder {
         int audioSource = MediaRecorder.AudioSource.VOICE_RECOGNITION;
 
         int bufferSize = AudioRecord.getMinBufferSize(sampleRateInHz, channelConfig, audioFormat);
-        if (bufferSize < VAD_FRAME_SIZE * 2) bufferSize = VAD_FRAME_SIZE * 2;
+        if (bufferSize < VAD_FRAME_SIZE * 2)
+            bufferSize = VAD_FRAME_SIZE * 2;
 
         AudioManager audioManager = (AudioManager) mContext.getSystemService(Context.AUDIO_SERVICE);
         audioManager.startBluetoothSco();
@@ -178,8 +177,9 @@ public class Recorder {
         AudioRecord audioRecord = builder.build();
         audioRecord.startRecording();
 
-        // Calculate maximum byte counts for 30 seconds (for saving)
-        int bytesForThirtySeconds = sampleRateInHz * bytesPerSample * channels * 30;
+        // Calculate maximum byte counts for 90 seconds (for extended recording)
+        // Audio will be chunked into 30-second segments during processing
+        int bytesForNinetySeconds = sampleRateInHz * bytesPerSample * channels * 90;
 
         ByteArrayOutputStream outputBuffer = new ByteArrayOutputStream(); // Buffer for saving data RecordBuffer
 
@@ -188,23 +188,25 @@ public class Recorder {
 
         boolean isSpeech;
         boolean isRecording = false;
-        byte[] vadAudioBuffer = new byte[VAD_FRAME_SIZE * 2];  //VAD needs 16 bit
+        byte[] vadAudioBuffer = new byte[VAD_FRAME_SIZE * 2]; // VAD needs 16 bit
 
-        while (mInProgress.get() && totalBytesRead < bytesForThirtySeconds) {
+        while (mInProgress.get() && totalBytesRead < bytesForNinetySeconds) {
             int bytesRead = audioRecord.read(audioData, 0, VAD_FRAME_SIZE * 2);
             if (bytesRead > 0) {
-                outputBuffer.write(audioData, 0, bytesRead);  // Save all bytes read up to 30 seconds
+                outputBuffer.write(audioData, 0, bytesRead); // Save all bytes read up to 90 seconds
                 totalBytesRead += bytesRead;
             } else {
                 Log.d(TAG, "AudioRecord error, bytes read: " + bytesRead);
                 break;
             }
 
-            if (useVAD){
+            if (useVAD) {
                 byte[] outputBufferByteArray = outputBuffer.toByteArray();
                 if (outputBufferByteArray.length >= VAD_FRAME_SIZE * 2) {
-                    // Always use the last VAD_FRAME_SIZE * 2 bytes (16 bit) from outputBuffer for VAD
-                    System.arraycopy(outputBufferByteArray, outputBufferByteArray.length - VAD_FRAME_SIZE * 2, vadAudioBuffer, 0, VAD_FRAME_SIZE * 2);
+                    // Always use the last VAD_FRAME_SIZE * 2 bytes (16 bit) from outputBuffer for
+                    // VAD
+                    System.arraycopy(outputBufferByteArray, outputBufferByteArray.length - VAD_FRAME_SIZE * 2,
+                            vadAudioBuffer, 0, VAD_FRAME_SIZE * 2);
 
                     isSpeech = vad.isSpeech(vadAudioBuffer);
                     if (isSpeech) {
@@ -221,13 +223,14 @@ public class Recorder {
                     }
                 }
             } else {
-                if (!isRecording) sendUpdate(MSG_RECORDING);
+                if (!isRecording)
+                    sendUpdate(MSG_RECORDING);
                 isRecording = true;
             }
         }
         Log.d(TAG, "Total bytes recorded: " + totalBytesRead);
 
-        if (useVAD){
+        if (useVAD) {
             useVAD = false;
             vad.close();
             vad = null;
@@ -238,9 +241,9 @@ public class Recorder {
         audioManager.stopBluetoothSco();
         audioManager.setBluetoothScoOn(false);
 
-        // Save recorded audio data to BufferStore (up to 30 seconds)
+        // Save recorded audio data to BufferStore (up to 90 seconds)
         RecordBuffer.setOutputBuffer(outputBuffer.toByteArray());
-        if (totalBytesRead > 6400){  //min 0.2s
+        if (totalBytesRead > 6400) { // min 0.2s
             sendUpdate(MSG_RECORDING_DONE);
         } else {
             sendUpdate(MSG_RECORDING_ERROR);

@@ -13,7 +13,7 @@ android {
     
     defaultConfig {
         applicationId "org.DevilVed.whisperplus"
-        minSdk 28
+        minSdk 34
         targetSdk 35
         versionCode 14
         versionName "1.4"
@@ -64,9 +64,12 @@ dependencies {
     implementation 'com.github.gkonovalov.android-vad:webrtc:2.0.9'
     implementation 'com.github.houbb:opencc4j:1.8.1'
 
+    // FFT for audio feature extraction (Universal Whisper Engine)
+    implementation 'com.github.wendykierp:JTransforms:3.1'
+
     //ONNX Runtime
     implementation 'com.microsoft.onnxruntime:onnxruntime-android:1.19.0'  //latest.release
     implementation 'com.microsoft.onnxruntime:onnxruntime-extensions-android:0.12.4'   //latest.release
-    implementation 'com.github.DevilVed:FreeDroidWarn:+'
+    // FreeDroidWarn removed - GitHub repo unavailable (404)
 
 }

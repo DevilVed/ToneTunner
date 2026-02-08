@@ -1,6 +1,5 @@
 package com.whisperonnx;
 
-
 import static com.whisperonnx.voice_translation.neural_networks.voice.Recognizer.ACTION_TRANSCRIBE;
 import static com.whisperonnx.voice_translation.neural_networks.voice.Recognizer.ACTION_TRANSLATE;
 
@@ -69,8 +68,9 @@ public class WhisperInputMethodService extends InputMethodService {
 
     @Override
     public void onStartInput(EditorInfo attribute, boolean restarting) {
-        if (attribute.inputType ==  EditorInfo.TYPE_NULL) {
-            Log.d(TAG, "Cancelling: onStartInput: inputType=" + attribute.inputType + ", package=" + attribute.packageName + ", fieldId=" + attribute.fieldId);
+        if (attribute.inputType == EditorInfo.TYPE_NULL) {
+            Log.d(TAG, "Cancelling: onStartInput: inputType=" + attribute.inputType + ", package="
+                    + attribute.packageName + ", fieldId=" + attribute.fieldId);
             deinitModel();
             if (mRecorder != null && mRecorder.isInProgress()) {
                 mRecorder.stop();
@@ -79,16 +79,16 @@ public class WhisperInputMethodService extends InputMethodService {
     }
 
     @Override
-    public void onStartInputView(EditorInfo attribute, boolean restarting){
+    public void onStartInputView(EditorInfo attribute, boolean restarting) {
 
-        if (mWhisper == null)  initModel();
+        if (mWhisper == null)
+            initModel();
 
     }
 
-
     @SuppressLint("ClickableViewAccessibility")
     @Override
-    public View onCreateInputView() {  //runs before onStartInputView
+    public View onCreateInputView() { // runs before onStartInputView
         sp = PreferenceManager.getDefaultSharedPreferences(this);
         View view = getLayoutInflater().inflate(R.layout.voice_service, null);
         btnRecord = view.findViewById(R.id.btnRecord);
@@ -100,7 +100,7 @@ public class WhisperInputMethodService extends InputMethodService {
         processingBar = view.findViewById(R.id.processing_bar);
         tvStatus = view.findViewById(R.id.tv_status);
         btnTranslate.setImageResource(translate ? R.drawable.ic_english_on_36dp : R.drawable.ic_english_off_36dp);
-        modeAuto = sp.getBoolean("imeModeAuto",false);
+        modeAuto = sp.getBoolean("imeModeAuto", false);
         btnModeAuto.setImageResource(modeAuto ? R.drawable.ic_auto_on_36dp : R.drawable.ic_auto_off_36dp);
         layoutButtons = view.findViewById(R.id.layout_buttons);
         checkRecordPermission();
@@ -118,7 +118,9 @@ public class WhisperInputMethodService extends InputMethodService {
                     startTranscription();
                 } else if (message.equals(Recorder.MSG_RECORDING_ERROR)) {
                     HapticFeedback.vibrate(mContext);
-                    if (countDownTimer!=null) { countDownTimer.cancel();}
+                    if (countDownTimer != null) {
+                        countDownTimer.cancel();
+                    }
                     handler.post(() -> {
                         btnRecord.setBackgroundResource(R.drawable.rounded_button_background);
                         tvStatus.setText(getString(R.string.error_no_input));
@@ -135,13 +137,15 @@ public class WhisperInputMethodService extends InputMethodService {
             HapticFeedback.vibrate(this);
             startRecording();
             handler.post(() -> processingBar.setProgress(100));
-            countDownTimer = new CountDownTimer(30000, 1000) {
+            countDownTimer = new CountDownTimer(90000, 1000) {
                 @Override
                 public void onTick(long l) {
-                    handler.post(() -> processingBar.setProgress((int) (l / 300)));
+                    handler.post(() -> processingBar.setProgress((int) (l / 900)));
                 }
+
                 @Override
-                public void onFinish() {}
+                public void onFinish() {
+                }
             };
             countDownTimer.start();
             handler.post(() -> {
@@ -162,12 +166,14 @@ public class WhisperInputMethodService extends InputMethodService {
                     initialDeleteRunnable = new Runnable() {
                         @Override
                         public void run() {
-                            getCurrentInputConnection().sendKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DEL));
+                            getCurrentInputConnection()
+                                    .sendKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DEL));
                             // Start repeating every 100ms
                             repeatDeleteRunnable = new Runnable() {
                                 @Override
                                 public void run() {
-                                    getCurrentInputConnection().sendKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DEL));
+                                    getCurrentInputConnection()
+                                            .sendKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DEL));
                                     handler.postDelayed(this, 100);
                                 }
                             };
@@ -194,18 +200,20 @@ public class WhisperInputMethodService extends InputMethodService {
             if (event.getAction() == MotionEvent.ACTION_DOWN) {
                 // Pressed
                 handler.post(() -> btnRecord.setBackgroundResource(R.drawable.rounded_button_background_pressed));
-                if (checkRecordPermission()){
+                if (checkRecordPermission()) {
                     if (!mWhisper.isInProgress()) {
                         HapticFeedback.vibrate(this);
                         startRecording();
                         handler.post(() -> processingBar.setProgress(100));
-                        countDownTimer = new CountDownTimer(30000, 1000) {
+                        countDownTimer = new CountDownTimer(90000, 1000) {
                             @Override
                             public void onTick(long l) {
-                                handler.post(() -> processingBar.setProgress((int) (l / 300)));
+                                handler.post(() -> processingBar.setProgress((int) (l / 900)));
                             }
+
                             @Override
-                            public void onFinish() {}
+                            public void onFinish() {
+                            }
                         };
                         countDownTimer.start();
                         handler.post(() -> {
@@ -230,7 +238,8 @@ public class WhisperInputMethodService extends InputMethodService {
         });
 
         btnKeyboard.setOnClickListener(v -> {
-            if (mWhisper != null) stopTranscription();
+            if (mWhisper != null)
+                stopTranscription();
             switchToPreviousInputMethod();
         });
 
@@ -256,7 +265,8 @@ public class WhisperInputMethodService extends InputMethodService {
     }
 
     private void startRecording() {
-        if (modeAuto) mRecorder.initVad();
+        if (modeAuto)
+            mRecorder.initVad();
         mRecorder.start();
     }
 
@@ -271,6 +281,11 @@ public class WhisperInputMethodService extends InputMethodService {
             }
 
             @Override
+            public void onError(String error) {
+                Log.e(TAG, "Whisper error: " + error);
+            }
+
+            @Override
             public void onResultReceived(WhisperResult whisperResult) {
                 handler.post(() -> processingBar.setIndeterminate(false));
                 handler.post(() -> {
@@ -279,27 +294,36 @@ public class WhisperInputMethodService extends InputMethodService {
                 });
 
                 String result = whisperResult.getResult();
-                if (whisperResult.getLanguage().equals("zh")){
-                    boolean simpleChinese = sp.getBoolean("simpleChinese",false);
+                if (whisperResult.getLanguage().equals("zh")) {
+                    boolean simpleChinese = sp.getBoolean("simpleChinese", false);
                     result = simpleChinese ? ZhConverterUtil.toSimple(result) : ZhConverterUtil.toTraditional(result);
                 }
                 boolean commitSuccess = false;
-                if (result.trim().length() > 0) commitSuccess = getCurrentInputConnection().commitText(result.trim() + " ",1);
-                if (modeAuto && commitSuccess) handler.postDelayed(() -> switchToPreviousInputMethod(), 100);  //slightly delayed, otherwise some apps, e.g. WhatsApp, do not accept the committed text (commitText on inactive InputConnection)
+                if (result.trim().length() > 0)
+                    commitSuccess = getCurrentInputConnection().commitText(result.trim() + " ", 1);
+                if (modeAuto && commitSuccess)
+                    handler.postDelayed(() -> switchToPreviousInputMethod(), 100); // slightly delayed, otherwise some
+                                                                                   // apps, e.g. WhatsApp, do not accept
+                                                                                   // the committed text (commitText on
+                                                                                   // inactive InputConnection)
             }
         });
     }
 
     private void startTranscription() {
-        if (countDownTimer!=null) { countDownTimer.cancel();}
+        if (countDownTimer != null) {
+            countDownTimer.cancel();
+        }
         handler.post(() -> processingBar.setProgress(0));
         handler.post(() -> processingBar.setIndeterminate(true));
-        if (mWhisper!=null){
-            if (translate) mWhisper.setAction(ACTION_TRANSLATE);
-            else mWhisper.setAction(ACTION_TRANSCRIBE);
+        if (mWhisper != null) {
+            if (translate)
+                mWhisper.setAction(ACTION_TRANSLATE);
+            else
+                mWhisper.setAction(ACTION_TRANSCRIBE);
 
             String langCode = sp.getString("language", "auto");
-            Log.d("WhisperIME","default langCode " + langCode);
+            Log.d("WhisperIME", "default langCode " + langCode);
             mWhisper.setLanguage(langCode);
             mWhisper.start();
         }

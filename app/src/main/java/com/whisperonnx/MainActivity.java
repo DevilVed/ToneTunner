@@ -47,8 +47,6 @@ import com.whisperonnx.utils.LanguagePairAdapter;
 import com.whisperonnx.utils.ThemeUtils;
 import com.whisperonnx.voice_translation.neural_networks.voice.Recognizer;
 
-import org.DevilVed.freeDroidWarn.FreeDroidWarn;
-
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -183,10 +181,10 @@ public class MainActivity extends AppCompatActivity {
                     HapticFeedback.vibrate(this);
                     startRecording();
                     runOnUiThread(() -> processingBar.setProgress(100));
-                    countDownTimer = new CountDownTimer(30000, 1000) {
+                    countDownTimer = new CountDownTimer(90000, 1000) {
                         @Override
                         public void onTick(long l) {
-                            runOnUiThread(() -> processingBar.setProgress((int) (l / 300)));
+                            runOnUiThread(() -> processingBar.setProgress((int) (l / 900)));
                         }
 
                         @Override
@@ -264,7 +262,7 @@ public class MainActivity extends AppCompatActivity {
             }
 
         });
-        FreeDroidWarn.showWarningOnUpgrade(this, BuildConfig.VERSION_CODE);
+        // FreeDroidWarn removed - repo unavailable
         if (GithubStar.shouldShowStarDialog(this))
             GithubStar.starDialog(this, "https://github.com/DevilVed/whisperIMEplus");
         // Assume this Activity is the current activity, check record permission
@@ -303,6 +301,12 @@ public class MainActivity extends AppCompatActivity {
                     runOnUiThread(() -> tvStatus.setText(getString(R.string.processing)));
                     startTime = System.currentTimeMillis();
                 }
+            }
+
+            @Override
+            public void onError(String error) {
+                Log.e(TAG, "Whisper error: " + error);
+                runOnUiThread(() -> tvStatus.setText("Error: " + error));
             }
 
             @Override

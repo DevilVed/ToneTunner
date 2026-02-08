@@ -53,13 +53,13 @@ public class WhisperRecognizeActivity extends AppCompatActivity {
 
         String targetLang = getIntent().getStringExtra(RecognizerIntent.EXTRA_LANGUAGE);
         String langCode = sp.getString("language", "auto");
-        Log.d("WhisperRecognition","default langCode " + langCode);
+        Log.d("WhisperRecognition", "default langCode " + langCode);
 
         if (targetLang != null) {
-            Log.d("WhisperRecognition","StartListening in " + targetLang);
-            langCode = targetLang.split("[-_]")[0].toLowerCase();  //support both de_DE and de-DE
+            Log.d("WhisperRecognition", "StartListening in " + targetLang);
+            langCode = targetLang.split("[-_]")[0].toLowerCase(); // support both de_DE and de-DE
         } else {
-            Log.d("WhisperRecognition","StartListening, no language specified");
+            Log.d("WhisperRecognition", "StartListening, no language specified");
         }
 
         initModel(langCode);
@@ -69,7 +69,7 @@ public class WhisperRecognizeActivity extends AppCompatActivity {
         // Set the window layout parameters
         WindowManager.LayoutParams params = getWindow().getAttributes();
         params.width = WindowManager.LayoutParams.MATCH_PARENT;
-        params.height =  WindowManager.LayoutParams.WRAP_CONTENT;
+        params.height = WindowManager.LayoutParams.WRAP_CONTENT;
         params.gravity = Gravity.BOTTOM; // Position at the bottom of the screen
 
         btnCancel = findViewById(R.id.btnCancel);
@@ -77,7 +77,7 @@ public class WhisperRecognizeActivity extends AppCompatActivity {
         btnModeAuto = findViewById(R.id.btnModeAuto);
         processingBar = findViewById(R.id.processing_bar);
 
-        modeAuto = sp.getBoolean("imeModeAuto",false);
+        modeAuto = sp.getBoolean("imeModeAuto", false);
         btnModeAuto.setImageResource(modeAuto ? R.drawable.ic_auto_on_36dp : R.drawable.ic_auto_off_36dp);
 
         // Audio recording functionality
@@ -93,11 +93,13 @@ public class WhisperRecognizeActivity extends AppCompatActivity {
                     startTranscription();
                 } else if (message.equals(Recorder.MSG_RECORDING_ERROR)) {
                     HapticFeedback.vibrate(mContext);
-                    if (countDownTimer!=null) { countDownTimer.cancel();}
+                    if (countDownTimer != null) {
+                        countDownTimer.cancel();
+                    }
                     runOnUiThread(() -> {
                         btnRecord.setBackgroundResource(R.drawable.rounded_button_background);
                         processingBar.setProgress(0);
-                        Toast.makeText(mContext,R.string.error_no_input,Toast.LENGTH_SHORT).show();
+                        Toast.makeText(mContext, R.string.error_no_input, Toast.LENGTH_SHORT).show();
                     });
                 }
             }
@@ -109,13 +111,15 @@ public class WhisperRecognizeActivity extends AppCompatActivity {
             HapticFeedback.vibrate(this);
             startRecording();
             runOnUiThread(() -> processingBar.setProgress(100));
-            countDownTimer = new CountDownTimer(30000, 1000) {
+            countDownTimer = new CountDownTimer(90000, 1000) {
                 @Override
                 public void onTick(long l) {
-                    runOnUiThread(() -> processingBar.setProgress((int) (l / 300)));
+                    runOnUiThread(() -> processingBar.setProgress((int) (l / 900)));
                 }
+
                 @Override
-                public void onFinish() {}
+                public void onFinish() {
+                }
             };
             countDownTimer.start();
         }
@@ -127,7 +131,8 @@ public class WhisperRecognizeActivity extends AppCompatActivity {
             editor.apply();
             btnRecord.setVisibility(modeAuto ? View.GONE : View.VISIBLE);
             btnModeAuto.setImageResource(modeAuto ? R.drawable.ic_auto_on_36dp : R.drawable.ic_auto_off_36dp);
-            if (mWhisper != null) stopTranscription();
+            if (mWhisper != null)
+                stopTranscription();
             setResult(RESULT_CANCELED, null);
             finish();
         });
@@ -136,22 +141,25 @@ public class WhisperRecognizeActivity extends AppCompatActivity {
             if (event.getAction() == MotionEvent.ACTION_DOWN) {
                 // Pressed
                 runOnUiThread(() -> btnRecord.setBackgroundResource(R.drawable.rounded_button_background_pressed));
-                if (checkRecordPermission()){
+                if (checkRecordPermission()) {
                     if (!mWhisper.isInProgress()) {
                         HapticFeedback.vibrate(this);
                         startRecording();
                         runOnUiThread(() -> processingBar.setProgress(100));
-                        countDownTimer = new CountDownTimer(30000, 1000) {
+                        countDownTimer = new CountDownTimer(90000, 1000) {
                             @Override
                             public void onTick(long l) {
-                                runOnUiThread(() -> processingBar.setProgress((int) (l / 300)));
+                                runOnUiThread(() -> processingBar.setProgress((int) (l / 900)));
                             }
+
                             @Override
-                            public void onFinish() {}
+                            public void onFinish() {
+                            }
                         };
                         countDownTimer.start();
                     } else {
-                        runOnUiThread(() -> Toast.makeText(this, getString(R.string.please_wait),Toast.LENGTH_SHORT).show());
+                        runOnUiThread(
+                                () -> Toast.makeText(this, getString(R.string.please_wait), Toast.LENGTH_SHORT).show());
                     }
                 }
             } else if (event.getAction() == MotionEvent.ACTION_UP) {
@@ -165,14 +173,17 @@ public class WhisperRecognizeActivity extends AppCompatActivity {
         });
 
         btnCancel.setOnClickListener(v -> {
-            if (mWhisper != null) stopTranscription();
+            if (mWhisper != null)
+                stopTranscription();
             setResult(RESULT_CANCELED, null);
             finish();
         });
 
     }
+
     private void startRecording() {
-        if (modeAuto) mRecorder.initVad();
+        if (modeAuto)
+            mRecorder.initVad();
         mRecorder.start();
     }
 
@@ -185,18 +196,24 @@ public class WhisperRecognizeActivity extends AppCompatActivity {
         Log.d(TAG, "Language code " + langCode);
         mWhisper.setListener(new Whisper.WhisperListener() {
             @Override
-            public void onUpdateReceived(String message) { }
+            public void onUpdateReceived(String message) {
+            }
+
+            @Override
+            public void onError(String error) {
+                Log.e(TAG, "Whisper error: " + error);
+            }
 
             @Override
             public void onResultReceived(WhisperResult whisperResult) {
                 runOnUiThread(() -> processingBar.setIndeterminate(false));
 
                 String result = whisperResult.getResult();
-                if (whisperResult.getLanguage().equals("zh")){
-                    boolean simpleChinese = sp.getBoolean("simpleChinese",false);
+                if (whisperResult.getLanguage().equals("zh")) {
+                    boolean simpleChinese = sp.getBoolean("simpleChinese", false);
                     result = simpleChinese ? ZhConverterUtil.toSimple(result) : ZhConverterUtil.toTraditional(result);
                 }
-                if (result.trim().length() > 0){
+                if (result.trim().length() > 0) {
                     sendResult(result.trim());
                 }
             }
@@ -208,21 +225,23 @@ public class WhisperRecognizeActivity extends AppCompatActivity {
         ArrayList<String> results = new ArrayList<>();
         results.add(result);
         sendResultIntent.putStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS, results);
-        sendResultIntent.putExtra(RecognizerIntent.EXTRA_CONFIDENCE_SCORES, new float[]{1.0f});
+        sendResultIntent.putExtra(RecognizerIntent.EXTRA_CONFIDENCE_SCORES, new float[] { 1.0f });
         setResult(RESULT_OK, sendResultIntent);
         finish();
     }
 
     private void startTranscription() {
-        if (countDownTimer!=null) { countDownTimer.cancel();}
+        if (countDownTimer != null) {
+            countDownTimer.cancel();
+        }
         runOnUiThread(() -> {
             processingBar.setProgress(0);
             processingBar.setIndeterminate(true);
         });
-        if (mWhisper!=null){
+        if (mWhisper != null) {
             mWhisper.setAction(ACTION_TRANSCRIBE);
             mWhisper.start();
-            Log.d(TAG,"Start Transcription");
+            Log.d(TAG, "Start Transcription");
         }
     }
 
@@ -234,7 +253,7 @@ public class WhisperRecognizeActivity extends AppCompatActivity {
     private boolean checkRecordPermission() {
         int permission = ContextCompat.checkSelfPermission(this, android.Manifest.permission.RECORD_AUDIO);
         if (permission != PackageManager.PERMISSION_GRANTED) {
-            Toast.makeText(this, getString(R.string.need_record_audio_permission),Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.need_record_audio_permission), Toast.LENGTH_SHORT).show();
         }
         return (permission == PackageManager.PERMISSION_GRANTED);
     }

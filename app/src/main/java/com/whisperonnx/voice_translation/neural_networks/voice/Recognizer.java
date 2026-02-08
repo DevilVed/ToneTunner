@@ -37,10 +37,15 @@ import ai.onnxruntime.OrtException;
 import ai.onnxruntime.OrtSession;
 import ai.onnxruntime.extensions.OrtxPackage;
 
+import com.whisperonnx.asr.AudioFeatureExtractor;
+import com.whisperonnx.asr.BPETokenizer;
+import com.whisperonnx.asr.ModelConfig;
 
 public class Recognizer extends NeuralNetworkApi {
+    private static final String TAG = "Recognizer";
     private static final int MAX_TOKENS_PER_SECOND = 30;
-    private static final int MAX_TOKENS = 445;   //if we generate more than this quantity of tokens for a transcription we have an error
+    private static final int MAX_TOKENS = 445; // if we generate more than this quantity of tokens for a transcription
+                                               // we have an error
     public static final String UNDEFINED_TEXT = "[(und)]";
     private ArrayList<RecognizerListener> callbacks = new ArrayList<>();
     private ArrayList<RecognizerMultiListener> multiCallbacks = new ArrayList<>();
@@ -158,10 +163,25 @@ public class Recognizer extends NeuralNetworkApi {
             "yue"
     };
 
-    private final int START_TOKEN_ID = 50258;
-    private final int TRANSLATE_TOKEN_ID = 50358;
-    private final int TRANSCRIBE_TOKEN_ID = 50359;
-    private final int NO_TIMESTAMPS_TOKEN_ID = 50363;
+    // Dynamic token IDs - loaded from ModelConfig
+    private int START_TOKEN_ID = 50258;
+    private int TRANSLATE_TOKEN_ID = 50358;
+    private int TRANSCRIBE_TOKEN_ID = 50359;
+    private int NO_TIMESTAMPS_TOKEN_ID = 50363;
+    private int EOS_TOKEN_ID = 50257;
+
+    // Dynamic model parameters
+    private int numLayers = 12; // Small: 12, Large V3: 32
+    private int numHeads = 12; // Small: 12, Large V3: 20
+    private int headDim = 64; // d_model / num_heads
+    private int numMelBins = 80; // Small: 80, Large V3: 128
+    private boolean hasInitializerOnnx = true;
+    private boolean hasCacheInitializerOnnx = true;
+    private boolean hasDetokenizerOnnx = true;
+    private boolean isFp16 = false;
+    private ModelConfig modelConfig = null;
+    private AudioFeatureExtractor audioFeatureExtractor = null;
+    private BPETokenizer bpeTokenizer = null;
 
     private OrtSession session;
     private OrtSession initSession;
@@ -172,16 +192,18 @@ public class Recognizer extends NeuralNetworkApi {
     private OrtSession detokenizerSession;
     private OrtEnvironment onnxEnv;
 
-
-    public Recognizer(Context context, final boolean returnResultOnlyAtTheEnd, final NeuralNetworkApi.InitListener initListener) {
-        //onnxEnv = OrtEnvironment.getEnvironment(OrtLoggingLevel.ORT_LOGGING_LEVEL_VERBOSE);
+    public Recognizer(Context context, final boolean returnResultOnlyAtTheEnd,
+            final NeuralNetworkApi.InitListener initListener) {
+        // onnxEnv =
+        // OrtEnvironment.getEnvironment(OrtLoggingLevel.ORT_LOGGING_LEVEL_VERBOSE);
         onnxEnv = OrtEnvironment.getEnvironment();
 
         String modelInitPath = context.getExternalFilesDir(null).getPath() + "/Whisper_initializer.onnx";
         String encoderPath = context.getExternalFilesDir(null).getPath() + "/Whisper_encoder.onnx";
         String decoderPath = context.getExternalFilesDir(null).getPath() + "/Whisper_decoder.onnx";
         String cacheInitPath = context.getExternalFilesDir(null).getPath() + "/Whisper_cache_initializer.onnx";
-        String cacheInitBatchPath = context.getExternalFilesDir(null).getPath() + "/Whisper_cache_initializer_batch.onnx";
+        String cacheInitBatchPath = context.getExternalFilesDir(null).getPath()
+                + "/Whisper_cache_initializer_batch.onnx";
         String detokenizerPath = context.getExternalFilesDir(null).getPath() + "/Whisper_detokenizer.onnx";
 
         new Thread(new Runnable() {
@@ -203,10 +225,10 @@ public class Recognizer extends NeuralNetworkApi {
                     actManager.getMemoryInfo(memInfo);
                     long totalMemory = memInfo.totalMem / 1000000L;
 
-                    if(totalMemory <= 7000){
+                    if (totalMemory <= 7000) {
                         encoderSessionOptions.setCPUArenaAllocator(false);
                         encoderSessionOptions.setMemoryPatternOptimization(false);
-                    }else {
+                    } else {
                         encoderSessionOptions.setCPUArenaAllocator(true);
                         encoderSessionOptions.setMemoryPatternOptimization(true);
                     }
@@ -233,31 +255,164 @@ public class Recognizer extends NeuralNetworkApi {
                     detokenizerSessionOptions.registerCustomOpLibrary(OrtxPackage.getLibraryPath());
                     detokenizerSessionOptions.setCPUArenaAllocator(false);
                     detokenizerSessionOptions.setMemoryPatternOptimization(false);
-                    //detokenizerSessionOptions.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.NO_OPT);
+                    // detokenizerSessionOptions.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.NO_OPT);
                     detokenizerSession = onnxEnv.createSession(detokenizerPath, detokenizerSessionOptions);
 
                     initListener.onInitializationFinished();
                 } catch (OrtException e) {
                     e.printStackTrace();
-                    initListener.onError(new int[]{ErrorCodes.ERROR_LOADING_MODEL},0);
+                    initListener.onError(new int[] { ErrorCodes.ERROR_LOADING_MODEL }, 0);
                 }
             }
         }).start();
     }
 
     /**
-     * Recognizes the speech audio. This method should be called every time a chunk of byte buffer
+     * Constructor with ModelConfig for Universal Whisper Engine.
+     * Supports both Small (with helper ONNX) and Large V3 (with native Java
+     * processing).
+     */
+    public Recognizer(Context context, ModelConfig config, final NeuralNetworkApi.InitListener initListener) {
+        this.modelConfig = config;
+        onnxEnv = OrtEnvironment.getEnvironment();
+
+        // Load dynamic parameters from ModelConfig
+        this.START_TOKEN_ID = config.getStartTokenId();
+        this.TRANSLATE_TOKEN_ID = config.getTranslateTokenId();
+        this.TRANSCRIBE_TOKEN_ID = config.getTranscribeTokenId();
+        this.NO_TIMESTAMPS_TOKEN_ID = config.getNoTimestampsTokenId();
+        this.EOS_TOKEN_ID = config.getEosTokenId();
+        this.numLayers = config.getNumLayers();
+        this.numHeads = config.getNumHeads();
+        this.headDim = config.getDModel() / config.getNumHeads();
+        this.numMelBins = config.getNumMelBins();
+        this.hasInitializerOnnx = config.hasInitializerOnnx();
+        this.hasCacheInitializerOnnx = config.hasCacheInitializerOnnx();
+        this.hasDetokenizerOnnx = config.hasDetokenizerOnnx();
+        this.isFp16 = config.isFp16();
+
+        String modelPath = config.getModelPath();
+
+        // Determine ONNX file paths based on model type
+        String encoderPath, decoderPath;
+        if (config.getModelType() == ModelConfig.ModelType.SMALL_INT8) {
+            encoderPath = modelPath + "/Whisper_encoder.onnx";
+            decoderPath = modelPath + "/Whisper_decoder.onnx";
+        } else {
+            // Large models use different naming
+            encoderPath = modelPath + "/encoder_model.onnx";
+            decoderPath = new java.io.File(modelPath + "/decoder_model_merged.onnx").exists()
+                    ? modelPath + "/decoder_model_merged.onnx"
+                    : modelPath + "/decoder_model.onnx";
+        }
+
+        final String finalEncoderPath = encoderPath;
+        final String finalDecoderPath = decoderPath;
+
+        new Thread(() -> {
+            try {
+                // Initialize AudioFeatureExtractor for models without initializer ONNX
+                if (!hasInitializerOnnx) {
+                    audioFeatureExtractor = new AudioFeatureExtractor(numMelBins);
+                    Log.d("Recognizer", "Initialized native AudioFeatureExtractor for " + numMelBins + " mels");
+                } else {
+                    // Load initializer ONNX for Small model
+                    String modelInitPath = modelPath + "/Whisper_initializer.onnx";
+                    OrtSession.SessionOptions initSessionOptions = new OrtSession.SessionOptions();
+                    initSessionOptions.registerCustomOpLibrary(OrtxPackage.getLibraryPath());
+                    initSessionOptions.setCPUArenaAllocator(false);
+                    initSessionOptions.setMemoryPatternOptimization(false);
+                    initSessionOptions.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.NO_OPT);
+                    initSession = onnxEnv.createSession(modelInitPath, initSessionOptions);
+                }
+
+                // Initialize BPE tokenizer for models without detokenizer ONNX
+                if (!hasDetokenizerOnnx) {
+                    String vocabPath = modelPath + "/vocab.json";
+                    if (new java.io.File(vocabPath).exists()) {
+                        bpeTokenizer = new BPETokenizer(vocabPath, config);
+                        Log.d("Recognizer", "Initialized native BPETokenizer");
+                    }
+                } else {
+                    String detokenizerPath = modelPath + "/Whisper_detokenizer.onnx";
+                    OrtSession.SessionOptions detokenizerSessionOptions = new OrtSession.SessionOptions();
+                    detokenizerSessionOptions.registerCustomOpLibrary(OrtxPackage.getLibraryPath());
+                    detokenizerSessionOptions.setCPUArenaAllocator(false);
+                    detokenizerSessionOptions.setMemoryPatternOptimization(false);
+                    detokenizerSession = onnxEnv.createSession(detokenizerPath, detokenizerSessionOptions);
+                }
+
+                // Load encoder
+                OrtSession.SessionOptions encoderSessionOptions = new OrtSession.SessionOptions();
+                encoderSessionOptions.registerCustomOpLibrary(OrtxPackage.getLibraryPath());
+
+                ActivityManager actManager = (ActivityManager) context.getSystemService(Context.ACTIVITY_SERVICE);
+                ActivityManager.MemoryInfo memInfo = new ActivityManager.MemoryInfo();
+                actManager.getMemoryInfo(memInfo);
+                long totalMemory = memInfo.totalMem / 1000000L;
+
+                if (totalMemory <= 7000) {
+                    encoderSessionOptions.setCPUArenaAllocator(false);
+                    encoderSessionOptions.setMemoryPatternOptimization(false);
+                } else {
+                    encoderSessionOptions.setCPUArenaAllocator(true);
+                    encoderSessionOptions.setMemoryPatternOptimization(true);
+                }
+                encoderSessionOptions.setSymbolicDimensionValue("batch_size", 1);
+                encoderSessionOptions.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.NO_OPT);
+                encoderSession = onnxEnv.createSession(finalEncoderPath, encoderSessionOptions);
+
+                // Load cache initializer if available
+                if (hasCacheInitializerOnnx) {
+                    String cacheInitPath = modelPath + "/Whisper_cache_initializer.onnx";
+                    String cacheInitBatchPath = modelPath + "/Whisper_cache_initializer_batch.onnx";
+                    OrtSession.SessionOptions cacheSessionOptions = new OrtSession.SessionOptions();
+                    cacheSessionOptions.registerCustomOpLibrary(OrtxPackage.getLibraryPath());
+                    cacheSessionOptions.setCPUArenaAllocator(false);
+                    cacheSessionOptions.setMemoryPatternOptimization(false);
+                    cacheSessionOptions.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.NO_OPT);
+                    cacheInitSession = onnxEnv.createSession(cacheInitPath, cacheSessionOptions);
+                    if (new java.io.File(cacheInitBatchPath).exists()) {
+                        cacheInitBatchSession = onnxEnv.createSession(cacheInitBatchPath, cacheSessionOptions);
+                    }
+                }
+
+                // Load decoder
+                OrtSession.SessionOptions decoderSessionOptions = new OrtSession.SessionOptions();
+                decoderSessionOptions.registerCustomOpLibrary(OrtxPackage.getLibraryPath());
+                decoderSessionOptions.setCPUArenaAllocator(false);
+                decoderSessionOptions.setMemoryPatternOptimization(false);
+                decoderSessionOptions.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.NO_OPT);
+                decoderSession = onnxEnv.createSession(finalDecoderPath, decoderSessionOptions);
+
+                Log.d("Recognizer", "Model loaded: " + config.getModelName() +
+                        " (layers=" + numLayers + ", heads=" + numHeads + ", mels=" + numMelBins + ")");
+
+                initListener.onInitializationFinished();
+            } catch (OrtException e) {
+                e.printStackTrace();
+                initListener.onError(new int[] { ErrorCodes.ERROR_LOADING_MODEL }, 0);
+            } catch (Exception e) {
+                e.printStackTrace();
+                initListener.onError(new int[] { ErrorCodes.ERROR_LOADING_MODEL }, 0);
+            }
+        }).start();
+    }
+
+    /**
+     * Recognizes the speech audio. This method should be called every time a chunk
+     * of byte buffer
      * is returned from onVoice.
      *
      * @param data The audio data.
      */
     public void recognize(final float[] data, int beamSize, final String languageCode, final Action action) {
-        new Thread("recognizer"){
+        new Thread("recognizer") {
             @Override
             public void run() {
                 super.run();
                 synchronized (lock) {
-                    Log.e("recognizer","recognizingCalled");
+                    Log.e("recognizer", "recognizingCalled");
                     if (data != null) {
                         dataToRecognize.addLast(new DataContainer(data, beamSize, languageCode, action));
                         if (dataToRecognize.size() >= 1 && !recognizing) {
@@ -270,12 +425,12 @@ public class Recognizer extends NeuralNetworkApi {
     }
 
     public void recognize(final float[] data, int beamSize, final String languageCode1, final String languageCode2) {
-        new Thread("recognizer"){
+        new Thread("recognizer") {
             @Override
             public void run() {
                 super.run();
                 synchronized (lock) {
-                    Log.e("recognizer","recognizingCalled");
+                    Log.e("recognizer", "recognizingCalled");
                     if (data != null) {
                         dataToRecognize.addLast(new DataContainer(data, beamSize, languageCode1, languageCode2));
                         if (dataToRecognize.size() >= 1 && !recognizing) {
@@ -290,38 +445,58 @@ public class Recognizer extends NeuralNetworkApi {
     private void recognize() {
         recognizing = true;
         DataContainer data = dataToRecognize.pollFirst();
-        if (initSession != null && encoderSession != null && cacheInitSession != null && decoderSession != null && detokenizerSession != null) {
+        // Check if we have the required sessions FOR THE APPROPRIATE MODEL TYPE
+        // Small model: needs initSession, cacheInitSession, detokenizerSession
+        // Large V3 model: needs encoderSession, decoderSession, bpeTokenizer (for detokenization)
+        boolean hasRequiredSessions = false;
+        if (modelConfig != null && !modelConfig.hasCacheInitializerOnnx()) {
+            // Large V3 model - needs encoder, decoder, and detokenizer (either ONNX or native BPE)
+            boolean hasDetokenizer = (detokenizerSession != null) || (bpeTokenizer != null);
+            hasRequiredSessions = (encoderSession != null) && (decoderSession != null) && hasDetokenizer;
+        } else {
+            // Small INT8 model - needs all helper sessions
+            hasRequiredSessions = (initSession != null) && (encoderSession != null) && 
+                                  (cacheInitSession != null) && (decoderSession != null) && 
+                                  (detokenizerSession != null);
+        }
+        
+        if (hasRequiredSessions) {
             if (data != null) {
-                //we convert data in un audioTensor and start the transcription
+                // we convert data in un audioTensor and start the transcription
                 try {
                     FloatBuffer floatAudioDataBuffer = FloatBuffer.wrap(data.data);
-                    OnnxTensor audioTensor = OnnxTensor.createTensor(onnxEnv, floatAudioDataBuffer, TensorUtils.tensorShape(1L, (long) data.data.length));
+                    OnnxTensor audioTensor = OnnxTensor.createTensor(onnxEnv, floatAudioDataBuffer,
+                            TensorUtils.tensorShape(1L, (long) data.data.length));
 
-                    // if we generate more than this number of tokens it means that we have an infinite loop due to the fact that the sound cannot be transcribed with the language selected
+                    // if we generate more than this number of tokens it means that we have an
+                    // infinite loop due to the fact that the sound cannot be transcribed with the
+                    // language selected
                     int maxTokens = (data.data.length / 16000) * MAX_TOKENS_PER_SECOND;
-                    if(maxTokens > MAX_TOKENS){
+                    if (maxTokens > MAX_TOKENS) {
                         maxTokens = MAX_TOKENS;
                     }
                     boolean execution1HitMaxLength = false;
                     boolean execution2HitMaxLength = false;
 
-                    //execution of pre ops
+                    // execution of pre ops
                     long time = System.currentTimeMillis();
                     long startTimeInMs = SystemClock.elapsedRealtime();
                     Map initInputs = (Map) (new LinkedHashMap());
                     initInputs.put("audio_pcm", audioTensor);
                     OrtSession.Result outputsInit = initSession.run(initInputs);
                     OnnxTensor outputInit = (OnnxTensor) outputsInit.get(0);
-                    //Log.i("performance", "pre ops done in: " + (System.currentTimeMillis()-time) + "ms");
+                    // Log.i("performance", "pre ops done in: " + (System.currentTimeMillis()-time)
+                    // + "ms");
 
-                    //execution of the encoder
+                    // execution of the encoder
                     Map inputs = (Map) (new LinkedHashMap());
                     inputs.put("input_features", outputInit);
                     OrtSession.Result outputs = encoderSession.run(inputs);
                     OnnxTensor outputEncoder = (OnnxTensor) outputs.get(0);
-                    //Log.i("performance", "Encoder done in: " + (SystemClock.elapsedRealtime() - startTimeInMs) + "ms");
+                    // Log.i("performance", "Encoder done in: " + (SystemClock.elapsedRealtime() -
+                    // startTimeInMs) + "ms");
 
-                    //execution of decoder
+                    // execution of decoder
                     final int eos = 50257;
                     ArrayList<Integer> completeOutput = new ArrayList<Integer>();
                     ArrayList<Integer> completeOutput2 = new ArrayList<Integer>();
@@ -339,131 +514,160 @@ public class Recognizer extends NeuralNetworkApi {
                     float[] outputValues2 = null;
                     int batchSize = 1;
 
-                    if(data.languageCode2 != null){
+                    if (data.languageCode2 != null) {
                         batchSize = 2;
                     }
 
-                    //We prepare the cache initializer input and execute it
+                    // We prepare the cache initializer input and execute it
                     Map<String, OnnxTensor> initInput = new HashMap<String, OnnxTensor>();
                     OrtSession.Result initResult = null;
-                    if(batchSize == 1) {
+                    if (batchSize == 1) {
                         initInput.put("encoder_hidden_states", outputEncoder);
                         time = System.currentTimeMillis();
                         initResult = cacheInitSession.run(initInput);
-                        //Log.i("performance", "Cache initialization done in: " + (System.currentTimeMillis() - time) + "ms");
-                    }else{
+                        // Log.i("performance", "Cache initialization done in: " +
+                        // (System.currentTimeMillis() - time) + "ms");
+                    } else {
                         long timeInner = System.currentTimeMillis();
                         float[][] outputEncoderValue = ((float[][][]) outputEncoder.getValue())[0];
-                        //Log.i("performance", "Encoder batch extract done in: " + (System.currentTimeMillis()-timeInner) + "ms");
+                        // Log.i("performance", "Encoder batch extract done in: " +
+                        // (System.currentTimeMillis()-timeInner) + "ms");
                         timeInner = System.currentTimeMillis();
                         float[][][] outputEncoderFlatBatched = TensorUtils.batchTensor(outputEncoderValue, 2);
-                        //Log.i("performance", "Encoder batch batching done in: " + (System.currentTimeMillis()-timeInner) + "ms");
+                        // Log.i("performance", "Encoder batch batching done in: " +
+                        // (System.currentTimeMillis()-timeInner) + "ms");
                         timeInner = System.currentTimeMillis();
-                        OnnxTensor outputEncoderBatched = TensorUtils.createFloatTensor(onnxEnv, outputEncoderFlatBatched, new long[]{2, outputEncoderValue.length, outputEncoderValue[0].length}, new long[]{0});
-                        //Log.i("performance", "Encoder batch creation done in: " + (System.currentTimeMillis()-timeInner) + "ms");
+                        OnnxTensor outputEncoderBatched = TensorUtils.createFloatTensor(onnxEnv,
+                                outputEncoderFlatBatched,
+                                new long[] { 2, outputEncoderValue.length, outputEncoderValue[0].length },
+                                new long[] { 0 });
+                        // Log.i("performance", "Encoder batch creation done in: " +
+                        // (System.currentTimeMillis()-timeInner) + "ms");
                         initInput.put("encoder_hidden_states", outputEncoderBatched);
                         time = System.currentTimeMillis();
                         initResult = cacheInitBatchSession.run(initInput);
-                        //Log.i("performance", "Cache initialization done in: " + (System.currentTimeMillis() - time) + "ms");
+                        // Log.i("performance", "Cache initialization done in: " +
+                        // (System.currentTimeMillis() - time) + "ms");
                     }
 
-                    //We start the iterative execution of the decoder
+                    // We start the iterative execution of the decoder
                     OrtSession.Result result = null;
                     OrtSession.Result oldResult = null;
                     int max = -1;
                     int max2 = eos;
-                    boolean isFirstIteration = true;  //It is used to avoid closing initialResult
+                    boolean isFirstIteration = true; // It is used to avoid closing initialResult
                     int j = 1;
-                    //first we run the decoder with the first 3 fixed values (START_TOKEN_ID, languageID, TRANSCRIBE_TOKEN_ID, NO_TIMESTAMPS_TOKEN_ID)
+                    // first we run the decoder with the first 3 fixed values (START_TOKEN_ID,
+                    // languageID, TRANSCRIBE_TOKEN_ID, NO_TIMESTAMPS_TOKEN_ID)
                     int languageID = getLanguageID(data.languageCode);
                     int languageID2 = -1;
-                    if(batchSize == 2){
+                    if (batchSize == 2) {
                         languageID2 = getLanguageID(data.languageCode2);
                     }
-                    int[] decoderInitialInputIDs = {START_TOKEN_ID, languageID, (batchSize == 1 && data.action == ACTION_TRANSLATE) ? TRANSLATE_TOKEN_ID : TRANSCRIBE_TOKEN_ID, NO_TIMESTAMPS_TOKEN_ID};
-                    int[] decoderInitialInputIDs2 = {START_TOKEN_ID, languageID2, TRANSCRIBE_TOKEN_ID, NO_TIMESTAMPS_TOKEN_ID};
-                    
+                    int[] decoderInitialInputIDs = { START_TOKEN_ID, languageID,
+                            (batchSize == 1 && data.action == ACTION_TRANSLATE) ? TRANSLATE_TOKEN_ID
+                                    : TRANSCRIBE_TOKEN_ID,
+                            NO_TIMESTAMPS_TOKEN_ID };
+                    int[] decoderInitialInputIDs2 = { START_TOKEN_ID, languageID2, TRANSCRIBE_TOKEN_ID,
+                            NO_TIMESTAMPS_TOKEN_ID };
+
                     while (!(max == eos && max2 == eos)) {
                         initialTime = System.currentTimeMillis();
                         time = System.currentTimeMillis();
                         if (j <= 4) {
-                            if(batchSize == 1) {
-                                if (languageID == -1 && j == 2) {  //In case of just one language allow "auto" detection
+                            if (batchSize == 1) {
+                                if (languageID == -1 && j == 2) { // In case of just one language allow "auto" detection
                                     Log.d("decoderInitialInputIDs", "language auto dectect");
                                 } else {
-                                    inputIDsTensor = TensorUtils.convertIntArrayToTensor(onnxEnv, new int[]{decoderInitialInputIDs[j-1]});
+                                    inputIDsTensor = TensorUtils.convertIntArrayToTensor(onnxEnv,
+                                            new int[] { decoderInitialInputIDs[j - 1] });
                                 }
-                            }else{
-                                inputIDsTensor = TensorUtils.convertIntArrayToTensor(onnxEnv, new int[]{decoderInitialInputIDs[j-1], decoderInitialInputIDs2[j-1]}, new long[]{2,1});
+                            } else {
+                                inputIDsTensor = TensorUtils.convertIntArrayToTensor(onnxEnv,
+                                        new int[] { decoderInitialInputIDs[j - 1], decoderInitialInputIDs2[j - 1] },
+                                        new long[] { 2, 1 });
                             }
                         }
-                        //We prepare the decoder input
+                        // We prepare the decoder input
                         decoderInput = new HashMap<String, OnnxTensor>();
                         decoderInput.put("input_ids", inputIDsTensor);
                         if (isFirstIteration) {
-                            long[] shape = {batchSize, 12, 0, 64};
-                            OnnxTensor decoderPastTensor = TensorUtils.createFloatTensorWithSingleValue(onnxEnv, 0, shape);
-                            for (int i = 0; i < 12; i++) {
+                            long[] shape = { batchSize, numLayers, 0, headDim };
+                            OnnxTensor decoderPastTensor = TensorUtils.createFloatTensorWithSingleValue(onnxEnv, 0,
+                                    shape);
+                            for (int i = 0; i < numLayers; i++) {
                                 decoderInput.put("past_key_values." + i + ".decoder.key", decoderPastTensor);
                                 decoderInput.put("past_key_values." + i + ".decoder.value", decoderPastTensor);
-                                decoderInput.put("past_key_values." + i + ".encoder.key", (OnnxTensor) initResult.get("present." + i + ".encoder.key").get());
-                                decoderInput.put("past_key_values." + i + ".encoder.value", (OnnxTensor) initResult.get("present." + i + ".encoder.value").get());
+                                decoderInput.put("past_key_values." + i + ".encoder.key",
+                                        (OnnxTensor) initResult.get("present." + i + ".encoder.key").get());
+                                decoderInput.put("past_key_values." + i + ".encoder.value",
+                                        (OnnxTensor) initResult.get("present." + i + ".encoder.value").get());
                             }
                             isFirstIteration = false;
                         } else {
-                            for (int i = 0; i < 12; i++) {
-                                decoderInput.put("past_key_values." + i + ".decoder.key", (OnnxTensor) result.get("present." + i + ".decoder.key").get());
-                                decoderInput.put("past_key_values." + i + ".decoder.value", (OnnxTensor) result.get("present." + i + ".decoder.value").get());
-                                decoderInput.put("past_key_values." + i + ".encoder.key", (OnnxTensor) initResult.get("present." + i + ".encoder.key").get());
-                                decoderInput.put("past_key_values." + i + ".encoder.value", (OnnxTensor) initResult.get("present." + i + ".encoder.value").get());
+                            for (int i = 0; i < numLayers; i++) {
+                                decoderInput.put("past_key_values." + i + ".decoder.key",
+                                        (OnnxTensor) result.get("present." + i + ".decoder.key").get());
+                                decoderInput.put("past_key_values." + i + ".decoder.value",
+                                        (OnnxTensor) result.get("present." + i + ".decoder.value").get());
+                                decoderInput.put("past_key_values." + i + ".encoder.key",
+                                        (OnnxTensor) initResult.get("present." + i + ".encoder.key").get());
+                                decoderInput.put("past_key_values." + i + ".encoder.value",
+                                        (OnnxTensor) initResult.get("present." + i + ".encoder.value").get());
                             }
                         }
                         oldResult = result;
-                        //Log.i("performance", "pre-execution of" + j + "th word done in: " + (System.currentTimeMillis() - time) + "ms");
+                        // Log.i("performance", "pre-execution of" + j + "th word done in: " +
+                        // (System.currentTimeMillis() - time) + "ms");
                         time = System.currentTimeMillis();
-                        //execution of decoder (with cache)
+                        // execution of decoder (with cache)
                         result = decoderSession.run(decoderInput);
-                        //Log.i("performance", "execution of" + j + "th word done in: " + (System.currentTimeMillis() - time) + "ms");
+                        // Log.i("performance", "execution of" + j + "th word done in: " +
+                        // (System.currentTimeMillis() - time) + "ms");
                         time = System.currentTimeMillis();
 
                         if (oldResult != null) {
-                            oldResult.close(); //serve a rilasciare la memoria occupata dal risultato (altrimenti di accumula e aumenta molto)
-                            //Log.i("performance", "release RAM of" + j + "th word done in: " + (System.currentTimeMillis() - time) + "ms");
+                            oldResult.close(); // serve a rilasciare la memoria occupata dal risultato (altrimenti di
+                                               // accumula e aumenta molto)
+                            // Log.i("performance", "release RAM of" + j + "th word done in: " +
+                            // (System.currentTimeMillis() - time) + "ms");
                         }
-                        //we extract the logits and the highest value
+                        // we extract the logits and the highest value
                         decoderOutput = (OnnxTensor) result.get("logits").get();
                         value = (float[][][]) decoderOutput.getValue();
                         outputValues = value[0][0];
-                        if(!finished1) {
+                        if (!finished1) {
                             max = Utils.getIndexOfLargest(outputValues);
                             completeOutput.add(max);
                         }
-                        if(batchSize == 2){
+                        if (batchSize == 2) {
                             outputValues2 = value[1][0];
-                            if(!finished2) {
+                            if (!finished2) {
                                 max2 = Utils.getIndexOfLargest(outputValues2);
                                 completeOutput2.add(max2);
                             }
                         }
-                        //We prepare the inputs for the next iteration
-                        if(batchSize == 1) {
-                            inputIDsTensor = TensorUtils.convertIntArrayToTensor(onnxEnv, new int[]{max});
-                        }else{
-                            inputIDsTensor = TensorUtils.convertIntArrayToTensor(onnxEnv, new int[]{max, max2}, new long[]{2,1});
+                        // We prepare the inputs for the next iteration
+                        if (batchSize == 1) {
+                            inputIDsTensor = TensorUtils.convertIntArrayToTensor(onnxEnv, new int[] { max });
+                        } else {
+                            inputIDsTensor = TensorUtils.convertIntArrayToTensor(onnxEnv, new int[] { max, max2 },
+                                    new long[] { 2, 1 });
                         }
 
-                        if(batchSize == 2){
-                            //we calculate and update the probabilities of the two output sentences
+                        if (batchSize == 2) {
+                            // we calculate and update the probabilities of the two output sentences
                             double softmax = Utils.softmax(outputValues[max], outputValues);
-                            if(!finished1) {
+                            if (!finished1) {
                                 outputProbability1 = outputProbability1 + Math.log(softmax);
                             }
-                            if(!finished2) {
-                                outputProbability2 = outputProbability2 + Math.log(Utils.softmax(outputValues2[max2], outputValues2));
+                            if (!finished2) {
+                                outputProbability2 = outputProbability2
+                                        + Math.log(Utils.softmax(outputValues2[max2], outputValues2));
                             }
                         }
 
-                        if(j >= maxTokens) {
+                        if (j >= maxTokens) {
                             if (!finished1) {
                                 execution1HitMaxLength = true;
                                 max = eos;
@@ -474,143 +678,184 @@ public class Recognizer extends NeuralNetworkApi {
                             }
                         }
 
-                        if(max == eos){
+                        if (max == eos) {
                             finished1 = true;
                         }
-                        if(max2 == eos){
+                        if (max2 == eos) {
                             finished2 = true;
                         }
-                        //Log.i("performance", "post-execution of" + j + "th word done in: " + (System.currentTimeMillis() - time) + "ms");
-                        //Log.i("performance", "Generation of" + j + "th word done in: " + (System.currentTimeMillis() - initialTime) + "ms");
+                        // Log.i("performance", "post-execution of" + j + "th word done in: " +
+                        // (System.currentTimeMillis() - time) + "ms");
+                        // Log.i("performance", "Generation of" + j + "th word done in: " +
+                        // (System.currentTimeMillis() - initialTime) + "ms");
 
                         j++;
                     }
 
-                    if(batchSize == 2) {
-                        //we normalize the scores based on the number of tokens of the respective sequence
+                    if (batchSize == 2) {
+                        // we normalize the scores based on the number of tokens of the respective
+                        // sequence
                         outputProbability1 = outputProbability1 / completeOutput.size();
                         outputProbability2 = outputProbability2 / completeOutput2.size();
                     }
 
-                    //execution of the detokenizer
-                    Map detokenizerInputs = (Map) (new LinkedHashMap());
-                    if(batchSize == 1) {
+                    // execution of the detokenizer - use ONNX detokenizer if available, otherwise use native BPE tokenizer
+                    if (batchSize == 1) {
                         String language = data.languageCode;
                         String finalText = UNDEFINED_TEXT;
-                        if(!execution1HitMaxLength) {
+                        if (!execution1HitMaxLength) {
                             int[] sequences = completeOutput.stream().mapToInt(i -> i).toArray();
-                            if (language.equals("auto")) language = getLanguageCode(sequences);
-                            detokenizerInputs.put("sequences", TensorUtils.createInt32Tensor(onnxEnv, sequences, new long[]{1, 1, sequences.length}));
-                            OrtSession.Result detokenizerOutputs = this.detokenizerSession.run(detokenizerInputs);
-                            Object finalTextResult = detokenizerOutputs.get(0).getValue();
-                            finalText = ((String[][]) finalTextResult)[0][0];
-                            detokenizerOutputs.close();
+                            if (language.equals("auto"))
+                                language = getLanguageCode(sequences);
+                            
+                            // Use ONNX detokenizer if available, otherwise use native BPE tokenizer
+                            if (detokenizerSession != null) {
+                                Map detokenizerInputs = (Map) (new LinkedHashMap());
+                                detokenizerInputs.put("sequences", TensorUtils.createInt32Tensor(onnxEnv, sequences,
+                                        new long[] { 1, 1, sequences.length }));
+                                OrtSession.Result detokenizerOutputs = this.detokenizerSession.run(detokenizerInputs);
+                                Object finalTextResult = detokenizerOutputs.get(0).getValue();
+                                finalText = ((String[][]) finalTextResult)[0][0];
+                                detokenizerOutputs.close();
+                            } else if (bpeTokenizer != null) {
+                                // Use native BPE tokenizer for Large V3 models
+                                finalText = bpeTokenizer.decode(sequences);
+                            } else {
+                                Log.e(TAG, "No detokenizer available!");
+                                finalText = UNDEFINED_TEXT;
+                            }
                         }
-                        //Log.i("result", "result: " + correctText(finalText));
-                        //Log.i("score", "score: " + outputProbability1);
+                        // Log.i("result", "result: " + correctText(finalText));
+                        // Log.i("score", "score: " + outputProbability1);
 
                         outputs.close();
                         notifyResult(correctText(finalText), language, outputProbability1, true);
 
-                    }else{
+                    } else {
                         String language = data.languageCode;
                         String language2 = data.languageCode2;
                         String firstText = UNDEFINED_TEXT;
-                        if(!execution1HitMaxLength) {
+                        if (!execution1HitMaxLength) {
                             int[] sequence1 = completeOutput.stream().mapToInt(i -> i).toArray();
-                            if (language.equals("auto")) language = getLanguageCode(sequence1);
-                            detokenizerInputs.put("sequences", OnnxTensor.createTensor(onnxEnv, IntBuffer.wrap(sequence1), TensorUtils.tensorShape(1, 1, sequence1.length)));
-                            OrtSession.Result detokenizerOutputs = this.detokenizerSession.run(detokenizerInputs);
-                            Object firstTextResult = detokenizerOutputs.get(0).getValue();
-                            firstText = ((String[][]) firstTextResult)[0][0];
-                            detokenizerOutputs.close();
+                            if (language.equals("auto"))
+                                language = getLanguageCode(sequence1);
+                            
+                            // Use ONNX detokenizer if available, otherwise use native BPE tokenizer
+                            if (detokenizerSession != null) {
+                                Map detokenizerInputs = (Map) (new LinkedHashMap());
+                                detokenizerInputs.put("sequences", OnnxTensor.createTensor(onnxEnv,
+                                        IntBuffer.wrap(sequence1), TensorUtils.tensorShape(1, 1, sequence1.length)));
+                                OrtSession.Result detokenizerOutputs = this.detokenizerSession.run(detokenizerInputs);
+                                Object firstTextResult = detokenizerOutputs.get(0).getValue();
+                                firstText = ((String[][]) firstTextResult)[0][0];
+                                detokenizerOutputs.close();
+                            } else if (bpeTokenizer != null) {
+                                firstText = bpeTokenizer.decode(sequence1);
+                            } else {
+                                firstText = UNDEFINED_TEXT;
+                            }
                         }
 
                         String secondText = UNDEFINED_TEXT;
-                        if(!execution2HitMaxLength) {
+                        if (!execution2HitMaxLength) {
                             int[] sequence2 = completeOutput2.stream().mapToInt(i -> i).toArray();
-                            if (language.equals("auto")) language2 = getLanguageCode(sequence2);
-                            detokenizerInputs = (Map) (new LinkedHashMap());
-                            detokenizerInputs.put("sequences", OnnxTensor.createTensor(onnxEnv, IntBuffer.wrap(sequence2), TensorUtils.tensorShape(1, 1, sequence2.length)));
-                            OrtSession.Result detokenizerOutputs2 = this.detokenizerSession.run(detokenizerInputs);
-                            Object secondTextResult = detokenizerOutputs2.get(0).getValue();
-                            secondText = ((String[][]) secondTextResult)[0][0];
-                            detokenizerOutputs2.close();
+                            if (language.equals("auto"))
+                                language2 = getLanguageCode(sequence2);
+                            
+                            // Use ONNX detokenizer if available, otherwise use native BPE tokenizer
+                            if (detokenizerSession != null) {
+                                Map detokenizerInputs = (Map) (new LinkedHashMap());
+                                detokenizerInputs.put("sequences", OnnxTensor.createTensor(onnxEnv,
+                                        IntBuffer.wrap(sequence2), TensorUtils.tensorShape(1, 1, sequence2.length)));
+                                OrtSession.Result detokenizerOutputs2 = this.detokenizerSession.run(detokenizerInputs);
+                                Object secondTextResult = detokenizerOutputs2.get(0).getValue();
+                                secondText = ((String[][]) secondTextResult)[0][0];
+                                detokenizerOutputs2.close();
+                            } else if (bpeTokenizer != null) {
+                                secondText = bpeTokenizer.decode(sequence2);
+                            } else {
+                                secondText = UNDEFINED_TEXT;
+                            }
                         }
 
-                        //Log.i("result", "result 1: " + correctText(firstText));
-                        //Log.i("result", "result 2: " + correctText(secondText));
-                        //Log.i("result", "score 1: " + outputProbability1);
-                        //Log.i("result", "score 2: " + outputProbability2);
+                        // Log.i("result", "result 1: " + correctText(firstText));
+                        // Log.i("result", "result 2: " + correctText(secondText));
+                        // Log.i("result", "score 1: " + outputProbability1);
+                        // Log.i("result", "score 2: " + outputProbability2);
 
-                        notifyMultiResult(correctText(firstText), language, outputProbability1, correctText(secondText), language2, outputProbability2);
+                        notifyMultiResult(correctText(firstText), language, outputProbability1, correctText(secondText),
+                                language2, outputProbability2);
                     }
-                    //closing all results
+                    // closing all results
                     outputs.close();
                     outputInit.close();
                     initResult.close();
 
-                    Log.i("performance", "SPEECH RECOGNITION DONE IN: " + (SystemClock.elapsedRealtime() - startTimeInMs) + "ms");
+                    Log.i("performance",
+                            "SPEECH RECOGNITION DONE IN: " + (SystemClock.elapsedRealtime() - startTimeInMs) + "ms");
 
                 } catch (OrtException e) {
                     e.printStackTrace();
-                    notifyError(new int[]{ErrorCodes.ERROR_EXECUTING_MODEL}, 0);
+                    notifyError(new int[] { ErrorCodes.ERROR_EXECUTING_MODEL }, 0);
                 }
             }
         }
-        if (!dataToRecognize.isEmpty()){
+        if (!dataToRecognize.isEmpty()) {
             recognize();
-        }else {
+        } else {
             recognizing = false;
         }
     }
 
-    private String correctText(String text){
+    private String correctText(String text) {
         String correctedText = text;
 
-        //sometimes, even if timestamps are deactivated, Whisper insert those anyway (es. <|0.00|>), so we remove eventual timestamps
-        String regex = "<\\|[^>]*\\|> ";    //with this regex we remove all substrings of the form "<|something|> "
+        // sometimes, even if timestamps are deactivated, Whisper insert those anyway
+        // (es. <|0.00|>), so we remove eventual timestamps
+        String regex = "<\\|[^>]*\\|> "; // with this regex we remove all substrings of the form "<|something|> "
         correctedText = correctedText.replaceAll(regex, "");
 
-        //we remove eventual white space from both ends of the text
+        // we remove eventual white space from both ends of the text
         correctedText = correctedText.trim();
 
-        if(correctedText.length() >= 2) {
-            //if the correctedText start with a lower case letter we make it upper case
+        if (correctedText.length() >= 2) {
+            // if the correctedText start with a lower case letter we make it upper case
             char firstChar = correctedText.charAt(0);
             if (Character.isLowerCase(firstChar)) {
                 StringBuilder sb = new StringBuilder(correctedText);
                 sb.setCharAt(0, Character.toUpperCase(firstChar));
                 correctedText = sb.toString();
             }
-            //if the correctedText contains a "..." we remove it
+            // if the correctedText contains a "..." we remove it
             correctedText = correctedText.replace("...", "");
         }
         return correctedText;
     }
 
     public void destroy() {
-        //eventually if in the future I decide to load Whisper only for WalkieTalkie and Conversation then all the resources will be released here
+        // eventually if in the future I decide to load Whisper only for WalkieTalkie
+        // and Conversation then all the resources will be released here
     }
 
-    public int getLanguageID(String language){
+    public int getLanguageID(String language) {
         for (int i = 0; i < LANGUAGES.length; i++) {
             if (LANGUAGES[i].equals(language)) {
                 return START_TOKEN_ID + i + 1;
             }
         }
-        if (!language.equals("auto")) Log.e("error", "Error Converting Language code " + language + " to Whisper code");
+        if (!language.equals("auto"))
+            Log.e("error", "Error Converting Language code " + language + " to Whisper code");
         return -1;
     }
 
-    public String getLanguageCode(int[] sequence){
+    public String getLanguageCode(int[] sequence) {
         int langToken = sequence[0];
         int index = langToken - START_TOKEN_ID - 1;
-        if (index >= 0 && index < LANGUAGES.length) {  //if sequence starts with language token return it
+        if (index >= 0 && index < LANGUAGES.length) { // if sequence starts with language token return it
             return LANGUAGES[index];
         } else {
             Log.e("error", "Error detecting language");
-            return "??";  //otherwise return "??"
+            return "??"; // otherwise return "??"
         }
     }
 
@@ -636,9 +881,11 @@ public class Recognizer extends NeuralNetworkApi {
         }
     }
 
-    private void notifyMultiResult(String text1, String languageCode1, double confidenceScore1, String text2, String languageCode2, double confidenceScore2) {
+    private void notifyMultiResult(String text1, String languageCode1, double confidenceScore1, String text2,
+            String languageCode2, double confidenceScore2) {
         for (int i = 0; i < multiCallbacks.size(); i++) {
-            multiCallbacks.get(i).onSpeechRecognizedResult(text1, languageCode1, confidenceScore1, text2, languageCode2, confidenceScore2);
+            multiCallbacks.get(i).onSpeechRecognizedResult(text1, languageCode1, confidenceScore1, text2, languageCode2,
+                    confidenceScore2);
         }
     }
 
@@ -651,22 +898,21 @@ public class Recognizer extends NeuralNetworkApi {
         }
     }
 
-
-    private static class DataContainer{
+    private static class DataContainer {
         private float[] data;
         private String languageCode;
         private String languageCode2;
         private int beamSize;
         private Action action;
 
-        private DataContainer(float[] data, int beamSize, String languageCode, Action action){
+        private DataContainer(float[] data, int beamSize, String languageCode, Action action) {
             this.data = data;
             this.beamSize = beamSize;
             this.languageCode = languageCode;
             this.action = action;
         }
 
-        private DataContainer(float[] data, int beamSize, String languageCode, String languageCode2){
+        private DataContainer(float[] data, int beamSize, String languageCode, String languageCode2) {
             this.data = data;
             this.beamSize = beamSize;
             this.languageCode = languageCode;

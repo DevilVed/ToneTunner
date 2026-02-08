@@ -124,6 +124,11 @@ public class WhisperRecognitionService extends RecognitionService {
             public void onUpdateReceived(String message) { }
 
             @Override
+            public void onError(String error) {
+                Log.e(TAG, "Whisper error: " + error);
+            }
+
+            @Override
             public void onResultReceived(WhisperResult whisperResult) {
                 if (whisperResult.getResult().trim().length() > 0){
                     Log.d(TAG, whisperResult.getResult().trim());
