@@ -84,6 +84,22 @@ public class SetupActivity extends AppCompatActivity {
                     try (ZipInputStream zipInputStream = new ZipInputStream(src)) {
                         while ((zipEntry = zipInputStream.getNextEntry()) != null) {
                             File extractedFile = new File(targetDir ,zipEntry.getName());
+                            String canonicalDirPath = targetDir.getCanonicalPath() + File.separator;
+                            String canonicalDestPath = extractedFile.getCanonicalPath();
+                            if (!canonicalDestPath.startsWith(canonicalDirPath)) {
+                                throw new SecurityException("Entry is outside of the target dir: " + zipEntry.getName());
+                            }
+
+                            if (zipEntry.isDirectory()) {
+                                extractedFile.mkdirs();
+                                continue;
+                            } else {
+                                File parent = extractedFile.getParentFile();
+                                if (parent != null && !parent.exists()) {
+                                    parent.mkdirs();
+                                }
+                            }
+
                             runOnUiThread(()->{
                                 extractedFileTV.setVisibility(View.VISIBLE);
                                 extractedFileTV.setText(extractedFile.getName());
