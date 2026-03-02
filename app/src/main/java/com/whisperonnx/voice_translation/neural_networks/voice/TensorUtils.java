@@ -127,45 +127,88 @@ public final class TensorUtils {
     }
 
     public static float[] flattenFloatArray(float[][][] data){
-        float[][] dataFlatTemp = new float[data.length][data[0].length * data[0][0].length];
-        for(int j=0; j<data.length; j++){
-            dataFlatTemp[j] = Floats.concat(data[j]);
+        int dim1 = data.length;
+        if (dim1 == 0) return new float[0];
+        int dim2 = data[0].length;
+        if (dim2 == 0) return new float[0];
+        int dim3 = data[0][0].length;
+        int totalLength = dim1 * dim2 * dim3;
+        float[] result = new float[totalLength];
+        int offset = 0;
+        for (int i = 0; i < dim1; i++) {
+            for (int j = 0; j < dim2; j++) {
+                System.arraycopy(data[i][j], 0, result, offset, dim3);
+                offset += dim3;
+            }
         }
-        return Floats.concat(dataFlatTemp);
+        return result;
     }
 
     public static float[] flattenFloatArray(float[][][][] data){
-        float[][] dataFlatTemp = new float[data.length][data[0].length * data[0][0].length * data[0][0][0].length];
-        for(int j=0; j<data.length; j++){
-            dataFlatTemp[j] = flattenFloatArray(data[j]);
+        int dim1 = data.length;
+        if (dim1 == 0) return new float[0];
+        int dim2 = data[0].length;
+        if (dim2 == 0) return new float[0];
+        int dim3 = data[0][0].length;
+        if (dim3 == 0) return new float[0];
+        int dim4 = data[0][0][0].length;
+        int totalLength = dim1 * dim2 * dim3 * dim4;
+        float[] result = new float[totalLength];
+        int offset = 0;
+        for (int i = 0; i < dim1; i++) {
+            for (int j = 0; j < dim2; j++) {
+                for (int k = 0; k < dim3; k++) {
+                    System.arraycopy(data[i][j][k], 0, result, offset, dim4);
+                    offset += dim4;
+                }
+            }
         }
-        return Floats.concat(dataFlatTemp);
+        return result;
     }
 
     public static float[] flattenFloatArrayBatched(float[][] data, int batchSize){
-        float[] dataFlat = Floats.concat(data);
-        float[][] dataFlatBatchedInit = new float[batchSize][dataFlat.length];
-        for (int i=0; i<batchSize; i++){
-            dataFlatBatchedInit[i] = dataFlat;
+        int dim1 = data.length;
+        if (dim1 == 0) return new float[0];
+        int dim2 = data[0].length;
+        int singleLength = dim1 * dim2;
+        float[] result = new float[batchSize * singleLength];
+
+        float[] dataFlat = new float[singleLength];
+        int offset = 0;
+        for (int i = 0; i < dim1; i++) {
+            System.arraycopy(data[i], 0, dataFlat, offset, dim2);
+            offset += dim2;
         }
-        return Floats.concat(dataFlatBatchedInit);
+
+        offset = 0;
+        for (int i = 0; i < batchSize; i++) {
+            System.arraycopy(dataFlat, 0, result, offset, singleLength);
+            offset += singleLength;
+        }
+        return result;
     }
 
     public static int[] flattenIntArrayBatched(int[] data, int batchSize){
-        int[][] dataFlatBatchedInit = new int[batchSize][data.length];
-        for (int i=0; i<batchSize; i++){
-            dataFlatBatchedInit[i] = data;
+        int singleLength = data.length;
+        int[] result = new int[batchSize * singleLength];
+        int offset = 0;
+        for (int i = 0; i < batchSize; i++) {
+            System.arraycopy(data, 0, result, offset, singleLength);
+            offset += singleLength;
         }
-        return Ints.concat(dataFlatBatchedInit);
+        return result;
     }
 
     public static float[] flattenFloatArrayBatched(float[][][] data, int batchSize){
         float[] dataFlat = flattenFloatArray(data);
-        float[][] keyValueFlatBatchedInit = new float[batchSize][dataFlat.length];
-        for (int j=0; j<batchSize; j++){
-            keyValueFlatBatchedInit[j] = dataFlat;
+        int singleLength = dataFlat.length;
+        float[] result = new float[batchSize * singleLength];
+        int offset = 0;
+        for (int j = 0; j < batchSize; j++) {
+            System.arraycopy(dataFlat, 0, result, offset, singleLength);
+            offset += singleLength;
         }
-        return Floats.concat(keyValueFlatBatchedInit);
+        return result;
     }
 
     public static Object extractValue(OrtSession.Result result, String name) throws OrtException {
