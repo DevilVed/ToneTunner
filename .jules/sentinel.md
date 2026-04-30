@@ -1,0 +1,4 @@
+## 2024-04-30 - Prevent Zip Slip Vulnerability in SetupActivity
+**Vulnerability:** SetupActivity.java used `ZipInputStream` to extract downloaded zip files directly to the file system using the entry name (`zipEntry.getName()`). This permitted arbitrary path traversal (Zip Slip), allowing malicious zip files to write files outside the intended external files directory (e.g., `../../etc/passwd`).
+**Learning:** Android's `ZipInputStream` does not automatically validate or sanitize paths extracted from zip entries. Furthermore, `Files.newOutputStream` requires the full parent directory structure to exist, necessitating manual `mkdirs()` when implementing a custom extraction loop.
+**Prevention:** Always resolve the canonical path of both the intended target directory and the specific extracted file, ensuring the file's canonical path `startsWith` the target directory's canonical path plus a file separator. Throw a `SecurityException` if traversal is detected.
