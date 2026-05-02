@@ -1,0 +1,3 @@
+## 2024-05-14 - Expand Checkbox Touch Targets
+**Learning:** In Android layouts, small interactive elements like CheckBoxes often have touch targets that are too small and don't include their adjacent text labels. Users expect to tap the text label to toggle the checkbox.
+**Action:** Always wrap small controls with their labels in a clickable container (like `LinearLayout`). Make the container `clickable="true"`, `focusable="true"`, and set `android:background="?attr/selectableItemBackground"` to provide touch feedback. In code, wire the container's `OnClickListener` to call `performClick()` on the child checkbox. This dramatically improves accessibility and UX by enlarging the touch target and providing clear visual feedback.
