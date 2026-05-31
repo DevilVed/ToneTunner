@@ -79,11 +79,28 @@ public class SetupActivity extends AppCompatActivity {
             int readLen;
             byte[] readBuffer = new byte[4096];
             try {
+                String targetDirPath = targetDir.getCanonicalPath();
                 InputStream src = context.getContentResolver().openInputStream(zipFile);
                 try {
                     try (ZipInputStream zipInputStream = new ZipInputStream(src)) {
                         while ((zipEntry = zipInputStream.getNextEntry()) != null) {
                             File extractedFile = new File(targetDir ,zipEntry.getName());
+
+                            // Prevent Zip Slip vulnerability
+                            if (!extractedFile.getCanonicalPath().startsWith(targetDirPath + File.separator)) {
+                                throw new SecurityException("Path traversal attempt detected: " + zipEntry.getName());
+                            }
+
+                            if (zipEntry.isDirectory()) {
+                                extractedFile.mkdirs();
+                                continue;
+                            }
+
+                            File parent = extractedFile.getParentFile();
+                            if (parent != null && !parent.exists()) {
+                                parent.mkdirs();
+                            }
+
                             runOnUiThread(()->{
                                 extractedFileTV.setVisibility(View.VISIBLE);
                                 extractedFileTV.setText(extractedFile.getName());
