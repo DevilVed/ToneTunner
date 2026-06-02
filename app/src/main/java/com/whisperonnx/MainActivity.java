@@ -63,6 +63,8 @@ public class MainActivity extends AppCompatActivity {
     private ImageButton btnRecord;
     private LinearLayout layoutModeChinese;
     private LinearLayout layoutTTS;
+    private LinearLayout layoutModeAppend;
+    private LinearLayout layoutModeTranslate;
     private CheckBox append;
     private CheckBox translate;
     private CheckBox modeSimpleChinese;
@@ -106,9 +108,12 @@ public class MainActivity extends AppCompatActivity {
         processingBar = findViewById(R.id.processing_bar);
         sp = PreferenceManager.getDefaultSharedPreferences(this);
         append = findViewById(R.id.mode_append);
+        layoutModeAppend = findViewById(R.id.layout_mode_append);
+        layoutModeAppend.setOnClickListener(v -> append.performClick());
 
         layoutTTS = findViewById(R.id.layout_tts);
         modeTTS = findViewById(R.id.mode_tts);
+        layoutTTS.setOnClickListener(v -> modeTTS.performClick());
         modeTTS.setOnCheckedChangeListener((compoundButton, isChecked) -> {
             if (isChecked) {
                 tts = new TextToSpeech(mContext, status -> {
@@ -133,6 +138,8 @@ public class MainActivity extends AppCompatActivity {
         });
 
         translate = findViewById(R.id.mode_translate);
+        layoutModeTranslate = findViewById(R.id.layout_mode_translate);
+        layoutModeTranslate.setOnClickListener(v -> translate.performClick());
         translate.setOnCheckedChangeListener((compoundButton, isChecked) -> {
             layoutTTS.setVisibility(isChecked ? View.VISIBLE : View.GONE);
             if (layoutTTS.getVisibility() == View.GONE)
@@ -210,6 +217,7 @@ public class MainActivity extends AppCompatActivity {
 
         layoutModeChinese = findViewById(R.id.layout_mode_chinese);
         modeSimpleChinese = findViewById(R.id.mode_simple_chinese);
+        layoutModeChinese.setOnClickListener(v -> modeSimpleChinese.performClick());
         modeSimpleChinese.setChecked(sp.getBoolean("simpleChinese", false)); // default to traditional Chinese
         modeSimpleChinese.setOnCheckedChangeListener((compoundButton, isChecked) -> {
             SharedPreferences.Editor editor = sp.edit();
