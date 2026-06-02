@@ -55,6 +55,29 @@ public class Recognizer extends NeuralNetworkApi {
         TRANSLATE, TRANSCRIBE
     }
 
+    // Cache decoder keys to avoid string concatenation in inference loop
+    private static final String[] DECODER_KEYS_DECODER_KEY = new String[12];
+    private static final String[] DECODER_KEYS_DECODER_VALUE = new String[12];
+    private static final String[] DECODER_KEYS_ENCODER_KEY = new String[12];
+    private static final String[] DECODER_KEYS_ENCODER_VALUE = new String[12];
+    private static final String[] INIT_RESULT_KEYS_ENCODER_KEY = new String[12];
+    private static final String[] INIT_RESULT_KEYS_ENCODER_VALUE = new String[12];
+    private static final String[] RESULT_KEYS_DECODER_KEY = new String[12];
+    private static final String[] RESULT_KEYS_DECODER_VALUE = new String[12];
+
+    static {
+        for (int i = 0; i < 12; i++) {
+            DECODER_KEYS_DECODER_KEY[i] = "past_key_values." + i + ".decoder.key";
+            DECODER_KEYS_DECODER_VALUE[i] = "past_key_values." + i + ".decoder.value";
+            DECODER_KEYS_ENCODER_KEY[i] = "past_key_values." + i + ".encoder.key";
+            DECODER_KEYS_ENCODER_VALUE[i] = "past_key_values." + i + ".encoder.value";
+            INIT_RESULT_KEYS_ENCODER_KEY[i] = "present." + i + ".encoder.key";
+            INIT_RESULT_KEYS_ENCODER_VALUE[i] = "present." + i + ".encoder.value";
+            RESULT_KEYS_DECODER_KEY[i] = "present." + i + ".decoder.key";
+            RESULT_KEYS_DECODER_VALUE[i] = "present." + i + ".decoder.value";
+        }
+    }
+
     public static final String[] LANGUAGES = {
             "en",
             "zh",
@@ -333,7 +356,8 @@ public class Recognizer extends NeuralNetworkApi {
 
                     OnnxTensor inputIDsTensor = null;
                     OnnxTensor decoderOutput = null;
-                    Map<String, OnnxTensor> decoderInput = new HashMap<String, OnnxTensor>();
+                    // Pre-allocate map to avoid resizing and GC churn during inference loop
+                    Map<String, OnnxTensor> decoderInput = new HashMap<String, OnnxTensor>(128);
                     float[][][] value = null;
                     float[] outputValues = null;
                     float[] outputValues2 = null;
@@ -398,24 +422,24 @@ public class Recognizer extends NeuralNetworkApi {
                             }
                         }
                         //We prepare the decoder input
-                        decoderInput = new HashMap<String, OnnxTensor>();
+                        decoderInput.clear();
                         decoderInput.put("input_ids", inputIDsTensor);
                         if (isFirstIteration) {
                             long[] shape = {batchSize, 12, 0, 64};
                             OnnxTensor decoderPastTensor = TensorUtils.createFloatTensorWithSingleValue(onnxEnv, 0, shape);
                             for (int i = 0; i < 12; i++) {
-                                decoderInput.put("past_key_values." + i + ".decoder.key", decoderPastTensor);
-                                decoderInput.put("past_key_values." + i + ".decoder.value", decoderPastTensor);
-                                decoderInput.put("past_key_values." + i + ".encoder.key", (OnnxTensor) initResult.get("present." + i + ".encoder.key").get());
-                                decoderInput.put("past_key_values." + i + ".encoder.value", (OnnxTensor) initResult.get("present." + i + ".encoder.value").get());
+                                decoderInput.put(DECODER_KEYS_DECODER_KEY[i], decoderPastTensor);
+                                decoderInput.put(DECODER_KEYS_DECODER_VALUE[i], decoderPastTensor);
+                                decoderInput.put(DECODER_KEYS_ENCODER_KEY[i], (OnnxTensor) initResult.get(INIT_RESULT_KEYS_ENCODER_KEY[i]).get());
+                                decoderInput.put(DECODER_KEYS_ENCODER_VALUE[i], (OnnxTensor) initResult.get(INIT_RESULT_KEYS_ENCODER_VALUE[i]).get());
                             }
                             isFirstIteration = false;
                         } else {
                             for (int i = 0; i < 12; i++) {
-                                decoderInput.put("past_key_values." + i + ".decoder.key", (OnnxTensor) result.get("present." + i + ".decoder.key").get());
-                                decoderInput.put("past_key_values." + i + ".decoder.value", (OnnxTensor) result.get("present." + i + ".decoder.value").get());
-                                decoderInput.put("past_key_values." + i + ".encoder.key", (OnnxTensor) initResult.get("present." + i + ".encoder.key").get());
-                                decoderInput.put("past_key_values." + i + ".encoder.value", (OnnxTensor) initResult.get("present." + i + ".encoder.value").get());
+                                decoderInput.put(DECODER_KEYS_DECODER_KEY[i], (OnnxTensor) result.get(RESULT_KEYS_DECODER_KEY[i]).get());
+                                decoderInput.put(DECODER_KEYS_DECODER_VALUE[i], (OnnxTensor) result.get(RESULT_KEYS_DECODER_VALUE[i]).get());
+                                decoderInput.put(DECODER_KEYS_ENCODER_KEY[i], (OnnxTensor) initResult.get(INIT_RESULT_KEYS_ENCODER_KEY[i]).get());
+                                decoderInput.put(DECODER_KEYS_ENCODER_VALUE[i], (OnnxTensor) initResult.get(INIT_RESULT_KEYS_ENCODER_VALUE[i]).get());
                             }
                         }
                         oldResult = result;
