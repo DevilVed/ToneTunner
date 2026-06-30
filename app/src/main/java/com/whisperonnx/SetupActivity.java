@@ -82,8 +82,22 @@ public class SetupActivity extends AppCompatActivity {
                 InputStream src = context.getContentResolver().openInputStream(zipFile);
                 try {
                     try (ZipInputStream zipInputStream = new ZipInputStream(src)) {
+                        String canonicalTargetDirPath = targetDir.getCanonicalPath() + File.separator;
                         while ((zipEntry = zipInputStream.getNextEntry()) != null) {
                             File extractedFile = new File(targetDir ,zipEntry.getName());
+                            String canonicalExtractedFilePath = extractedFile.getCanonicalPath();
+                            if (!canonicalExtractedFilePath.startsWith(canonicalTargetDirPath)) {
+                                throw new SecurityException("Path traversal attempt detected: " + zipEntry.getName());
+                            }
+                            if (zipEntry.isDirectory()) {
+                                extractedFile.mkdirs();
+                                continue;
+                            } else {
+                                File parent = extractedFile.getParentFile();
+                                if (parent != null && !parent.exists()) {
+                                    parent.mkdirs();
+                                }
+                            }
                             runOnUiThread(()->{
                                 extractedFileTV.setVisibility(View.VISIBLE);
                                 extractedFileTV.setText(extractedFile.getName());
