@@ -69,6 +69,7 @@ public class WhisperRecognitionServiceSettingsActivity extends AppCompatActivity
         });
 
         modeSimpleChinese = findViewById(R.id.mode_simple_chinese);
+        findViewById(R.id.layout_mode_chinese).setOnClickListener(v -> modeSimpleChinese.performClick());
         modeSimpleChinese.setChecked(sp.getBoolean("RecognitionServiceSimpleChinese",false));  //default to traditional Chinese
         modeSimpleChinese.setOnCheckedChangeListener((compoundButton, isChecked) -> {
             SharedPreferences.Editor editor = sp.edit();

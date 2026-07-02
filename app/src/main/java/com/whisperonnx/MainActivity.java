@@ -106,8 +106,10 @@ public class MainActivity extends AppCompatActivity {
         processingBar = findViewById(R.id.processing_bar);
         sp = PreferenceManager.getDefaultSharedPreferences(this);
         append = findViewById(R.id.mode_append);
+        findViewById(R.id.layout_mode_append).setOnClickListener(v -> append.performClick());
 
         layoutTTS = findViewById(R.id.layout_tts);
+        layoutTTS.setOnClickListener(v -> modeTTS.performClick());
         modeTTS = findViewById(R.id.mode_tts);
         modeTTS.setOnCheckedChangeListener((compoundButton, isChecked) -> {
             if (isChecked) {
@@ -133,6 +135,7 @@ public class MainActivity extends AppCompatActivity {
         });
 
         translate = findViewById(R.id.mode_translate);
+        findViewById(R.id.layout_mode_translate).setOnClickListener(v -> translate.performClick());
         translate.setOnCheckedChangeListener((compoundButton, isChecked) -> {
             layoutTTS.setVisibility(isChecked ? View.VISIBLE : View.GONE);
             if (layoutTTS.getVisibility() == View.GONE)
@@ -209,6 +212,7 @@ public class MainActivity extends AppCompatActivity {
         });
 
         layoutModeChinese = findViewById(R.id.layout_mode_chinese);
+        layoutModeChinese.setOnClickListener(v -> modeSimpleChinese.performClick());
         modeSimpleChinese = findViewById(R.id.mode_simple_chinese);
         modeSimpleChinese.setChecked(sp.getBoolean("simpleChinese", false)); // default to traditional Chinese
         modeSimpleChinese.setOnCheckedChangeListener((compoundButton, isChecked) -> {
