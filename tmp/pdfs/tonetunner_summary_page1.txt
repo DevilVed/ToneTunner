@@ -1,0 +1,31 @@
+TONE TUNNER - APP SUMMARY (REPO-BASED)
+Page 1 of 2
+
+WHAT IT IS
+ToneTunner is an Android voice input app that runs local Whisper ONNX inference for
+speech transcription and optional translation to English. It can run as a standalone
+app, an Input Method Editor (IME), and an Android RecognitionService endpoint.
+
+WHO IT IS FOR
+Primary persona: Android users who want offline multilingual speech-to-text and
+voice input integration in keyboard and system voice-input flows.
+
+WHAT IT DOES
+- Records microphone audio at 16 kHz mono PCM with optional WebRTC VAD auto-stop.
+- Runs on-device Whisper inference through ONNX Runtime sessions.
+- Provides standalone transcription UI with language selector and copy action.
+- Supports optional translation mode and optional Text-to-Speech playback.
+- Provides IME voice typing and commits recognized text to active input fields.
+- Supports speech intent entry point via RECOGNIZE_SPEECH activity.
+- Supports system-wide voice input via Android RecognitionService.
+
+KEY ENTRY POINTS
+- MainActivity: standalone transcription and translation UI.
+- WhisperInputMethodService: IME keyboard voice input.
+- WhisperRecognitionService: system speech service integration.
+- WhisperRecognizeActivity: popup recognizer for speech intents.
+- SetupActivity: model download link and ZIP import workflow.
+
+NOTES
+- Inference appears local/on-device in this repo.
+- App requests RECORD_AUDIO and related foreground service permissions.

@@ -445,24 +445,54 @@ public class Recognizer extends NeuralNetworkApi {
     private void recognize() {
         recognizing = true;
         DataContainer data = dataToRecognize.pollFirst();
+
+        // DIAGNOSTIC LOGGING: Log model configuration and session states
+        Log.d(TAG, "=== DIAGNOSTIC: recognize() called ===");
+        Log.d(TAG, "DIAGNOSTIC: modelConfig = " + (modelConfig != null ? modelConfig.getModelName() : "null"));
+        if (modelConfig != null) {
+            Log.d(TAG, "DIAGNOSTIC: modelType = " + modelConfig.getModelType());
+            Log.d(TAG, "DIAGNOSTIC: hasInitializerOnnx = " + modelConfig.hasInitializerOnnx());
+            Log.d(TAG, "DIAGNOSTIC: hasCacheInitializerOnnx = " + modelConfig.hasCacheInitializerOnnx());
+            Log.d(TAG, "DIAGNOSTIC: hasDetokenizerOnnx = " + modelConfig.hasDetokenizerOnnx());
+            Log.d(TAG, "DIAGNOSTIC: numLayers = " + modelConfig.getNumLayers());
+            Log.d(TAG, "DIAGNOSTIC: numMelBins = " + modelConfig.getNumMelBins());
+        }
+        Log.d(TAG, "DIAGNOSTIC: initSession = " + (initSession != null ? "NOT NULL" : "NULL"));
+        Log.d(TAG, "DIAGNOSTIC: encoderSession = " + (encoderSession != null ? "NOT NULL" : "NULL"));
+        Log.d(TAG, "DIAGNOSTIC: decoderSession = " + (decoderSession != null ? "NOT NULL" : "NULL"));
+        Log.d(TAG, "DIAGNOSTIC: cacheInitSession = " + (cacheInitSession != null ? "NOT NULL" : "NULL"));
+        Log.d(TAG, "DIAGNOSTIC: detokenizerSession = " + (detokenizerSession != null ? "NOT NULL" : "NULL"));
+        Log.d(TAG, "DIAGNOSTIC: bpeTokenizer = " + (bpeTokenizer != null ? "NOT NULL" : "NULL"));
+        Log.d(TAG, "DIAGNOSTIC: audioFeatureExtractor = " + (audioFeatureExtractor != null ? "NOT NULL" : "NULL"));
+
         // Check if we have the required sessions FOR THE APPROPRIATE MODEL TYPE
         // Small model: needs initSession, cacheInitSession, detokenizerSession
-        // Large V3 model: needs encoderSession, decoderSession, bpeTokenizer (for detokenization)
+        // Large V3 model: needs encoderSession, decoderSession, bpeTokenizer (for
+        // detokenization)
         boolean hasRequiredSessions = false;
+        boolean isLargeV3Model = false;
         if (modelConfig != null && !modelConfig.hasCacheInitializerOnnx()) {
-            // Large V3 model - needs encoder, decoder, and detokenizer (either ONNX or native BPE)
+            // Large V3 model - needs encoder, decoder, and detokenizer (either ONNX or
+            // native BPE)
+            isLargeV3Model = true;
             boolean hasDetokenizer = (detokenizerSession != null) || (bpeTokenizer != null);
             hasRequiredSessions = (encoderSession != null) && (decoderSession != null) && hasDetokenizer;
+            Log.d(TAG, "DIAGNOSTIC: Detected Large V3 model path, hasRequiredSessions = " + hasRequiredSessions);
         } else {
             // Small INT8 model - needs all helper sessions
-            hasRequiredSessions = (initSession != null) && (encoderSession != null) && 
-                                  (cacheInitSession != null) && (decoderSession != null) && 
-                                  (detokenizerSession != null);
+            hasRequiredSessions = (initSession != null) && (encoderSession != null) &&
+                    (cacheInitSession != null) && (decoderSession != null) &&
+                    (detokenizerSession != null);
+            Log.d(TAG, "DIAGNOSTIC: Detected Small model path, hasRequiredSessions = " + hasRequiredSessions);
         }
-        
+
+        Log.d(TAG, "DIAGNOSTIC: isLargeV3Model = " + isLargeV3Model + ", hasRequiredSessions = " + hasRequiredSessions);
+
         if (hasRequiredSessions) {
+            Log.d(TAG, "DIAGNOSTIC: Entering main processing block - data = " + (data != null ? "NOT NULL" : "NULL"));
             if (data != null) {
                 // we convert data in un audioTensor and start the transcription
+                Log.d(TAG, "DIAGNOSTIC: Starting transcription for " + data.data.length + " audio samples");
                 try {
                     FloatBuffer floatAudioDataBuffer = FloatBuffer.wrap(data.data);
                     OnnxTensor audioTensor = OnnxTensor.createTensor(onnxEnv, floatAudioDataBuffer,
@@ -481,6 +511,11 @@ public class Recognizer extends NeuralNetworkApi {
                     // execution of pre ops
                     long time = System.currentTimeMillis();
                     long startTimeInMs = SystemClock.elapsedRealtime();
+
+                    // DIAGNOSTIC: Check if initSession is null before using it
+                    Log.d(TAG, "DIAGNOSTIC: About to call initSession.run() - initSession is " +
+                            (initSession != null ? "NOT NULL" : "NULL *** BUG: WILL CAUSE NPE ***"));
+
                     Map initInputs = (Map) (new LinkedHashMap());
                     initInputs.put("audio_pcm", audioTensor);
                     OrtSession.Result outputsInit = initSession.run(initInputs);
@@ -521,6 +556,11 @@ public class Recognizer extends NeuralNetworkApi {
                     // We prepare the cache initializer input and execute it
                     Map<String, OnnxTensor> initInput = new HashMap<String, OnnxTensor>();
                     OrtSession.Result initResult = null;
+
+                    // DIAGNOSTIC: Check if cacheInitSession is null before using it
+                    Log.d(TAG, "DIAGNOSTIC: About to call cacheInitSession.run() - cacheInitSession is " +
+                            (cacheInitSession != null ? "NOT NULL" : "NULL *** BUG: WILL CAUSE NPE ***"));
+
                     if (batchSize == 1) {
                         initInput.put("encoder_hidden_states", outputEncoder);
                         time = System.currentTimeMillis();
@@ -699,7 +739,8 @@ public class Recognizer extends NeuralNetworkApi {
                         outputProbability2 = outputProbability2 / completeOutput2.size();
                     }
 
-                    // execution of the detokenizer - use ONNX detokenizer if available, otherwise use native BPE tokenizer
+                    // execution of the detokenizer - use ONNX detokenizer if available, otherwise
+                    // use native BPE tokenizer
                     if (batchSize == 1) {
                         String language = data.languageCode;
                         String finalText = UNDEFINED_TEXT;
@@ -707,7 +748,7 @@ public class Recognizer extends NeuralNetworkApi {
                             int[] sequences = completeOutput.stream().mapToInt(i -> i).toArray();
                             if (language.equals("auto"))
                                 language = getLanguageCode(sequences);
-                            
+
                             // Use ONNX detokenizer if available, otherwise use native BPE tokenizer
                             if (detokenizerSession != null) {
                                 Map detokenizerInputs = (Map) (new LinkedHashMap());
@@ -739,7 +780,7 @@ public class Recognizer extends NeuralNetworkApi {
                             int[] sequence1 = completeOutput.stream().mapToInt(i -> i).toArray();
                             if (language.equals("auto"))
                                 language = getLanguageCode(sequence1);
-                            
+
                             // Use ONNX detokenizer if available, otherwise use native BPE tokenizer
                             if (detokenizerSession != null) {
                                 Map detokenizerInputs = (Map) (new LinkedHashMap());
@@ -761,7 +802,7 @@ public class Recognizer extends NeuralNetworkApi {
                             int[] sequence2 = completeOutput2.stream().mapToInt(i -> i).toArray();
                             if (language.equals("auto"))
                                 language2 = getLanguageCode(sequence2);
-                            
+
                             // Use ONNX detokenizer if available, otherwise use native BPE tokenizer
                             if (detokenizerSession != null) {
                                 Map detokenizerInputs = (Map) (new LinkedHashMap());
