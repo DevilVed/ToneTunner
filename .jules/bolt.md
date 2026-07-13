@@ -1,5 +1,5 @@
-## Pre-existing learnings
+## Performance Learnings
 
-## 2024-05-24 - Pre-allocating Map and caching string concatenations in tight inference loops
-**Learning:** In high-frequency tight loops, such as machine learning decoder loops generating tokens one by one (`Recognizer.java`), dynamic string concatenation (e.g., `"past_key_values." + i + ".decoder.key"`) combined with creating a new `HashMap` each iteration causes immense object allocation overhead and Garbage Collection (GC) churn. We measured a >4x speedup in isolated Java microbenchmarks just by avoiding string formatting and `new HashMap()` calls.
-**Action:** Always scrutinize loops on hot paths (e.g. per-audio-frame or per-inference-token). Pre-calculate static arrays for dynamically generated map keys during class initialization, pre-allocate maps with a static initial capacity sufficient to avoid resizing (e.g. `128`), and clear/reuse the map (`map.clear()`) rather than re-instantiating it.
+* **Primitive Array Lookup Over Collection Methods:** Optimizing `$O(M)$` membership checks (like `ArrayList.contains(i)`) within an `$O(N)$` loop by converting to a primitive `boolean[]` lookup changes the complexity to `$O(N + M)$`. This avoids object allocation overhead entirely. In `Utils.getIndexOfLargest`, a primitive boolean array lookup was ~600x faster than `ArrayList` in a large search space, and importantly ~10-15x faster than using a `HashSet`.
+* **Caching Shared Preferences:** Caching `SharedPreferences` values and using an `OnSharedPreferenceChangeListener` avoids synchronized map lookups.
+* **Avoiding Regex Compilation:** Manual string searching instead of `String.split()` yields massive improvements on hot paths.

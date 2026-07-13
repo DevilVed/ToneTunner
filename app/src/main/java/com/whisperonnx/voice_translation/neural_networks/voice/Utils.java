@@ -102,12 +102,22 @@ public class Utils {
         if (array == null || array.length == 0){
             return -1;
         } // null or empty
+
+        boolean[] avoid = new boolean[array.length];
+        for (int i = 0, size = indexesToAvoid.size(); i < size; i++) {
+            int idx = indexesToAvoid.get(i);
+            if (idx >= 0 && idx < array.length) {
+                avoid[idx] = true;
+            }
+        }
+
         int largestIndex = 0;
         float largest = -Float.MAX_VALUE;
         for (int i = 0; i < array.length; i++) {
-            if (array[i] > largest && !indexesToAvoid.contains(i)) {
+            float val = array[i];
+            if (val > largest && !avoid[i]) {
                 largestIndex = i;
-                largest = array[largestIndex];
+                largest = val;
             }
         }
         //android.util.Log.i("performance", "index of largest time: " + (System.currentTimeMillis()-time) + "ms");
@@ -119,12 +129,22 @@ public class Utils {
         if (array == null || array.length == 0){
             return -1;
         } // null or empty
+
+        boolean[] avoid = new boolean[array.length];
+        for (int i = 0, size = indexesToAvoid.size(); i < size; i++) {
+            int idx = indexesToAvoid.get(i);
+            if (idx >= 0 && idx < array.length) {
+                avoid[idx] = true;
+            }
+        }
+
         int largestIndex = 0;
         double largest = -Double.MAX_VALUE;
         for (int i = 0; i < array.length; i++) {
-            if (array[i] > largest && !indexesToAvoid.contains(i)) {
+            double val = array[i];
+            if (val > largest && !avoid[i]) {
                 largestIndex = i;
-                largest = array[largestIndex];
+                largest = val;
             }
         }
         //android.util.Log.i("performance", "index of largest time: " + (System.currentTimeMillis()-time) + "ms");
