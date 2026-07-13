@@ -1,0 +1,3 @@
+## $(date +%Y-%m-%d) - Enlarge Touch Targets for Settings Checkboxes
+**Learning:** Expanding touch targets for small checkboxes by wrapping them in clickable parent layouts with `?attr/selectableItemBackground` provides a significantly better mobile UX. This prevents users from struggling to tap tiny checkboxes and offers immediate visual feedback via ripples. When implementing, one must map the parent's `setOnClickListener` to trigger the child checkbox's `performClick()` to keep underlying state handlers intact.
+**Action:** Consistently apply `android:clickable="true"`, `android:focusable="true"`, and `android:background="?attr/selectableItemBackground"` to parent containers of small interactive elements to enhance usability and accessibility.

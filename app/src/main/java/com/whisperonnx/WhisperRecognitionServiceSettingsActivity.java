@@ -32,6 +32,7 @@ public class WhisperRecognitionServiceSettingsActivity extends AppCompatActivity
 
     private SharedPreferences sp = null;
     private Spinner spinnerLanguage;
+    private LinearLayout layoutModeChinese;
     private CheckBox modeSimpleChinese;
 
     @SuppressLint("ClickableViewAccessibility")
@@ -68,6 +69,8 @@ public class WhisperRecognitionServiceSettingsActivity extends AppCompatActivity
             }
         });
 
+        layoutModeChinese = findViewById(R.id.layout_mode_chinese);
+        layoutModeChinese.setOnClickListener(v -> modeSimpleChinese.performClick());
         modeSimpleChinese = findViewById(R.id.mode_simple_chinese);
         modeSimpleChinese.setChecked(sp.getBoolean("RecognitionServiceSimpleChinese",false));  //default to traditional Chinese
         modeSimpleChinese.setOnCheckedChangeListener((compoundButton, isChecked) -> {
