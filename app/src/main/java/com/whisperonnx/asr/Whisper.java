@@ -12,10 +12,9 @@ import com.whisperonnx.voice_translation.neural_networks.voice.Recognizer;
 import com.whisperonnx.voice_translation.neural_networks.voice.RecognizerListener;
 
 import java.io.File;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.locks.Condition;
-import java.util.concurrent.locks.Lock;
-import java.util.concurrent.locks.ReentrantLock;
 
 public class Whisper {
 
@@ -34,9 +33,7 @@ public class Whisper {
     private String mLangCode = "";
     private WhisperListener mUpdateListener;
 
-    private final Lock taskLock = new ReentrantLock();
-    private final Condition hasTask = taskLock.newCondition();
-    private volatile boolean taskAvailable = false;
+    private ExecutorService executorService = null;
     private Recognizer recognizer = null;
     private Context mContext;
     private long startTime;
@@ -60,9 +57,8 @@ public class Whisper {
             Intent intent = new Intent(mContext, SetupActivity.class);
             intent.addFlags(FLAG_ACTIVITY_NEW_TASK);
             mContext.startActivity(intent);
-        } else { // Start thread for RecordBuffer transcription
-            Thread threadProcessRecordBuffer = new Thread(this::processRecordBufferLoop);
-            threadProcessRecordBuffer.start();
+        } else { // Init ExecutorService for RecordBuffer transcription
+            executorService = Executors.newSingleThreadExecutor();
         }
 
     }
@@ -106,6 +102,10 @@ public class Whisper {
     }
 
     public void unloadModel() {
+        if (executorService != null) {
+            executorService.shutdownNow();
+            executorService = null;
+        }
         if (recognizer != null) {
             recognizer.destroy();
         }
@@ -124,12 +124,11 @@ public class Whisper {
             Log.d(TAG, "Execution is already in progress...");
             return;
         }
-        taskLock.lock();
-        try {
-            taskAvailable = true;
-            hasTask.signal();
-        } finally {
-            taskLock.unlock();
+        if (executorService != null) {
+            executorService.submit(this::processRecordBuffer);
+        } else {
+            mInProgress.set(false);
+            Log.d(TAG, "ExecutorService not initialized");
         }
     }
 
@@ -139,23 +138,6 @@ public class Whisper {
 
     public boolean isInProgress() {
         return mInProgress.get();
-    }
-
-    private void processRecordBufferLoop() {
-        while (!Thread.currentThread().isInterrupted()) {
-            taskLock.lock();
-            try {
-                while (!taskAvailable) {
-                    hasTask.await();
-                }
-                processRecordBuffer();
-                taskAvailable = false;
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            } finally {
-                taskLock.unlock();
-            }
-        }
     }
 
     private void processRecordBuffer() {
