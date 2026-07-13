@@ -17,6 +17,7 @@
 package com.whisperonnx.voice_translation.neural_networks.voice;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 
 public class Utils {
     public static double softmax(float input, float[] neuronValues) {
@@ -102,10 +103,11 @@ public class Utils {
         if (array == null || array.length == 0){
             return -1;
         } // null or empty
+        HashSet<Integer> avoidSet = new HashSet<>(indexesToAvoid);
         int largestIndex = 0;
         float largest = -Float.MAX_VALUE;
         for (int i = 0; i < array.length; i++) {
-            if (array[i] > largest && !indexesToAvoid.contains(i)) {
+            if (array[i] > largest && !avoidSet.contains(i)) {
                 largestIndex = i;
                 largest = array[largestIndex];
             }
@@ -119,10 +121,11 @@ public class Utils {
         if (array == null || array.length == 0){
             return -1;
         } // null or empty
+        HashSet<Integer> avoidSet = new HashSet<>(indexesToAvoid);
         int largestIndex = 0;
         double largest = -Double.MAX_VALUE;
         for (int i = 0; i < array.length; i++) {
-            if (array[i] > largest && !indexesToAvoid.contains(i)) {
+            if (array[i] > largest && !avoidSet.contains(i)) {
                 largestIndex = i;
                 largest = array[largestIndex];
             }
