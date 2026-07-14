@@ -1,0 +1,3 @@
+## 2024-05-24 - [Avoid O(N^2) ByteArrayOutputStream allocations in audio loops]
+**Learning:** Calling `ByteArrayOutputStream.toByteArray()` inside a high-frequency polling loop (like reading from `AudioRecord`) causes extreme memory churn and O(N^2) allocation overhead as the stream grows, acting as a massive bottleneck. Additionally, `AudioRecord.read()` can return negative error codes; directly utilizing this value in array manipulation math without explicit guards will cause an `IndexOutOfBoundsException`.
+**Action:** Use a fixed-size byte array and a shift-and-append `System.arraycopy` strategy for rolling buffers instead of full allocations. Always wrap audio byte-read logic in strict `if (bytesRead > 0)` and `shift > 0` guards to ensure safe array bounds.

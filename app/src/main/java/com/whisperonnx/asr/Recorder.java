@@ -188,7 +188,9 @@ public class Recorder {
 
         boolean isSpeech;
         boolean isRecording = false;
-        byte[] vadAudioBuffer = new byte[VAD_FRAME_SIZE * 2];  //VAD needs 16 bit
+        int vadBufferSize = VAD_FRAME_SIZE * 2;
+        byte[] vadAudioBuffer = new byte[vadBufferSize];  //VAD needs 16 bit
+        int vadBufferCount = 0;
 
         while (mInProgress.get() && totalBytesRead < bytesForThirtySeconds) {
             int bytesRead = audioRecord.read(audioData, 0, VAD_FRAME_SIZE * 2);
@@ -201,11 +203,21 @@ public class Recorder {
             }
 
             if (useVAD){
-                byte[] outputBufferByteArray = outputBuffer.toByteArray();
-                if (outputBufferByteArray.length >= VAD_FRAME_SIZE * 2) {
-                    // Always use the last VAD_FRAME_SIZE * 2 bytes (16 bit) from outputBuffer for VAD
-                    System.arraycopy(outputBufferByteArray, outputBufferByteArray.length - VAD_FRAME_SIZE * 2, vadAudioBuffer, 0, VAD_FRAME_SIZE * 2);
+                // Efficiently manage vadAudioBuffer without outputBuffer.toByteArray()
+                if (bytesRead >= vadBufferSize) {
+                    System.arraycopy(audioData, bytesRead - vadBufferSize, vadAudioBuffer, 0, vadBufferSize);
+                    vadBufferCount = vadBufferSize;
+                } else if (bytesRead > 0) {
+                    int shift = Math.max(0, vadBufferCount + bytesRead - vadBufferSize);
+                    int keep = vadBufferCount - shift;
+                    if (keep > 0 && shift > 0) {
+                        System.arraycopy(vadAudioBuffer, shift, vadAudioBuffer, 0, keep);
+                    }
+                    System.arraycopy(audioData, 0, vadAudioBuffer, keep, bytesRead);
+                    vadBufferCount = Math.min(vadBufferSize, vadBufferCount + bytesRead);
+                }
 
+                if (vadBufferCount == vadBufferSize) {
                     isSpeech = vad.isSpeech(vadAudioBuffer);
                     if (isSpeech) {
                         if (!isRecording) {
