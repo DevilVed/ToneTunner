@@ -82,8 +82,32 @@ public class SetupActivity extends AppCompatActivity {
                 InputStream src = context.getContentResolver().openInputStream(zipFile);
                 try {
                     try (ZipInputStream zipInputStream = new ZipInputStream(src)) {
+                        String canonicalTargetDirPath = targetDir.getCanonicalPath();
+                        if (!canonicalTargetDirPath.endsWith(File.separator)) {
+                            canonicalTargetDirPath += File.separator;
+                        }
+
                         while ((zipEntry = zipInputStream.getNextEntry()) != null) {
                             File extractedFile = new File(targetDir ,zipEntry.getName());
+                            String canonicalExtractedFile = extractedFile.getCanonicalPath();
+                            if (!canonicalExtractedFile.startsWith(canonicalTargetDirPath)) {
+                                throw new SecurityException("Path traversal attempt detected: " + zipEntry.getName());
+                            }
+
+                            if (zipEntry.isDirectory()) {
+                                if (!extractedFile.isDirectory() && !extractedFile.mkdirs()) {
+                                    throw new IOException("Failed to create directory: " + extractedFile);
+                                }
+                                continue;
+                            }
+
+                            File parent = extractedFile.getParentFile();
+                            if (parent != null && !parent.exists()) {
+                                if (!parent.mkdirs()) {
+                                    throw new IOException("Failed to create parent directory for: " + extractedFile);
+                                }
+                            }
+
                             runOnUiThread(()->{
                                 extractedFileTV.setVisibility(View.VISIBLE);
                                 extractedFileTV.setText(extractedFile.getName());
@@ -94,18 +118,19 @@ public class SetupActivity extends AppCompatActivity {
                                 }
                             }
                         }
-                        runOnUiThread(()->{
-                            progressBar.setIndeterminate(false);
-                            progressBar.setVisibility(View.GONE);
-                            extractedFileTV.setVisibility(View.GONE);
-                            startButton.setVisibility(View.VISIBLE);
-                        });
                     }
-                } catch (IOException ioException) {
-                    ioException.printStackTrace();
+                } catch (SecurityException | IOException e) {
+                    e.printStackTrace();
                 }
             } catch (FileNotFoundException e) {
                 e.printStackTrace();
+            } finally {
+                runOnUiThread(()->{
+                    progressBar.setIndeterminate(false);
+                    progressBar.setVisibility(View.GONE);
+                    extractedFileTV.setVisibility(View.GONE);
+                    startButton.setVisibility(View.VISIBLE);
+                });
             }
         });
         thread.start();
