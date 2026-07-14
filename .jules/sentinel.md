@@ -1,0 +1,4 @@
+## 2024-05-31 - [CRITICAL] Fix Path Traversal in Zip Extraction
+**Vulnerability:** Zip Slip (Path Traversal) vulnerability in `SetupActivity.java` where `ZipInputStream` extracted files without validating if the output path resolved within the intended target directory.
+**Learning:** Android app lifecycle often handles side-loaded resources like ONNX models from Zip files. `ZipInputStream` entries must be manually validated against the canonical path of the target directory (`getCanonicalPath()`) and checked with `startsWith()` to prevent directory traversal. Additionally, parent directories for files inside a zip must be explicitly created.
+**Prevention:** Always validate `extractedFile.getCanonicalPath().startsWith(targetDir.getCanonicalPath() + File.separator)` when using `ZipInputStream`. Ensure directories are explicitly created.
