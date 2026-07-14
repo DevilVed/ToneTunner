@@ -32,6 +32,9 @@
             android:id="@+id/layout_mode_chinese"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?attr/selectableItemBackground"
             android:gravity="start">
 
             <TextView
@@ -48,7 +51,9 @@
                 android:layout_height="wrap_content"
                 android:minWidth="0dp"
                 android:minHeight="0dp"
-                android:contentDescription="@string/simple_chinese"/>
+                android:contentDescription="@string/simple_chinese"
+                android:clickable="false"
+                android:focusable="false"/>
 
         </LinearLayout>
     </LinearLayout>
