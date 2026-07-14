@@ -52,8 +52,12 @@
         </LinearLayout>
 
         <LinearLayout
+            android:id="@+id/layout_mode_append"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?attr/selectableItemBackground"
             android:gravity="start">
 
             <TextView
@@ -70,13 +74,19 @@
                 android:layout_height="wrap_content"
                 android:minWidth="0dp"
                 android:minHeight="0dp"
-                android:contentDescription="@string/append"/>
+                android:contentDescription="@string/append"
+                android:clickable="false"
+                android:focusable="false"/>
 
         </LinearLayout>
 
         <LinearLayout
+            android:id="@+id/layout_mode_translate"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?attr/selectableItemBackground"
             android:gravity="start">
 
             <TextView
@@ -93,7 +103,9 @@
                 android:layout_height="wrap_content"
                 android:minWidth="0dp"
                 android:minHeight="0dp"
-                android:contentDescription="@string/translate"/>
+                android:contentDescription="@string/translate"
+                android:clickable="false"
+                android:focusable="false"/>
 
         </LinearLayout>
 
@@ -102,6 +114,9 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:visibility="gone"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?attr/selectableItemBackground"
             android:gravity="start">
 
             <TextView
@@ -118,7 +133,9 @@
                 android:layout_height="wrap_content"
                 android:minWidth="0dp"
                 android:minHeight="0dp"
-                android:contentDescription="@string/text_to_speech"/>
+                android:contentDescription="@string/text_to_speech"
+                android:clickable="false"
+                android:focusable="false"/>
 
         </LinearLayout>
 
@@ -127,6 +144,9 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:visibility="gone"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?attr/selectableItemBackground"
             android:gravity="start">
 
             <TextView
@@ -143,7 +163,9 @@
                 android:layout_height="wrap_content"
                 android:minWidth="0dp"
                 android:minHeight="0dp"
-                android:contentDescription="@string/simple_chinese"/>
+                android:contentDescription="@string/simple_chinese"
+                android:clickable="false"
+                android:focusable="false"/>
 
         </LinearLayout>
         <!-- Use ProgressBar as "Space" with same look -->

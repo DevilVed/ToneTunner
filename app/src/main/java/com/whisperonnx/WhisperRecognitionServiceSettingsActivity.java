@@ -12,6 +12,7 @@ import android.view.MenuItem;
 import android.view.View;
 import android.widget.AdapterView;
 import android.widget.CheckBox;
+import android.widget.LinearLayout;
 import android.widget.Spinner;
 import android.widget.Toast;
 
@@ -69,6 +70,10 @@ public class WhisperRecognitionServiceSettingsActivity extends AppCompatActivity
         });
 
         modeSimpleChinese = findViewById(R.id.mode_simple_chinese);
+        LinearLayout layoutModeChinese = findViewById(R.id.layout_mode_chinese);
+        if (layoutModeChinese != null) {
+            layoutModeChinese.setOnClickListener(v -> modeSimpleChinese.performClick());
+        }
         modeSimpleChinese.setChecked(sp.getBoolean("RecognitionServiceSimpleChinese",false));  //default to traditional Chinese
         modeSimpleChinese.setOnCheckedChangeListener((compoundButton, isChecked) -> {
             SharedPreferences.Editor editor = sp.edit();
