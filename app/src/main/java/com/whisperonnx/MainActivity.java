@@ -63,6 +63,8 @@ public class MainActivity extends AppCompatActivity {
     private ImageButton btnRecord;
     private LinearLayout layoutModeChinese;
     private LinearLayout layoutTTS;
+    private LinearLayout layoutModeAppend;
+    private LinearLayout layoutModeTranslate;
     private CheckBox append;
     private CheckBox translate;
     private CheckBox modeSimpleChinese;
@@ -105,9 +107,12 @@ public class MainActivity extends AppCompatActivity {
         checkInputMethodEnabled();
         processingBar = findViewById(R.id.processing_bar);
         sp = PreferenceManager.getDefaultSharedPreferences(this);
+        layoutModeAppend = findViewById(R.id.layout_mode_append);
         append = findViewById(R.id.mode_append);
+        layoutModeAppend.setOnClickListener(v -> append.performClick());
 
         layoutTTS = findViewById(R.id.layout_tts);
+        layoutTTS.setOnClickListener(v -> modeTTS.performClick());
         modeTTS = findViewById(R.id.mode_tts);
         modeTTS.setOnCheckedChangeListener((compoundButton, isChecked) -> {
             if (isChecked) {
@@ -132,7 +137,9 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
+        layoutModeTranslate = findViewById(R.id.layout_mode_translate);
         translate = findViewById(R.id.mode_translate);
+        layoutModeTranslate.setOnClickListener(v -> translate.performClick());
         translate.setOnCheckedChangeListener((compoundButton, isChecked) -> {
             layoutTTS.setVisibility(isChecked ? View.VISIBLE : View.GONE);
             if (layoutTTS.getVisibility() == View.GONE)
@@ -209,6 +216,7 @@ public class MainActivity extends AppCompatActivity {
         });
 
         layoutModeChinese = findViewById(R.id.layout_mode_chinese);
+        layoutModeChinese.setOnClickListener(v -> modeSimpleChinese.performClick());
         modeSimpleChinese = findViewById(R.id.mode_simple_chinese);
         modeSimpleChinese.setChecked(sp.getBoolean("simpleChinese", false)); // default to traditional Chinese
         modeSimpleChinese.setOnCheckedChangeListener((compoundButton, isChecked) -> {
