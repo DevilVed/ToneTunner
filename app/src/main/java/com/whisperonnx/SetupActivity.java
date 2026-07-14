@@ -94,9 +94,18 @@ public class SetupActivity extends AppCompatActivity {
                                 throw new SecurityException("Path traversal attempt detected: " + zipEntry.getName());
                             }
 
+                            if (zipEntry.isDirectory()) {
+                                if (!extractedFile.isDirectory() && !extractedFile.mkdirs()) {
+                                    throw new IOException("Failed to create directory: " + extractedFile);
+                                }
+                                continue;
+                            }
+
                             File parent = extractedFile.getParentFile();
                             if (parent != null && !parent.exists()) {
-                                parent.mkdirs();
+                                if (!parent.mkdirs()) {
+                                    throw new IOException("Failed to create parent directory for: " + extractedFile);
+                                }
                             }
 
                             runOnUiThread(()->{
@@ -109,18 +118,19 @@ public class SetupActivity extends AppCompatActivity {
                                 }
                             }
                         }
-                        runOnUiThread(()->{
-                            progressBar.setIndeterminate(false);
-                            progressBar.setVisibility(View.GONE);
-                            extractedFileTV.setVisibility(View.GONE);
-                            startButton.setVisibility(View.VISIBLE);
-                        });
                     }
-                } catch (IOException ioException) {
-                    ioException.printStackTrace();
+                } catch (SecurityException | IOException e) {
+                    e.printStackTrace();
                 }
             } catch (FileNotFoundException e) {
                 e.printStackTrace();
+            } finally {
+                runOnUiThread(()->{
+                    progressBar.setIndeterminate(false);
+                    progressBar.setVisibility(View.GONE);
+                    extractedFileTV.setVisibility(View.GONE);
+                    startButton.setVisibility(View.VISIBLE);
+                });
             }
         });
         thread.start();
