@@ -16,8 +16,8 @@
 
 package com.whisperonnx.voice_translation.neural_networks.voice;
 
-import com.google.common.primitives.Floats;
-import com.google.common.primitives.Ints;
+
+
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -127,45 +127,86 @@ public final class TensorUtils {
     }
 
     public static float[] flattenFloatArray(float[][][] data){
-        float[][] dataFlatTemp = new float[data.length][data[0].length * data[0][0].length];
-        for(int j=0; j<data.length; j++){
-            dataFlatTemp[j] = Floats.concat(data[j]);
+        int dim1 = data.length;
+        int dim2 = data[0].length;
+        int dim3 = data[0][0].length;
+        float[] result = new float[dim1 * dim2 * dim3];
+        int pos = 0;
+        for (int i = 0; i < dim1; i++) {
+            for (int j = 0; j < dim2; j++) {
+                System.arraycopy(data[i][j], 0, result, pos, dim3);
+                pos += dim3;
+            }
         }
-        return Floats.concat(dataFlatTemp);
+        return result;
     }
 
     public static float[] flattenFloatArray(float[][][][] data){
-        float[][] dataFlatTemp = new float[data.length][data[0].length * data[0][0].length * data[0][0][0].length];
-        for(int j=0; j<data.length; j++){
-            dataFlatTemp[j] = flattenFloatArray(data[j]);
+        int dim1 = data.length;
+        int dim2 = data[0].length;
+        int dim3 = data[0][0].length;
+        int dim4 = data[0][0][0].length;
+        float[] result = new float[dim1 * dim2 * dim3 * dim4];
+        int pos = 0;
+        for (int i = 0; i < dim1; i++) {
+            for (int j = 0; j < dim2; j++) {
+                for (int k = 0; k < dim3; k++) {
+                    System.arraycopy(data[i][j][k], 0, result, pos, dim4);
+                    pos += dim4;
+                }
+            }
         }
-        return Floats.concat(dataFlatTemp);
+        return result;
     }
 
     public static float[] flattenFloatArrayBatched(float[][] data, int batchSize){
-        float[] dataFlat = Floats.concat(data);
-        float[][] dataFlatBatchedInit = new float[batchSize][dataFlat.length];
-        for (int i=0; i<batchSize; i++){
-            dataFlatBatchedInit[i] = dataFlat;
+        int dim1 = data.length;
+        int dim2 = data[0].length;
+        int totalLength = dim1 * dim2;
+
+        float[] dataFlat = new float[totalLength];
+        int pos = 0;
+        for (int i = 0; i < dim1; i++) {
+            System.arraycopy(data[i], 0, dataFlat, pos, dim2);
+            pos += dim2;
         }
-        return Floats.concat(dataFlatBatchedInit);
+
+        float[] result = new float[batchSize * totalLength];
+        for (int i = 0; i < batchSize; i++) {
+            System.arraycopy(dataFlat, 0, result, i * totalLength, totalLength);
+        }
+        return result;
     }
 
     public static int[] flattenIntArrayBatched(int[] data, int batchSize){
-        int[][] dataFlatBatchedInit = new int[batchSize][data.length];
-        for (int i=0; i<batchSize; i++){
-            dataFlatBatchedInit[i] = data;
+        int totalLength = data.length;
+        int[] result = new int[batchSize * totalLength];
+        for (int i = 0; i < batchSize; i++) {
+            System.arraycopy(data, 0, result, i * totalLength, totalLength);
         }
-        return Ints.concat(dataFlatBatchedInit);
+        return result;
     }
 
     public static float[] flattenFloatArrayBatched(float[][][] data, int batchSize){
-        float[] dataFlat = flattenFloatArray(data);
-        float[][] keyValueFlatBatchedInit = new float[batchSize][dataFlat.length];
-        for (int j=0; j<batchSize; j++){
-            keyValueFlatBatchedInit[j] = dataFlat;
+        int dim1 = data.length;
+        int dim2 = data[0].length;
+        int dim3 = data[0][0].length;
+        int totalLength = dim1 * dim2 * dim3;
+
+        float[] dataFlat = new float[totalLength];
+        int pos = 0;
+        for (int i = 0; i < dim1; i++) {
+            for (int j = 0; j < dim2; j++) {
+                System.arraycopy(data[i][j], 0, dataFlat, pos, dim3);
+                pos += dim3;
+            }
         }
-        return Floats.concat(keyValueFlatBatchedInit);
+
+        float[] result = new float[batchSize * totalLength];
+        for (int i = 0; i < batchSize; i++) {
+            System.arraycopy(dataFlat, 0, result, i * totalLength, totalLength);
+        }
+        return result;
     }
 
     public static Object extractValue(OrtSession.Result result, String name) throws OrtException {
