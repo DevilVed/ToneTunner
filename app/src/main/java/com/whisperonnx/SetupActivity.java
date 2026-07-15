@@ -82,8 +82,34 @@ public class SetupActivity extends AppCompatActivity {
                 InputStream src = context.getContentResolver().openInputStream(zipFile);
                 try {
                     try (ZipInputStream zipInputStream = new ZipInputStream(src)) {
+                        // Pre-compute target directory canonical path for performance and security
+                        String canonicalTarget = targetDir.getCanonicalPath();
+                        if (!canonicalTarget.endsWith(File.separator)) {
+                            canonicalTarget += File.separator;
+                        }
+
                         while ((zipEntry = zipInputStream.getNextEntry()) != null) {
                             File extractedFile = new File(targetDir ,zipEntry.getName());
+
+                            // Zip Slip protection
+                            String canonicalPath = extractedFile.getCanonicalPath();
+                            if (!canonicalPath.startsWith(canonicalTarget)) {
+                                throw new SecurityException("Zip Slip vulnerability detected: " + canonicalPath);
+                            }
+
+                            if (zipEntry.isDirectory()) {
+                                if (!extractedFile.isDirectory() && !extractedFile.mkdirs()) {
+                                    throw new IOException("Failed to create directory " + extractedFile);
+                                }
+                                continue;
+                            }
+
+                            // Ensure parent directories exist
+                            File parent = extractedFile.getParentFile();
+                            if (parent != null && !parent.exists() && !parent.mkdirs()) {
+                                throw new IOException("Failed to create directory " + parent);
+                            }
+
                             runOnUiThread(()->{
                                 extractedFileTV.setVisibility(View.VISIBLE);
                                 extractedFileTV.setText(extractedFile.getName());
