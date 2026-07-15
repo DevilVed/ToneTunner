@@ -47,7 +47,7 @@ import com.whisperonnx.utils.LanguagePairAdapter;
 import com.whisperonnx.utils.ThemeUtils;
 import com.whisperonnx.voice_translation.neural_networks.voice.Recognizer;
 
-import org.DevilVed.freeDroidWarn.FreeDroidWarn;
+ // removed
 
 import java.util.ArrayList;
 import java.util.List;
@@ -264,7 +264,7 @@ public class MainActivity extends AppCompatActivity {
             }
 
         });
-        FreeDroidWarn.showWarningOnUpgrade(this, BuildConfig.VERSION_CODE);
+         // removed
         if (GithubStar.shouldShowStarDialog(this))
             GithubStar.starDialog(this, "https://github.com/DevilVed/whisperIMEplus");
         // Assume this Activity is the current activity, check record permission

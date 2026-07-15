@@ -81,9 +81,23 @@ public class SetupActivity extends AppCompatActivity {
             try {
                 InputStream src = context.getContentResolver().openInputStream(zipFile);
                 try {
+                    String canonicalTargetDirPath = targetDir.getCanonicalPath() + File.separator;
                     try (ZipInputStream zipInputStream = new ZipInputStream(src)) {
                         while ((zipEntry = zipInputStream.getNextEntry()) != null) {
                             File extractedFile = new File(targetDir ,zipEntry.getName());
+                            String canonicalExtractedPath = extractedFile.getCanonicalPath();
+                            // Security: Prevent Zip Slip path traversal vulnerability
+                            if (!canonicalExtractedPath.startsWith(canonicalTargetDirPath)) {
+                                throw new SecurityException("Entry is outside of the target dir: " + zipEntry.getName());
+                            }
+                            if (zipEntry.isDirectory()) {
+                                extractedFile.mkdirs();
+                                continue;
+                            }
+                            File parent = extractedFile.getParentFile();
+                            if (parent != null && !parent.exists()) {
+                                parent.mkdirs();
+                            }
                             runOnUiThread(()->{
                                 extractedFileTV.setVisibility(View.VISIBLE);
                                 extractedFileTV.setText(extractedFile.getName());
@@ -94,18 +108,19 @@ public class SetupActivity extends AppCompatActivity {
                                 }
                             }
                         }
-                        runOnUiThread(()->{
-                            progressBar.setIndeterminate(false);
-                            progressBar.setVisibility(View.GONE);
-                            extractedFileTV.setVisibility(View.GONE);
-                            startButton.setVisibility(View.VISIBLE);
-                        });
                     }
                 } catch (IOException ioException) {
                     ioException.printStackTrace();
                 }
-            } catch (FileNotFoundException e) {
+            } catch (Exception e) {
                 e.printStackTrace();
+            } finally {
+                runOnUiThread(()->{
+                    progressBar.setIndeterminate(false);
+                    progressBar.setVisibility(View.GONE);
+                    extractedFileTV.setVisibility(View.GONE);
+                    startButton.setVisibility(View.VISIBLE);
+                });
             }
         });
         thread.start();
