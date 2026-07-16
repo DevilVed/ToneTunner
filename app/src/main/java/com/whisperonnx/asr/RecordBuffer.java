@@ -19,26 +19,35 @@ public class RecordBuffer {
 
     public static float[] getSamples() {
 
-        int numSamples = RecordBuffer.getOutputBuffer().length / 2;
-        ByteBuffer byteBuffer = ByteBuffer.wrap(RecordBuffer.getOutputBuffer());
+        byte[] localBuffer = RecordBuffer.getOutputBuffer();
+        if (localBuffer == null) {
+            return new float[0];
+        }
+
+        int numSamples = localBuffer.length / 2;
+        ByteBuffer byteBuffer = ByteBuffer.wrap(localBuffer);
         byteBuffer.order(ByteOrder.nativeOrder());
 
         // Convert audio data to PCM_FLOAT format
         float[] samples = new float[numSamples];
         float maxAbsValue = 0.0f;
+        final float inv32768 = 1.0f / 32768.0f;
 
         for (int i = 0; i < numSamples; i++) {
-            samples[i] = (float) (byteBuffer.getShort() / 32768.0);
+            float sample = byteBuffer.getShort() * inv32768;
+            samples[i] = sample;
             // Track the maximum absolute value
-            if (Math.abs(samples[i]) > maxAbsValue) {
-                maxAbsValue = Math.abs(samples[i]);
+            float absSample = Math.abs(sample);
+            if (absSample > maxAbsValue) {
+                maxAbsValue = absSample;
             }
         }
 
         // Normalize the samples
         if (maxAbsValue > 0.0f) {
+            float invMaxAbs = 1.0f / maxAbsValue;
             for (int i = 0; i < numSamples; i++) {
-                samples[i] /= maxAbsValue;
+                samples[i] *= invMaxAbs;
             }
         }
 
