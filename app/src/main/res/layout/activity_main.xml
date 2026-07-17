@@ -52,8 +52,12 @@
         </LinearLayout>
 
         <LinearLayout
+            android:id="@+id/layout_mode_append"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?attr/selectableItemBackground"
             android:gravity="start">
 
             <TextView
@@ -75,8 +79,12 @@
         </LinearLayout>
 
         <LinearLayout
+            android:id="@+id/layout_mode_translate"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?attr/selectableItemBackground"
             android:gravity="start">
 
             <TextView
@@ -101,6 +109,9 @@
             android:id="@+id/layout_tts"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?attr/selectableItemBackground"
             android:visibility="gone"
             android:gravity="start">
 
@@ -126,6 +137,9 @@
             android:id="@+id/layout_mode_chinese"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?attr/selectableItemBackground"
             android:visibility="gone"
             android:gravity="start">
 
