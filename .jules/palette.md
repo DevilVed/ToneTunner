@@ -1,0 +1,3 @@
+## 2024-05-24 - [Increase CheckBox Touch Targets]
+**Learning:** In Android LinearLayouts containing a CheckBox and text, users expect the entire row to be tappable, not just the small CheckBox UI element itself. This is a common accessibility and usability issue on mobile devices.
+**Action:** Consistently apply `android:clickable="true"`, `android:focusable="true"`, and `android:background="?attr/selectableItemBackground"` to the parent `LinearLayout` row, and wire a click listener in Java that invokes `performClick()` on the child `CheckBox`. This provides a visual ripple effect and correctly toggles the state while preserving existing listeners attached directly to the CheckBox.
