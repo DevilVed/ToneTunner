@@ -80,31 +80,48 @@ public class SetupActivity extends AppCompatActivity {
             byte[] readBuffer = new byte[4096];
             try {
                 InputStream src = context.getContentResolver().openInputStream(zipFile);
-                try {
-                    try (ZipInputStream zipInputStream = new ZipInputStream(src)) {
-                        while ((zipEntry = zipInputStream.getNextEntry()) != null) {
-                            File extractedFile = new File(targetDir ,zipEntry.getName());
-                            runOnUiThread(()->{
-                                extractedFileTV.setVisibility(View.VISIBLE);
-                                extractedFileTV.setText(extractedFile.getName());
-                            });
-                            try (OutputStream outputStream = Files.newOutputStream(extractedFile.toPath())) {
-                                while ((readLen = zipInputStream.read(readBuffer)) != -1) {
-                                    outputStream.write(readBuffer, 0, readLen);
-                                }
+                if (src == null) return;
+                try (ZipInputStream zipInputStream = new ZipInputStream(src)) {
+                    String canonicalTargetDirPath = targetDir.getCanonicalPath() + File.separator;
+                    while ((zipEntry = zipInputStream.getNextEntry()) != null) {
+                        File extractedFile = new File(targetDir, zipEntry.getName());
+                        String canonicalExtractedFilePath = extractedFile.getCanonicalPath();
+                        if (!canonicalExtractedFilePath.startsWith(canonicalTargetDirPath)) {
+                            throw new SecurityException("Entry is outside of the target dir: " + zipEntry.getName());
+                        }
+                        if (zipEntry.isDirectory()) {
+                            extractedFile.mkdirs();
+                            continue;
+                        } else {
+                            File parent = extractedFile.getParentFile();
+                            if (parent != null && !parent.exists()) {
+                                parent.mkdirs();
                             }
                         }
+                        final String fileName = extractedFile.getName();
                         runOnUiThread(()->{
-                            progressBar.setIndeterminate(false);
-                            progressBar.setVisibility(View.GONE);
-                            extractedFileTV.setVisibility(View.GONE);
-                            startButton.setVisibility(View.VISIBLE);
+                            extractedFileTV.setVisibility(View.VISIBLE);
+                            extractedFileTV.setText(fileName);
                         });
+                        try (OutputStream outputStream = Files.newOutputStream(extractedFile.toPath())) {
+                            while ((readLen = zipInputStream.read(readBuffer)) != -1) {
+                                outputStream.write(readBuffer, 0, readLen);
+                            }
+                        }
                     }
                 } catch (IOException ioException) {
                     ioException.printStackTrace();
+                } finally {
+                    runOnUiThread(()->{
+                        progressBar.setIndeterminate(false);
+                        progressBar.setVisibility(View.GONE);
+                        extractedFileTV.setVisibility(View.GONE);
+                        startButton.setVisibility(View.VISIBLE);
+                    });
                 }
             } catch (FileNotFoundException e) {
+                e.printStackTrace();
+            } catch (SecurityException e) {
                 e.printStackTrace();
             }
         });
