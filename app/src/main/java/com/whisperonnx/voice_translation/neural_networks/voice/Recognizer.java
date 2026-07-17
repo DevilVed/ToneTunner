@@ -454,12 +454,12 @@ public class Recognizer extends NeuralNetworkApi {
 
                         if(batchSize == 2){
                             //we calculate and update the probabilities of the two output sentences
-                            double softmax = Utils.softmax(outputValues[max], outputValues);
+                            double logSoftmax = Utils.logSoftmax(outputValues, max);
                             if(!finished1) {
-                                outputProbability1 = outputProbability1 + Math.log(softmax);
+                                outputProbability1 = outputProbability1 + logSoftmax;
                             }
                             if(!finished2) {
-                                outputProbability2 = outputProbability2 + Math.log(Utils.softmax(outputValues2[max2], outputValues2));
+                                outputProbability2 = outputProbability2 + Utils.logSoftmax(outputValues2, max2);
                             }
                         }
 
@@ -498,7 +498,10 @@ public class Recognizer extends NeuralNetworkApi {
                         String language = data.languageCode;
                         String finalText = UNDEFINED_TEXT;
                         if(!execution1HitMaxLength) {
-                            int[] sequences = completeOutput.stream().mapToInt(i -> i).toArray();
+                            int[] sequences = new int[completeOutput.size()];
+                            for(int i = 0; i < completeOutput.size(); i++) {
+                                sequences[i] = completeOutput.get(i);
+                            }
                             if (language.equals("auto")) language = getLanguageCode(sequences);
                             detokenizerInputs.put("sequences", TensorUtils.createInt32Tensor(onnxEnv, sequences, new long[]{1, 1, sequences.length}));
                             OrtSession.Result detokenizerOutputs = this.detokenizerSession.run(detokenizerInputs);
@@ -517,7 +520,10 @@ public class Recognizer extends NeuralNetworkApi {
                         String language2 = data.languageCode2;
                         String firstText = UNDEFINED_TEXT;
                         if(!execution1HitMaxLength) {
-                            int[] sequence1 = completeOutput.stream().mapToInt(i -> i).toArray();
+                            int[] sequence1 = new int[completeOutput.size()];
+                            for(int i = 0; i < completeOutput.size(); i++) {
+                                sequence1[i] = completeOutput.get(i);
+                            }
                             if (language.equals("auto")) language = getLanguageCode(sequence1);
                             detokenizerInputs.put("sequences", OnnxTensor.createTensor(onnxEnv, IntBuffer.wrap(sequence1), TensorUtils.tensorShape(1, 1, sequence1.length)));
                             OrtSession.Result detokenizerOutputs = this.detokenizerSession.run(detokenizerInputs);
@@ -528,7 +534,10 @@ public class Recognizer extends NeuralNetworkApi {
 
                         String secondText = UNDEFINED_TEXT;
                         if(!execution2HitMaxLength) {
-                            int[] sequence2 = completeOutput2.stream().mapToInt(i -> i).toArray();
+                            int[] sequence2 = new int[completeOutput2.size()];
+                            for(int i = 0; i < completeOutput2.size(); i++) {
+                                sequence2[i] = completeOutput2.get(i);
+                            }
                             if (language.equals("auto")) language2 = getLanguageCode(sequence2);
                             detokenizerInputs = (Map) (new LinkedHashMap());
                             detokenizerInputs.put("sequences", OnnxTensor.createTensor(onnxEnv, IntBuffer.wrap(sequence2), TensorUtils.tensorShape(1, 1, sequence2.length)));
