@@ -1,0 +1,3 @@
+## 2024-05-14 - Java Streams Overhead and Log-Softmax
+**Learning:** In Android/Java, using Streams (`Arrays.stream(arr).mapToInt(i -> i).toArray()`) for simple primitive array mapping inside hot execution paths (like neural network loops) introduces significant object allocation overhead compared to primitive `for` loops. Furthermore, calculating probabilities with `Math.log(softmax(...))` is sub-optimal and less numerically stable than computing `logSoftmax` using the log-sum-exp trick.
+**Action:** Avoid Java Streams for primitive conversions in hot paths. Use the combined `logSoftmax` trick over arrays rather than individual softmax calculations followed by logarithms to improve speed and stability.

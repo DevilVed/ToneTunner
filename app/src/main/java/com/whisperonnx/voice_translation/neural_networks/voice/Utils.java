@@ -27,6 +27,20 @@ public class Utils {
         return Math.exp(input) / total;
     }
 
+    public static double logSoftmax(float[] neuronValues, int index) {
+        double max = Double.NEGATIVE_INFINITY;
+        for (float v : neuronValues) {
+            if (v > max) {
+                max = v;
+            }
+        }
+        double sum = 0.0;
+        for (float v : neuronValues) {
+            sum += Math.exp(v - max);
+        }
+        return neuronValues[index] - max - Math.log(sum);
+    }
+
     public static double logSumExp(float[] neuronValues) {
         double total = 0;
         for (float neuronValue : neuronValues) {
