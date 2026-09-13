@@ -78,34 +78,59 @@ public class SetupActivity extends AppCompatActivity {
             ZipEntry zipEntry;
             int readLen;
             byte[] readBuffer = new byte[4096];
+            boolean success = false;
             try {
+                String targetDirPath = targetDir.getCanonicalPath() + File.separator;
                 InputStream src = context.getContentResolver().openInputStream(zipFile);
-                try {
-                    try (ZipInputStream zipInputStream = new ZipInputStream(src)) {
-                        while ((zipEntry = zipInputStream.getNextEntry()) != null) {
-                            File extractedFile = new File(targetDir ,zipEntry.getName());
-                            runOnUiThread(()->{
-                                extractedFileTV.setVisibility(View.VISIBLE);
-                                extractedFileTV.setText(extractedFile.getName());
-                            });
-                            try (OutputStream outputStream = Files.newOutputStream(extractedFile.toPath())) {
-                                while ((readLen = zipInputStream.read(readBuffer)) != -1) {
-                                    outputStream.write(readBuffer, 0, readLen);
-                                }
+                try (ZipInputStream zipInputStream = new ZipInputStream(src)) {
+                    while ((zipEntry = zipInputStream.getNextEntry()) != null) {
+                        File extractedFile = new File(targetDir, zipEntry.getName());
+                        String extractedFilePath = extractedFile.getCanonicalPath();
+
+                        // Prevent Zip Slip vulnerability
+                        if (!extractedFilePath.startsWith(targetDirPath)) {
+                            throw new SecurityException("Entry is outside of the target dir: " + zipEntry.getName());
+                        }
+
+                        if (zipEntry.isDirectory()) {
+                            extractedFile.mkdirs();
+                            continue;
+                        }
+
+                        // Create parent directories if they don't exist
+                        File parent = extractedFile.getParentFile();
+                        if (parent != null && !parent.exists()) {
+                            parent.mkdirs();
+                        }
+
+                        runOnUiThread(()->{
+                            extractedFileTV.setVisibility(View.VISIBLE);
+                            extractedFileTV.setText(extractedFile.getName());
+                        });
+                        try (OutputStream outputStream = Files.newOutputStream(extractedFile.toPath())) {
+                            while ((readLen = zipInputStream.read(readBuffer)) != -1) {
+                                outputStream.write(readBuffer, 0, readLen);
                             }
                         }
-                        runOnUiThread(()->{
-                            progressBar.setIndeterminate(false);
-                            progressBar.setVisibility(View.GONE);
-                            extractedFileTV.setVisibility(View.GONE);
-                            startButton.setVisibility(View.VISIBLE);
-                        });
                     }
+                    success = true;
                 } catch (IOException ioException) {
                     ioException.printStackTrace();
                 }
-            } catch (FileNotFoundException e) {
+            } catch (Exception e) {
                 e.printStackTrace();
+            } finally {
+                final boolean finalSuccess = success;
+                runOnUiThread(()->{
+                    progressBar.setIndeterminate(false);
+                    progressBar.setVisibility(View.GONE);
+                    extractedFileTV.setVisibility(View.GONE);
+                    if (finalSuccess) {
+                        startButton.setVisibility(View.VISIBLE);
+                    } else {
+                        Toast.makeText(context, "Extraction failed", Toast.LENGTH_SHORT).show();
+                    }
+                });
             }
         });
         thread.start();
