@@ -158,10 +158,10 @@ public class Recognizer extends NeuralNetworkApi {
             "yue"
     };
 
-    private final int START_TOKEN_ID = 50258;
-    private final int TRANSLATE_TOKEN_ID = 50358;
-    private final int TRANSCRIBE_TOKEN_ID = 50359;
-    private final int NO_TIMESTAMPS_TOKEN_ID = 50363;
+    private static final int START_TOKEN_ID = 50258;
+    private static final int TRANSLATE_TOKEN_ID = 50358;
+    private static final int TRANSCRIBE_TOKEN_ID = 50359;
+    private static final int NO_TIMESTAMPS_TOKEN_ID = 50363;
 
     private OrtSession session;
     private OrtSession initSession;
@@ -593,11 +593,18 @@ public class Recognizer extends NeuralNetworkApi {
         //eventually if in the future I decide to load Whisper only for WalkieTalkie and Conversation then all the resources will be released here
     }
 
-    public int getLanguageID(String language){
+    // ⚡ Bolt: Cache language IDs in a HashMap for O(1) lookups instead of O(N) array search
+    private static final HashMap<String, Integer> languageIDMap = new HashMap<>(LANGUAGES.length);
+    static {
         for (int i = 0; i < LANGUAGES.length; i++) {
-            if (LANGUAGES[i].equals(language)) {
-                return START_TOKEN_ID + i + 1;
-            }
+            languageIDMap.put(LANGUAGES[i], START_TOKEN_ID + i + 1);
+        }
+    }
+
+    public int getLanguageID(String language){
+        Integer id = languageIDMap.get(language);
+        if (id != null) {
+            return id;
         }
         if (!language.equals("auto")) Log.e("error", "Error Converting Language code " + language + " to Whisper code");
         return -1;
