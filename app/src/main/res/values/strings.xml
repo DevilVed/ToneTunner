@@ -32,4 +32,6 @@
     <string name="error_no_input">No voice input received</string>
     <string name="install_model">Install model</string>
     <string name="auto_lang">Detect language</string>
+    <string name="copied_to_clipboard">Copied to clipboard</string>
+    <string name="nothing_to_copy">Nothing to copy</string>
 </resources>

@@ -222,11 +222,16 @@ public class MainActivity extends AppCompatActivity {
         fabCopy.setOnClickListener(v -> {
             // Get the text from tvResult
             String textToCopy = tvResult.getText().toString().trim();
+            if (textToCopy.isEmpty()) {
+                Toast.makeText(this, getString(R.string.nothing_to_copy), Toast.LENGTH_SHORT).show();
+                return;
+            }
 
             // Copy the text to the clipboard
             ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
             ClipData clip = ClipData.newPlainText(getString(R.string.model_output), textToCopy);
             clipboard.setPrimaryClip(clip);
+            Toast.makeText(this, getString(R.string.copied_to_clipboard), Toast.LENGTH_SHORT).show();
         });
 
         // Audio recording functionality
