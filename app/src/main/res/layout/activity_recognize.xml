@@ -30,7 +30,8 @@
             android:layout_alignParentStart="true"
             android:background="@color/darkGrey"
             android:src="@drawable/ic_cancel_36dp"
-            android:contentDescription="@string/exit_button"/>
+            android:contentDescription="@string/exit_button"
+            android:tooltipText="@string/exit_button"/>
 
         <ImageButton
             android:id="@+id/btnModeAuto"
@@ -39,7 +40,8 @@
             android:layout_alignParentEnd="true"
             android:background="@color/darkGrey"
             android:src="@drawable/ic_auto_off_36dp"
-            android:contentDescription="@string/auto_button"/>
+            android:contentDescription="@string/auto_button"
+            android:tooltipText="@string/auto_button"/>
 
     </RelativeLayout>
 
@@ -58,7 +60,8 @@
             android:layout_weight="1"
             android:background="@drawable/rounded_button_background"
             android:src="@drawable/ic_mic_48dp"
-            android:contentDescription="@string/record_button"/>
+            android:contentDescription="@string/record_button"
+            android:tooltipText="@string/record_button"/>
 
     </LinearLayout>
 

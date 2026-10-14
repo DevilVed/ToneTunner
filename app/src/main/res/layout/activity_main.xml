@@ -180,6 +180,7 @@
                 android:layout_marginEnd="3dp"
                 android:layout_marginBottom="10dp"
                 android:contentDescription="@string/copy_to_clipboard"
+                android:tooltipText="@string/copy_to_clipboard"
                 android:src="@drawable/ic_copy" />
         </RelativeLayout>
 
@@ -205,6 +206,7 @@
                 android:layout_centerHorizontal="true"
                 android:background="@drawable/rounded_button_background"
                 android:contentDescription="@string/record_button"
+                android:tooltipText="@string/record_button"
                 android:src="@drawable/ic_mic_48dp" />
 
             <ImageButton
@@ -214,6 +216,7 @@
                 android:layout_alignParentEnd="true"
                 android:background="@null"
                 android:contentDescription="@string/info"
+                android:tooltipText="@string/info"
                 android:src="@drawable/ic_info_48dp" />
         </RelativeLayout>
     </LinearLayout>

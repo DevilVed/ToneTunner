@@ -30,7 +30,8 @@
             android:layout_alignParentStart="true"
             android:background="@color/darkGrey"
             android:src="@drawable/ic_keyboard_36dp"
-            android:contentDescription="@string/exit_button"/>
+            android:contentDescription="@string/exit_button"
+            android:tooltipText="@string/exit_button"/>
 
         <ImageButton
             android:id="@+id/btnModeAuto"
@@ -39,7 +40,8 @@
             android:layout_centerHorizontal="true"
             android:background="@color/darkGrey"
             android:src="@drawable/ic_auto_off_36dp"
-            android:contentDescription="@string/auto_button"/>
+            android:contentDescription="@string/auto_button"
+            android:tooltipText="@string/auto_button"/>
 
         <ImageButton
             android:id="@+id/btnTranslate"
@@ -48,7 +50,8 @@
             android:layout_alignParentEnd="true"
             android:background="@color/darkGrey"
             android:src="@drawable/ic_english_off_36dp"
-            android:contentDescription="@string/translate"/>
+            android:contentDescription="@string/translate"
+            android:tooltipText="@string/translate"/>
 
     </RelativeLayout>
     <TextView
@@ -78,7 +81,8 @@
             android:layout_weight="1"
             android:background="@drawable/rounded_button_background"
             android:src="@drawable/ic_mic_48dp"
-            android:contentDescription="@string/record_button"/>
+            android:contentDescription="@string/record_button"
+            android:tooltipText="@string/record_button"/>
 
         <ImageButton
             android:id="@+id/btnDel"
@@ -88,7 +92,8 @@
             android:layout_weight="1"
             android:background="@drawable/rounded_button_background"
             android:src="@drawable/ic_keyboard_del_48dp"
-            android:contentDescription="@string/delete_button"/>
+            android:contentDescription="@string/delete_button"
+            android:tooltipText="@string/delete_button"/>
 
         <ImageButton
             android:id="@+id/btnEnter"
@@ -98,7 +103,8 @@
             android:layout_weight="1"
             android:background="@drawable/rounded_button_background"
             android:src="@drawable/ic_keyboard_return_48dp"
-            android:contentDescription="@string/return_button"/>
+            android:contentDescription="@string/return_button"
+            android:tooltipText="@string/return_button"/>
 
     </LinearLayout>
 
