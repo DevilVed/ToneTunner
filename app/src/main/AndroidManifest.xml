@@ -35,13 +35,10 @@
             </intent-filter>
         </activity>
 
+        <!-- Security: SetupActivity is an internal activity for model download/installation and must not be exported to external apps -->
         <activity android:name=".SetupActivity"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-            </intent-filter>
-        </activity>
+            android:exported="false" />
 
         <activity
             android:name=".WhisperRecognizeActivity"
