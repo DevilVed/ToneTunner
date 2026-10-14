@@ -18,31 +18,53 @@ public class RecordBuffer {
     }
 
     public static float[] getSamples() {
-
-        int numSamples = RecordBuffer.getOutputBuffer().length / 2;
-        ByteBuffer byteBuffer = ByteBuffer.wrap(RecordBuffer.getOutputBuffer());
-        byteBuffer.order(ByteOrder.nativeOrder());
-
-        // Convert audio data to PCM_FLOAT format
-        float[] samples = new float[numSamples];
-        float maxAbsValue = 0.0f;
-
-        for (int i = 0; i < numSamples; i++) {
-            samples[i] = (float) (byteBuffer.getShort() / 32768.0);
-            // Track the maximum absolute value
-            if (Math.abs(samples[i]) > maxAbsValue) {
-                maxAbsValue = Math.abs(samples[i]);
-            }
+        byte[] buffer = getOutputBuffer();
+        if (buffer == null) {
+            return new float[0];
         }
 
-        // Normalize the samples
-        if (maxAbsValue > 0.0f) {
-            for (int i = 0; i < numSamples; i++) {
-                samples[i] /= maxAbsValue;
+        int numSamples = buffer.length / 2;
+        float[] samples = new float[numSamples];
+        if (numSamples == 0) {
+            return samples;
+        }
+
+        // Bolt Optimization: Direct byte unpacking avoiding ByteBuffer object allocations and float operations in 1st pass
+        boolean isLittleEndian = ByteOrder.nativeOrder() == ByteOrder.LITTLE_ENDIAN;
+        int maxShort = 0;
+
+        if (isLittleEndian) {
+            for (int i = 0, idx = 0; i < numSamples; i++, idx += 2) {
+                int s = (short) ((buffer[idx] & 0xFF) | ((buffer[idx + 1] & 0xFF) << 8));
+                int absS = s < 0 ? -s : s;
+                if (absS > maxShort) {
+                    maxShort = absS;
+                }
+            }
+            if (maxShort > 0) {
+                float invMax = 1.0f / maxShort;
+                for (int i = 0, idx = 0; i < numSamples; i++, idx += 2) {
+                    int s = (short) ((buffer[idx] & 0xFF) | ((buffer[idx + 1] & 0xFF) << 8));
+                    samples[i] = s * invMax;
+                }
+            }
+        } else {
+            for (int i = 0, idx = 0; i < numSamples; i++, idx += 2) {
+                int s = (short) (((buffer[idx] & 0xFF) << 8) | (buffer[idx + 1] & 0xFF));
+                int absS = s < 0 ? -s : s;
+                if (absS > maxShort) {
+                    maxShort = absS;
+                }
+            }
+            if (maxShort > 0) {
+                float invMax = 1.0f / maxShort;
+                for (int i = 0, idx = 0; i < numSamples; i++, idx += 2) {
+                    int s = (short) (((buffer[idx] & 0xFF) << 8) | (buffer[idx + 1] & 0xFF));
+                    samples[i] = s * invMax;
+                }
             }
         }
 
         return samples;
-
     }
 }
