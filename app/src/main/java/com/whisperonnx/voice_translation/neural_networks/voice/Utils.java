@@ -20,19 +20,47 @@ import java.util.ArrayList;
 
 public class Utils {
     public static double softmax(float input, float[] neuronValues) {
-        double total = 0;
-        for (float neuronValue : neuronValues) {
-            total += Math.exp(neuronValue);
+        if (neuronValues == null || neuronValues.length == 0) {
+            return 0.0;
         }
-        return Math.exp(input) / total;
+        // Max-subtraction prevents numerical overflow and enables thresholding
+        float max = -Float.MAX_VALUE;
+        for (float neuronValue : neuronValues) {
+            if (neuronValue > max) {
+                max = neuronValue;
+            }
+        }
+        double sum = 0.0;
+        for (float neuronValue : neuronValues) {
+            float diff = neuronValue - max;
+            // Skip expensive Math.exp calculation for values > 20 below max (contribute < 2e-9 to sum)
+            if (diff > -20.0f) {
+                sum += Math.exp(diff);
+            }
+        }
+        return sum == 0.0 ? 0.0 : Math.exp(input - max) / sum;
     }
 
     public static double logSumExp(float[] neuronValues) {
-        double total = 0;
-        for (float neuronValue : neuronValues) {
-            total += Math.exp(neuronValue);
+        if (neuronValues == null || neuronValues.length == 0) {
+            return 0.0;
         }
-        return Math.log(total);
+        // Max-subtraction prevents numerical overflow and enables thresholding
+        float max = -Float.MAX_VALUE;
+        for (float neuronValue : neuronValues) {
+            if (neuronValue > max) {
+                max = neuronValue;
+            }
+        }
+        double sum = 0.0;
+        for (float neuronValue : neuronValues) {
+            float diff = neuronValue - max;
+            // Skip expensive Math.exp calculation for values > 20 below max (contribute < 2e-9 to sum)
+            if (diff > -20.0f) {
+                sum += Math.exp(diff);
+            }
+        }
+        return max + Math.log(sum);
     }
 
     public static double logSumExpFast(float[] neuronValues){
