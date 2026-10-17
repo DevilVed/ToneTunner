@@ -1,0 +1,101 @@
+name: Code checks
+
+# Static analysis and dependency scanning. Findings appear under the repository's
+# Security tab (Code scanning, Dependabot alerts) and as downloadable reports.
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  schedule:
+    - cron: "17 3 * * 1" # weekly, so newly published vulnerabilities are caught
+  workflow_dispatch:
+
+concurrency:
+  group: code-checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Android Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.6"
+      - name: Point the build at the runner's Android SDK
+        run: echo "sdk.dir=$ANDROID_HOME" > local.properties
+      - name: Run lint
+        run: gradle lintDebug --stacktrace
+      - name: Upload lint reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lint-report
+          path: app/build/reports/lint-results-debug.*
+          if-no-files-found: warn
+      - name: Publish lint findings to code scanning
+        if: always() && hashFiles('app/build/reports/lint-results-debug.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: app/build/reports/lint-results-debug.sarif
+          category: android-lint
+
+  codeql:
+    name: CodeQL (Java)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.6"
+      - name: Point the build at the runner's Android SDK
+        run: echo "sdk.dir=$ANDROID_HOME" > local.properties
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: java-kotlin
+          build-mode: manual
+          queries: security-and-quality
+      - name: Build for analysis
+        run: gradle assembleDebug --no-build-cache --stacktrace
+      - uses: github/codeql-action/analyze@v3
+        with:
+          category: codeql-java
+
+  dependencies:
+    name: Dependency graph (Dependabot alerts)
+    # Submitting the graph needs write access, which fork pull requests do not get.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Point the build at the runner's Android SDK
+        run: echo "sdk.dir=$ANDROID_HOME" > local.properties
+      - name: Submit dependencies to GitHub
+        uses: gradle/actions/dependency-submission@v4
+        with:
+          gradle-version: "8.6"

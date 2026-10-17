@@ -7,8 +7,12 @@ android {
     namespace 'com.devilved.tonetunner'
     compileSdk 35
 
-    lintOptions{
+    lint {
         disable 'MissingTranslation'
+        // Report everything without failing the build yet; CI uploads the SARIF report to code scanning.
+        abortOnError false
+        sarifReport true
+        htmlReport true
     }
     
     defaultConfig {
