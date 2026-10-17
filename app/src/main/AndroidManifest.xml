@@ -26,7 +26,7 @@
         android:supportsRtl="true"
         android:largeHeap="true"
         android:theme="@style/Theme.Whisper.NoActionBar">
-        <activity android:name="com.whisperonnx.MainActivity"
+        <activity android:name="com.devilved.tonetunner.MainActivity"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize"
             android:exported="true">
             <intent-filter>
@@ -86,7 +86,7 @@
                 android:resource="@xml/whisper_recognition_service_metadata" />
         </service>
 
-        <activity android:name="com.whisperonnx.WhisperRecognitionServiceSettingsActivity"
+        <activity android:name="com.devilved.tonetunner.WhisperRecognitionServiceSettingsActivity"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|uiMode"
             android:theme="@style/Theme.Whisper.ActionBar"
             android:label="@string/voice_input"
