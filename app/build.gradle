@@ -25,7 +25,6 @@ android {
 
     buildFeatures {
         buildConfig = true
-        viewBinding = true
     }
 
     buildTypes {
@@ -60,7 +59,7 @@ dependencies {
     implementation 'androidx.constraintlayout:constraintlayout:2.2.0'
     implementation 'androidx.preference:preference:1.2.1'
 
-    implementation 'com.google.guava:guava:31.1-android'
+    implementation 'com.google.guava:guava:33.3.1-android'  // 31.1 had CVE-2020-8908 and CVE-2023-2976
     implementation 'com.github.gkonovalov.android-vad:webrtc:2.0.9'
     implementation 'com.github.houbb:opencc4j:1.8.1'
 
