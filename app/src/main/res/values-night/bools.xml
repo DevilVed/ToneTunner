@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Light status/navigation-bar icons on the black background -->
+    <bool name="lightSystemBars">false</bool>
+</resources>

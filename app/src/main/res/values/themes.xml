@@ -1,14 +1,37 @@
 <resources>
-    <!-- Base application theme. -->
-    <style name="Theme.Whisper.NoActionBar" parent="Theme.Material3.DayNight.NoActionBar">
-        <!-- Customize your light theme here. -->
+    <!-- Colours come from values/colors.xml (light) and values-night/colors.xml (dark).
+         The DayNight parent plus MODE_NIGHT_FOLLOW_SYSTEM make every screen follow the device's
+         light/dark setting automatically. -->
+    <style name="Theme.Whisper.Base" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/m3Primary</item>
+        <item name="colorOnPrimary">@color/m3OnPrimary</item>
+        <item name="colorPrimaryContainer">@color/m3PrimaryContainer</item>
+        <item name="colorOnPrimaryContainer">@color/m3OnPrimaryContainer</item>
+        <item name="colorSecondary">@color/m3Secondary</item>
+        <item name="colorOnSecondary">@color/m3OnSecondary</item>
+        <item name="colorSecondaryContainer">@color/m3SecondaryContainer</item>
+        <item name="colorOnSecondaryContainer">@color/m3OnSecondaryContainer</item>
+        <item name="colorTertiary">@color/m3Secondary</item>
+        <item name="android:colorBackground">@color/windowBackground</item>
+        <item name="colorSurface">@color/m3Surface</item>
+        <item name="colorSurfaceContainer">@color/m3SurfaceContainer</item>
+        <item name="colorSurfaceContainerHigh">@color/m3SurfaceContainer</item>
+        <item name="colorSurfaceContainerHighest">@color/m3SurfaceContainer</item>
+        <item name="colorOnSurface">@color/m3OnSurface</item>
+        <item name="colorOnSurfaceVariant">@color/m3OnSurfaceVariant</item>
+        <item name="colorOutline">@color/m3Outline</item>
         <item name="android:windowBackground">@color/windowBackground</item>
+        <item name="android:statusBarColor">@color/windowBackground</item>
+        <item name="android:navigationBarColor">@color/windowBackground</item>
+        <item name="android:windowLightStatusBar">@bool/lightSystemBars</item>
+        <item name="android:windowLightNavigationBar">@bool/lightSystemBars</item>
     </style>
 
-    <!-- Base application theme. -->
-    <style name="Theme.Whisper.ActionBar" parent="Theme.Material3.DayNight">
-        <!-- Customize your light theme here. -->
-        <item name="android:windowBackground">@color/windowBackground</item>
+    <style name="Theme.Whisper.NoActionBar" parent="Theme.Whisper.Base" />
+
+    <style name="Theme.Whisper.ActionBar" parent="Theme.Whisper.Base">
+        <item name="windowActionBar">true</item>
+        <item name="windowNoTitle">false</item>
     </style>
 
     <style name="Theme.WhisperFloating" parent="Theme.Whisper.NoActionBar">
