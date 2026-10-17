@@ -50,7 +50,8 @@ public class Whisper {
     private final Lock taskLock = new ReentrantLock();
     private final Condition hasTask = taskLock.newCondition();
     private volatile boolean taskAvailable = false;
-    private Recognizer recognizer = null;
+    private volatile Recognizer recognizer = null;
+    private Thread threadProcessRecordBuffer = null;
     private Context mContext;
     private long startTime;
 
@@ -62,7 +63,7 @@ public class Whisper {
             intent.addFlags(FLAG_ACTIVITY_NEW_TASK);
             mContext.startActivity(intent);
         } else { // Start thread for RecordBuffer transcription
-            Thread threadProcessRecordBuffer = new Thread(this::processRecordBufferLoop);
+            threadProcessRecordBuffer = new Thread(this::processRecordBufferLoop, "WhisperProcess");
             threadProcessRecordBuffer.start();
         }
 
@@ -82,6 +83,7 @@ public class Whisper {
     }
 
     public void loadModel() {
+        if (threadProcessRecordBuffer == null) return; // model not installed: SetupActivity was opened instead
         recognizer = new Recognizer(mContext, false, new NeuralNetworkApi.InitListener() {
             @Override
             public void onInitializationFinished() {
@@ -120,8 +122,14 @@ public class Whisper {
     }
 
     public void unloadModel() {
+        // Stop the worker thread too: it otherwise lives forever and keeps this Whisper (and its model) reachable
+        if (threadProcessRecordBuffer != null) {
+            threadProcessRecordBuffer.interrupt();
+            threadProcessRecordBuffer = null;
+        }
         if (recognizer != null) {
             recognizer.destroy();
+            recognizer = null;
         }
     }
 
@@ -136,6 +144,11 @@ public class Whisper {
     public void start() {
         if (!mInProgress.compareAndSet(false, true)) {
             Log.d(TAG, "Execution is already in progress...");
+            return;
+        }
+        if (threadProcessRecordBuffer == null) {
+            mInProgress.set(false);
+            sendError("Whisper model is not installed");
             return;
         }
         taskLock.lock();
@@ -174,10 +187,13 @@ public class Whisper {
 
     private void processRecordBuffer() {
         try {
-            if (RecordBuffer.getOutputBuffer() != null) {
+            Recognizer currentRecognizer = recognizer;  // read once: unloadModel() may clear it concurrently
+            if (currentRecognizer == null) {
+                sendError("Model is not loaded");
+            } else if (RecordBuffer.getOutputBuffer() != null) {
                 startTime = System.currentTimeMillis();
                 sendUpdate(MSG_PROCESSING);
-                recognizer.recognize(RecordBuffer.getSamples(),1, mLangCode, mAction );
+                currentRecognizer.recognize(RecordBuffer.getSamples(),1, mLangCode, mAction );
             } else {
                 sendError("No recording available");
             }

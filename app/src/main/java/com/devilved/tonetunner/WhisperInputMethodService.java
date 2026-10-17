@@ -62,8 +62,9 @@ public class WhisperInputMethodService extends InputMethodService {
     @Override
     public void onDestroy() {
         deinitModel();
-        if (mRecorder != null && mRecorder.isInProgress()) {
-            mRecorder.stop();
+        if (mRecorder != null) {
+            if (mRecorder.isInProgress()) mRecorder.stop();
+            mRecorder.release();
         }
         super.onDestroy();
     }
@@ -107,6 +108,7 @@ public class WhisperInputMethodService extends InputMethodService {
         checkRecordPermission();
 
         // Audio recording functionality
+        if (mRecorder != null) mRecorder.release();  // the input view can be recreated, e.g. on configuration changes
         mRecorder = new Recorder(this);
         mRecorder.setListener(new Recorder.RecorderListener() {
             @Override

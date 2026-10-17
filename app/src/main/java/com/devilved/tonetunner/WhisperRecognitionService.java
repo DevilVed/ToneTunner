@@ -55,6 +55,7 @@ public class WhisperRecognitionService extends RecognitionService {
 
         initModel(callback, langCode);
 
+        if (mRecorder != null) mRecorder.release();  // each request creates a new recorder
         mRecorder = new Recorder(this);
         mRecorder.setListener(message -> {
             if (message.equals(Recorder.MSG_RECORDING)){
@@ -204,6 +205,8 @@ public class WhisperRecognitionService extends RecognitionService {
     @Override
     public void onDestroy (){
         deinitModel();
+        if (mRecorder != null) mRecorder.release();
+        super.onDestroy();
     }
     private void deinitModel() {
         if (mWhisper != null) {

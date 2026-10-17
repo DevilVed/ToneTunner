@@ -122,6 +122,12 @@ public class Recorder {
         }
     }
 
+    // Ends the worker thread; call when this Recorder is no longer used, otherwise the thread lives forever.
+    public void release() {
+        mInProgress.set(false);
+        workerThread.interrupt();
+    }
+
     public boolean isInProgress() {
         return mInProgress.get();
     }

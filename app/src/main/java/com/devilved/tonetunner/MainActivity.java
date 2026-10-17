@@ -83,6 +83,7 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onDestroy() {
         deinitModel();
+        if (mRecorder != null) mRecorder.release();
         deinitTTS();
         super.onDestroy();
     }

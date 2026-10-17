@@ -261,8 +261,9 @@ public class WhisperRecognizeActivity extends AppCompatActivity {
     @Override
     public void onDestroy() {
         deinitModel();
-        if (mRecorder != null && mRecorder.isInProgress()) {
-            mRecorder.stop();
+        if (mRecorder != null) {
+            if (mRecorder.isInProgress()) mRecorder.stop();
+            mRecorder.release();
         }
         super.onDestroy();
     }

@@ -29,6 +29,7 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 import ai.onnxruntime.OnnxTensor;
@@ -47,6 +48,7 @@ public class Recognizer extends NeuralNetworkApi {
     private boolean recognizing = false;
     private ArrayDeque<DataContainer> dataToRecognize = new ArrayDeque<>();
     private final Object lock = new Object();
+    private volatile boolean destroyed = false;
 
     public static final Action ACTION_TRANSCRIBE = Action.TRANSCRIBE;
     public static final Action ACTION_TRANSLATE = Action.TRANSLATE;
@@ -187,63 +189,69 @@ public class Recognizer extends NeuralNetworkApi {
         new Thread(new Runnable() {
             @Override
             public void run() {
-                try {
-                    OrtSession.SessionOptions initSessionOptions = new OrtSession.SessionOptions();
-                    initSessionOptions.registerCustomOpLibrary(OrtxPackage.getLibraryPath());
-                    initSessionOptions.setCPUArenaAllocator(false);
-                    initSessionOptions.setMemoryPatternOptimization(false);
-                    initSessionOptions.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.NO_OPT);
-                    initSession = onnxEnv.createSession(modelInitPath, initSessionOptions);
+                // Holding the lock while loading makes recognition requests wait for the model instead of being
+                // rejected, and keeps destroy() from closing sessions while they are being created.
+                synchronized (lock) {
+                    if (destroyed) return;
+                    try {
+                        OrtSession.SessionOptions initSessionOptions = new OrtSession.SessionOptions();
+                        initSessionOptions.registerCustomOpLibrary(OrtxPackage.getLibraryPath());
+                        initSessionOptions.setCPUArenaAllocator(false);
+                        initSessionOptions.setMemoryPatternOptimization(false);
+                        initSessionOptions.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.NO_OPT);
+                        initSession = onnxEnv.createSession(modelInitPath, initSessionOptions);
 
-                    OrtSession.SessionOptions encoderSessionOptions = new OrtSession.SessionOptions();
-                    encoderSessionOptions.registerCustomOpLibrary(OrtxPackage.getLibraryPath());
+                        OrtSession.SessionOptions encoderSessionOptions = new OrtSession.SessionOptions();
+                        encoderSessionOptions.registerCustomOpLibrary(OrtxPackage.getLibraryPath());
 
-                    ActivityManager actManager = (ActivityManager) context.getSystemService(Context.ACTIVITY_SERVICE);
-                    ActivityManager.MemoryInfo memInfo = new ActivityManager.MemoryInfo();
-                    actManager.getMemoryInfo(memInfo);
-                    long totalMemory = memInfo.totalMem / 1000000L;
+                        ActivityManager actManager = (ActivityManager) context.getSystemService(Context.ACTIVITY_SERVICE);
+                        ActivityManager.MemoryInfo memInfo = new ActivityManager.MemoryInfo();
+                        actManager.getMemoryInfo(memInfo);
+                        long totalMemory = memInfo.totalMem / 1000000L;
 
-                    if(totalMemory <= 7000){
-                        encoderSessionOptions.setCPUArenaAllocator(false);
-                        encoderSessionOptions.setMemoryPatternOptimization(false);
-                    }else {
-                        encoderSessionOptions.setCPUArenaAllocator(true);
-                        encoderSessionOptions.setMemoryPatternOptimization(true);
+                        if(totalMemory <= 7000){
+                            encoderSessionOptions.setCPUArenaAllocator(false);
+                            encoderSessionOptions.setMemoryPatternOptimization(false);
+                        }else {
+                            encoderSessionOptions.setCPUArenaAllocator(true);
+                            encoderSessionOptions.setMemoryPatternOptimization(true);
+                        }
+                        encoderSessionOptions.setSymbolicDimensionValue("batch_size", 1);
+                        encoderSessionOptions.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.NO_OPT);
+                        encoderSession = onnxEnv.createSession(encoderPath, encoderSessionOptions);
+
+                        OrtSession.SessionOptions cacheSessionOptions = new OrtSession.SessionOptions();
+                        cacheSessionOptions.registerCustomOpLibrary(OrtxPackage.getLibraryPath());
+                        cacheSessionOptions.setCPUArenaAllocator(false);
+                        cacheSessionOptions.setMemoryPatternOptimization(false);
+                        cacheSessionOptions.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.NO_OPT);
+                        cacheInitSession = onnxEnv.createSession(cacheInitPath, cacheSessionOptions);
+                        cacheInitBatchSession = onnxEnv.createSession(cacheInitBatchPath, cacheSessionOptions);
+
+                        OrtSession.SessionOptions decoderSessionOptions = new OrtSession.SessionOptions();
+                        decoderSessionOptions.registerCustomOpLibrary(OrtxPackage.getLibraryPath());
+                        decoderSessionOptions.setCPUArenaAllocator(false);
+                        decoderSessionOptions.setMemoryPatternOptimization(false);
+                        decoderSessionOptions.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.NO_OPT);
+                        decoderSession = onnxEnv.createSession(decoderPath, decoderSessionOptions);
+
+                        OrtSession.SessionOptions detokenizerSessionOptions = new OrtSession.SessionOptions();
+                        detokenizerSessionOptions.registerCustomOpLibrary(OrtxPackage.getLibraryPath());
+                        detokenizerSessionOptions.setCPUArenaAllocator(false);
+                        detokenizerSessionOptions.setMemoryPatternOptimization(false);
+                        //detokenizerSessionOptions.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.NO_OPT);
+                        detokenizerSession = onnxEnv.createSession(detokenizerPath, detokenizerSessionOptions);
+
+                        initListener.onInitializationFinished();
+                    } catch (OrtException | RuntimeException | OutOfMemoryError e) {
+                        // OutOfMemoryError: a model too large for the device must be reported, not crash the app
+                        Log.e("recognizer", "Loading the model failed", e);
+                        closeSessions();  // free whatever was loaded before the failure
+                        initListener.onError(new int[]{ErrorCodes.ERROR_LOADING_MODEL},0);
                     }
-                    encoderSessionOptions.setSymbolicDimensionValue("batch_size", 1);
-                    encoderSessionOptions.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.NO_OPT);
-                    encoderSession = onnxEnv.createSession(encoderPath, encoderSessionOptions);
-
-                    OrtSession.SessionOptions cacheSessionOptions = new OrtSession.SessionOptions();
-                    cacheSessionOptions.registerCustomOpLibrary(OrtxPackage.getLibraryPath());
-                    cacheSessionOptions.setCPUArenaAllocator(false);
-                    cacheSessionOptions.setMemoryPatternOptimization(false);
-                    cacheSessionOptions.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.NO_OPT);
-                    cacheInitSession = onnxEnv.createSession(cacheInitPath, cacheSessionOptions);
-                    cacheInitBatchSession = onnxEnv.createSession(cacheInitBatchPath, cacheSessionOptions);
-
-                    OrtSession.SessionOptions decoderSessionOptions = new OrtSession.SessionOptions();
-                    decoderSessionOptions.registerCustomOpLibrary(OrtxPackage.getLibraryPath());
-                    decoderSessionOptions.setCPUArenaAllocator(false);
-                    decoderSessionOptions.setMemoryPatternOptimization(false);
-                    decoderSessionOptions.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.NO_OPT);
-                    decoderSession = onnxEnv.createSession(decoderPath, decoderSessionOptions);
-
-                    OrtSession.SessionOptions detokenizerSessionOptions = new OrtSession.SessionOptions();
-                    detokenizerSessionOptions.registerCustomOpLibrary(OrtxPackage.getLibraryPath());
-                    detokenizerSessionOptions.setCPUArenaAllocator(false);
-                    detokenizerSessionOptions.setMemoryPatternOptimization(false);
-                    //detokenizerSessionOptions.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.NO_OPT);
-                    detokenizerSession = onnxEnv.createSession(detokenizerPath, detokenizerSessionOptions);
-
-                    initListener.onInitializationFinished();
-                } catch (OrtException | RuntimeException | OutOfMemoryError e) {
-                    // OutOfMemoryError: a model too large for the device must be reported, not crash the app
-                    Log.e("recognizer", "Loading the model failed", e);
-                    initListener.onError(new int[]{ErrorCodes.ERROR_LOADING_MODEL},0);
                 }
             }
-        }).start();
+        }, "recognizerInit").start();
     }
 
     /**
@@ -293,10 +301,16 @@ public class Recognizer extends NeuralNetworkApi {
         DataContainer data = dataToRecognize.pollFirst();
         if (initSession != null && encoderSession != null && cacheInitSession != null && decoderSession != null && detokenizerSession != null) {
             if (data != null) {
+                // Native ONNX memory is only freed by close(): everything created below is closed in finally,
+                // whether recognition succeeds or fails.
+                ArrayList<AutoCloseable> toClose = new ArrayList<>();
+                OnnxTensor inputIDsTensor = null;   // decoder input, replaced every token
+                OrtSession.Result result = null;    // decoder output, replaced every token
                 //we convert data in un audioTensor and start the transcription
                 try {
                     FloatBuffer floatAudioDataBuffer = FloatBuffer.wrap(data.data);
                     OnnxTensor audioTensor = OnnxTensor.createTensor(onnxEnv, floatAudioDataBuffer, TensorUtils.tensorShape(1L, (long) data.data.length));
+                    toClose.add(audioTensor);
 
                     // if we generate more than this number of tokens it means that we have an infinite loop due to the fact that the sound cannot be transcribed with the language selected
                     int maxTokens = (data.data.length / 16000) * MAX_TOKENS_PER_SECOND;
@@ -312,6 +326,7 @@ public class Recognizer extends NeuralNetworkApi {
                     Map initInputs = (Map) (new LinkedHashMap());
                     initInputs.put("audio_pcm", audioTensor);
                     OrtSession.Result outputsInit = initSession.run(initInputs);
+                    toClose.add(outputsInit);
                     OnnxTensor outputInit = (OnnxTensor) outputsInit.get(0);
                     //Log.i("performance", "pre ops done in: " + (System.currentTimeMillis()-time) + "ms");
 
@@ -319,6 +334,7 @@ public class Recognizer extends NeuralNetworkApi {
                     Map inputs = (Map) (new LinkedHashMap());
                     inputs.put("input_features", outputInit);
                     OrtSession.Result outputs = encoderSession.run(inputs);
+                    toClose.add(outputs);
                     OnnxTensor outputEncoder = (OnnxTensor) outputs.get(0);
                     //Log.i("performance", "Encoder done in: " + (SystemClock.elapsedRealtime() - startTimeInMs) + "ms");
 
@@ -332,7 +348,6 @@ public class Recognizer extends NeuralNetworkApi {
                     boolean finished2 = false;
                     long initialTime;
 
-                    OnnxTensor inputIDsTensor = null;
                     OnnxTensor decoderOutput = null;
                     Map<String, OnnxTensor> decoderInput = new HashMap<String, OnnxTensor>();
                     float[][][] value = null;
@@ -351,6 +366,7 @@ public class Recognizer extends NeuralNetworkApi {
                         initInput.put("encoder_hidden_states", outputEncoder);
                         time = System.currentTimeMillis();
                         initResult = cacheInitSession.run(initInput);
+                        toClose.add(initResult);
                         //Log.i("performance", "Cache initialization done in: " + (System.currentTimeMillis() - time) + "ms");
                     }else{
                         long timeInner = System.currentTimeMillis();
@@ -362,14 +378,15 @@ public class Recognizer extends NeuralNetworkApi {
                         timeInner = System.currentTimeMillis();
                         OnnxTensor outputEncoderBatched = TensorUtils.createFloatTensor(onnxEnv, outputEncoderFlatBatched, new long[]{2, outputEncoderValue.length, outputEncoderValue[0].length}, new long[]{0});
                         //Log.i("performance", "Encoder batch creation done in: " + (System.currentTimeMillis()-timeInner) + "ms");
+                        toClose.add(outputEncoderBatched);
                         initInput.put("encoder_hidden_states", outputEncoderBatched);
                         time = System.currentTimeMillis();
                         initResult = cacheInitBatchSession.run(initInput);
+                        toClose.add(initResult);
                         //Log.i("performance", "Cache initialization done in: " + (System.currentTimeMillis() - time) + "ms");
                     }
 
                     //We start the iterative execution of the decoder
-                    OrtSession.Result result = null;
                     OrtSession.Result oldResult = null;
                     int max = -1;
                     int max2 = eos;
@@ -392,9 +409,11 @@ public class Recognizer extends NeuralNetworkApi {
                                 if (languageID == -1 && j == 2) {  //In case of just one language allow "auto" detection
                                     Log.d("decoderInitialInputIDs", "language auto dectect");
                                 } else {
+                                    if (inputIDsTensor != null) inputIDsTensor.close();
                                     inputIDsTensor = TensorUtils.convertIntArrayToTensor(onnxEnv, new int[]{decoderInitialInputIDs[j-1]});
                                 }
                             }else{
+                                if (inputIDsTensor != null) inputIDsTensor.close();
                                 inputIDsTensor = TensorUtils.convertIntArrayToTensor(onnxEnv, new int[]{decoderInitialInputIDs[j-1], decoderInitialInputIDs2[j-1]}, new long[]{2,1});
                             }
                         }
@@ -404,6 +423,7 @@ public class Recognizer extends NeuralNetworkApi {
                         if (isFirstIteration) {
                             long[] shape = {batchSize, 12, 0, 64};
                             OnnxTensor decoderPastTensor = TensorUtils.createFloatTensorWithSingleValue(onnxEnv, 0, shape);
+                            toClose.add(decoderPastTensor);
                             for (int i = 0; i < 12; i++) {
                                 decoderInput.put("past_key_values." + i + ".decoder.key", decoderPastTensor);
                                 decoderInput.put("past_key_values." + i + ".decoder.value", decoderPastTensor);
@@ -446,7 +466,8 @@ public class Recognizer extends NeuralNetworkApi {
                                 completeOutput2.add(max2);
                             }
                         }
-                        //We prepare the inputs for the next iteration
+                        //We prepare the inputs for the next iteration (the input just used is no longer needed)
+                        inputIDsTensor.close();
                         if(batchSize == 1) {
                             inputIDsTensor = TensorUtils.convertIntArrayToTensor(onnxEnv, new int[]{max});
                         }else{
@@ -501,7 +522,9 @@ public class Recognizer extends NeuralNetworkApi {
                         if(!execution1HitMaxLength) {
                             int[] sequences = completeOutput.stream().mapToInt(i -> i).toArray();
                             if (language.equals("auto")) language = getLanguageCode(sequences);
-                            detokenizerInputs.put("sequences", TensorUtils.createInt32Tensor(onnxEnv, sequences, new long[]{1, 1, sequences.length}));
+                            OnnxTensor sequencesTensor = TensorUtils.createInt32Tensor(onnxEnv, sequences, new long[]{1, 1, sequences.length});
+                            toClose.add(sequencesTensor);
+                            detokenizerInputs.put("sequences", sequencesTensor);
                             OrtSession.Result detokenizerOutputs = this.detokenizerSession.run(detokenizerInputs);
                             Object finalTextResult = detokenizerOutputs.get(0).getValue();
                             finalText = ((String[][]) finalTextResult)[0][0];
@@ -510,7 +533,6 @@ public class Recognizer extends NeuralNetworkApi {
                         //Log.i("result", "result: " + correctText(finalText));
                         //Log.i("score", "score: " + outputProbability1);
 
-                        outputs.close();
                         notifyResult(correctText(finalText), language, outputProbability1, true);
 
                     }else{
@@ -520,7 +542,9 @@ public class Recognizer extends NeuralNetworkApi {
                         if(!execution1HitMaxLength) {
                             int[] sequence1 = completeOutput.stream().mapToInt(i -> i).toArray();
                             if (language.equals("auto")) language = getLanguageCode(sequence1);
-                            detokenizerInputs.put("sequences", OnnxTensor.createTensor(onnxEnv, IntBuffer.wrap(sequence1), TensorUtils.tensorShape(1, 1, sequence1.length)));
+                            OnnxTensor sequencesTensor1 = OnnxTensor.createTensor(onnxEnv, IntBuffer.wrap(sequence1), TensorUtils.tensorShape(1, 1, sequence1.length));
+                            toClose.add(sequencesTensor1);
+                            detokenizerInputs.put("sequences", sequencesTensor1);
                             OrtSession.Result detokenizerOutputs = this.detokenizerSession.run(detokenizerInputs);
                             Object firstTextResult = detokenizerOutputs.get(0).getValue();
                             firstText = ((String[][]) firstTextResult)[0][0];
@@ -532,7 +556,9 @@ public class Recognizer extends NeuralNetworkApi {
                             int[] sequence2 = completeOutput2.stream().mapToInt(i -> i).toArray();
                             if (language.equals("auto")) language2 = getLanguageCode(sequence2);
                             detokenizerInputs = (Map) (new LinkedHashMap());
-                            detokenizerInputs.put("sequences", OnnxTensor.createTensor(onnxEnv, IntBuffer.wrap(sequence2), TensorUtils.tensorShape(1, 1, sequence2.length)));
+                            OnnxTensor sequencesTensor2 = OnnxTensor.createTensor(onnxEnv, IntBuffer.wrap(sequence2), TensorUtils.tensorShape(1, 1, sequence2.length));
+                            toClose.add(sequencesTensor2);
+                            detokenizerInputs.put("sequences", sequencesTensor2);
                             OrtSession.Result detokenizerOutputs2 = this.detokenizerSession.run(detokenizerInputs);
                             Object secondTextResult = detokenizerOutputs2.get(0).getValue();
                             secondText = ((String[][]) secondTextResult)[0][0];
@@ -546,17 +572,16 @@ public class Recognizer extends NeuralNetworkApi {
 
                         notifyMultiResult(correctText(firstText), language, outputProbability1, correctText(secondText), language2, outputProbability2);
                     }
-                    //closing all results
-                    outputs.close();
-                    outputInit.close();
-                    initResult.close();
-
                     Log.i("performance", "SPEECH RECOGNITION DONE IN: " + (SystemClock.elapsedRealtime() - startTimeInMs) + "ms");
 
                 } catch (OrtException | RuntimeException e) {
                     // RuntimeException too: an uncaught one would kill this thread and leave "recognizing" stuck
                     Log.e("recognizer", "Recognition failed", e);
                     notifyError(new int[]{ErrorCodes.ERROR_EXECUTING_MODEL}, 0);
+                } finally {
+                    if (inputIDsTensor != null) toClose.add(inputIDsTensor);
+                    if (result != null) toClose.add(result);
+                    closeAll(toClose);
                 }
             }
         } else if (data != null) {
@@ -567,6 +592,16 @@ public class Recognizer extends NeuralNetworkApi {
             recognize();
         }else {
             recognizing = false;
+        }
+    }
+
+    private static void closeAll(List<? extends AutoCloseable> resources) {
+        for (AutoCloseable resource : resources) {
+            try {
+                resource.close();
+            } catch (Exception e) {
+                Log.w("recognizer", "Failed to release an ONNX resource", e);
+            }
         }
     }
 
@@ -594,8 +629,32 @@ public class Recognizer extends NeuralNetworkApi {
         return correctedText;
     }
 
+    /**
+     * Releases the ONNX sessions (hundreds of MB of native memory). Runs in the background because it waits
+     * for a running recognition or model load to finish first.
+     */
     public void destroy() {
-        //eventually if in the future I decide to load Whisper only for WalkieTalkie and Conversation then all the resources will be released here
+        destroyed = true;
+        new Thread(() -> {
+            synchronized (lock) {
+                closeSessions();
+                dataToRecognize.clear();
+            }
+        }, "recognizerDestroy").start();
+    }
+
+    // Must be called while holding lock
+    private void closeSessions() {
+        OrtSession[] sessions = {session, initSession, encoderSession, cacheInitSession, cacheInitBatchSession, decoderSession, detokenizerSession};
+        for (OrtSession s : sessions) {
+            if (s == null) continue;
+            try {
+                s.close();
+            } catch (OrtException e) {
+                Log.w("recognizer", "Failed to close an ONNX session", e);
+            }
+        }
+        session = initSession = encoderSession = cacheInitSession = cacheInitBatchSession = decoderSession = detokenizerSession = null;
     }
 
     public int getLanguageID(String language){
