@@ -1,9 +1,9 @@
 name: Release
 
 # Publishes a signed APK to GitHub Releases, where anyone can download it.
-# To release: bump versionCode and versionName in app/build.gradle, merge to master, then
+# To release: bump versionCode and versionName in app/build.gradle, merge to master, then tag a master commit:
 #   git tag v1.5 && git push origin v1.5
-# The tag must equal "v" + versionName, otherwise the run fails before building.
+# The tag must equal "v" + versionName and point to a commit on master, otherwise the run fails before building.
 # Optional release notes: fastlane/metadata/android/en-US/changelogs/<versionCode>.txt
 #
 # Dry run (builds and signs, uploads the APK as a private artifact, publishes nothing):
@@ -32,6 +32,17 @@ jobs:
     steps:
       - name: Check out code
         uses: actions/checkout@v4
+        with:
+          # Full history so the tagged commit can be checked against master.
+          fetch-depth: 0
+
+      - name: Check that the tagged commit is on master
+        if: env.DRY_RUN != 'true'
+        run: |
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/master; then
+            echo "::error::Tag $TAG points to $GITHUB_SHA, which is not on master. Merge to master first, then tag a master commit."
+            exit 1
+          fi
 
       - name: Check that the tag matches versionName
         id: version
