@@ -144,7 +144,7 @@ public class MainActivity extends AppCompatActivity {
 
         btnInfo = findViewById(R.id.btnInfo);
         btnInfo.setOnClickListener(view -> startActivity(
-                new Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/DevilVed/whisperIMEplus#Donate"))));
+                new Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/DevilVed/ToneTunner"))));
 
         spinnerLanguage = findViewById(R.id.spnrLanguage);
 
@@ -266,7 +266,7 @@ public class MainActivity extends AppCompatActivity {
         });
         FreeDroidWarn.showWarningOnUpgrade(this, BuildConfig.VERSION_CODE);
         if (GithubStar.shouldShowStarDialog(this))
-            GithubStar.starDialog(this, "https://github.com/DevilVed/whisperIMEplus");
+            GithubStar.starDialog(this, "https://github.com/DevilVed/ToneTunner");
         // Assume this Activity is the current activity, check record permission
         checkPermissions();
 

@@ -1,0 +1,33 @@
+ToneTunner
+Copyright (C) 2025-2026 DevilVed
+https://github.com/DevilVed/ToneTunner
+
+ToneTunner is free software: you can redistribute it and/or modify it under
+the terms of the GNU General Public License as published by the Free Software
+Foundation, version 3 (see LICENSE). It comes with ABSOLUTELY NO WARRANTY.
+
+ToneTunner is a modified version of whisperIMEplus
+(https://github.com/woheller69/whisperIMEplus), Copyright (C) 2025 woheller69,
+licensed under the GNU GPLv3. DevilVed has modified it since November 2025;
+the git history records every change and who made it.
+
+This product includes third-party software:
+
+- RTranslator (https://github.com/niedev/RTranslator)
+  Copyright 2016 Luca Martino. Licensed under the Apache License 2.0.
+  Used in app/src/main/java/com/devilved/tonetunner/voice_translation/.
+  These files keep their original copyright headers and have been modified.
+
+- Android Open Source Project
+  Copyright (C) 2017 The Android Open Source Project.
+  Licensed under the Apache License 2.0 (header retained in Recognizer.java).
+
+- whisperIME (https://github.com/woheller69/whisperIME), Copyright woheller69, MIT License.
+- Whisper-Android (https://github.com/vilassn/whisper_android), MIT License.
+- OpenAI Whisper (https://github.com/openai/whisper), MIT License.
+- Whisper ONNX models (https://huggingface.co/DocWolle/whisperOnnx), MIT License.
+- FreeDroidWarn (https://github.com/DevilVed/FreeDroidWarn), a fork of
+  woheller69/FreeDroidWarn, Apache License 2.0.
+- Android VAD (https://github.com/gkonovalov/android-vad), MIT License.
+- Opencc4j (https://github.com/houbb/opencc4j), Apache License 2.0.
+- ONNX Runtime and ONNX Runtime Extensions (https://github.com/microsoft/onnxruntime), MIT License.
