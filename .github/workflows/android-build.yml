@@ -76,7 +76,9 @@ jobs:
       - name: Name the artifact
         id: meta
         run: |
-          echo "name=ToneTunner-${BUILD_REF//\//-}-$(git rev-parse --short HEAD)-${BUILD_TYPE}" >> "$GITHUB_OUTPUT"
+          # Artifact names reject characters such as " : < > | * ? \ / that branch names may contain.
+          safe_ref=$(printf '%s' "$BUILD_REF" | tr -c 'A-Za-z0-9._-' '-')
+          echo "name=ToneTunner-${safe_ref}-$(git rev-parse --short HEAD)-${BUILD_TYPE}" >> "$GITHUB_OUTPUT"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4

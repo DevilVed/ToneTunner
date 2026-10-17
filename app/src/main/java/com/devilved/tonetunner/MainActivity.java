@@ -47,7 +47,6 @@ import com.devilved.tonetunner.utils.LanguagePairAdapter;
 import com.devilved.tonetunner.utils.ThemeUtils;
 import com.devilved.tonetunner.voice_translation.neural_networks.voice.Recognizer;
 
-import org.DevilVed.freeDroidWarn.FreeDroidWarn;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -264,7 +263,6 @@ public class MainActivity extends AppCompatActivity {
             }
 
         });
-        FreeDroidWarn.showWarningOnUpgrade(this, BuildConfig.VERSION_CODE);
         if (GithubStar.shouldShowStarDialog(this))
             GithubStar.starDialog(this, "https://github.com/DevilVed/ToneTunner");
         // Assume this Activity is the current activity, check record permission

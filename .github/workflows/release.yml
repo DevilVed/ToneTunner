@@ -1,0 +1,123 @@
+name: Release
+
+# Publishes a signed APK to GitHub Releases, where anyone can download it.
+# To release: bump versionCode and versionName in app/build.gradle, merge to master, then tag a master commit:
+#   git tag v1.5 && git push origin v1.5
+# The tag must equal "v" + versionName and point to a commit on master, otherwise the run fails before building.
+# Optional release notes: fastlane/metadata/android/en-US/changelogs/<versionCode>.txt
+#
+# Dry run (builds and signs, uploads the APK as a private artifact, publishes nothing):
+#   gh workflow run release.yml
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      # A manual run is a dry run: the version check is skipped and nothing is published.
+      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' }}
+      TAG: ${{ github.event_name == 'workflow_dispatch' && 'dry-run' || github.ref_name }}
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+        with:
+          # Full history so the tagged commit can be checked against master.
+          fetch-depth: 0
+
+      - name: Check that the tagged commit is on master
+        if: env.DRY_RUN != 'true'
+        run: |
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/master; then
+            echo "::error::Tag $TAG points to $GITHUB_SHA, which is not on master. Merge to master first, then tag a master commit."
+            exit 1
+          fi
+
+      - name: Check that the tag matches versionName
+        id: version
+        run: |
+          version_name=$(sed -n 's/^ *versionName "\(.*\)"/\1/p' app/build.gradle)
+          version_code=$(sed -n 's/^ *versionCode \([0-9]*\)/\1/p' app/build.gradle)
+          if [ "$DRY_RUN" != "true" ] && [ "$TAG" != "v$version_name" ]; then
+            echo "::error::Tag $TAG does not match versionName $version_name in app/build.gradle (expected v$version_name)"
+            exit 1
+          fi
+          echo "code=$version_code" >> "$GITHUB_OUTPUT"
+
+      - name: Check that signing secrets are set
+        env:
+          RELEASE_KEYSTORE_B64: ${{ secrets.RELEASE_KEYSTORE_B64 }}
+          RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+        run: |
+          if [ -z "$RELEASE_KEYSTORE_B64" ] || [ -z "$RELEASE_KEYSTORE_PASSWORD" ] || [ -z "$RELEASE_KEY_ALIAS" ]; then
+            echo "::error::Set the RELEASE_KEYSTORE_B64, RELEASE_KEYSTORE_PASSWORD and RELEASE_KEY_ALIAS repository secrets"
+            exit 1
+          fi
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle 8.6
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.6"
+          cache-read-only: true
+
+      - name: Point the build at the runner's Android SDK
+        run: echo "sdk.dir=$ANDROID_HOME" > local.properties
+
+      - name: Build release APK
+        run: gradle assembleRelease --stacktrace
+
+      - name: Sign APK
+        env:
+          RELEASE_KEYSTORE_B64: ${{ secrets.RELEASE_KEYSTORE_B64 }}
+          RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+        run: |
+          build_tools="$ANDROID_HOME/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1)"
+          keystore="$RUNNER_TEMP/release.keystore"
+          echo "$RELEASE_KEYSTORE_B64" | base64 -d > "$keystore"
+          mkdir -p dist
+          "$build_tools/zipalign" -p -f 4 app/build/outputs/apk/release/app-release-unsigned.apk "$RUNNER_TEMP/aligned.apk"
+          "$build_tools/apksigner" sign --ks "$keystore" --ks-pass env:RELEASE_KEYSTORE_PASSWORD \
+            --ks-key-alias "$RELEASE_KEY_ALIAS" --out "dist/ToneTunner-$TAG.apk" "$RUNNER_TEMP/aligned.apk"
+          "$build_tools/apksigner" verify --print-certs "dist/ToneTunner-$TAG.apk"
+          rm -f "$keystore"
+          (cd dist && sha256sum "ToneTunner-$TAG.apk" > "ToneTunner-$TAG.apk.sha256")
+
+      - name: Upload dry-run APK
+        if: env.DRY_RUN == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ToneTunner-release-dry-run
+          path: dist/*
+          retention-days: 7
+
+      - name: Create GitHub Release
+        if: env.DRY_RUN != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION_CODE: ${{ steps.version.outputs.code }}
+        run: |
+          notes="fastlane/metadata/android/en-US/changelogs/$VERSION_CODE.txt"
+          if [ -f "$notes" ]; then
+            gh release create "$TAG" dist/* --title "ToneTunner $TAG" --notes-file "$notes"
+          else
+            gh release create "$TAG" dist/* --title "ToneTunner $TAG" --generate-notes
+          fi
