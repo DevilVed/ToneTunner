@@ -1,9 +1,4 @@
-```
-Google has announced that, starting in 2026/2027, all apps on certified Android devices
-will require the developer to submit personal identity details directly to Google.
-Since the developers of this app do not agree to this requirement, this app will no longer
-work on certified Android devices after that time.
-```
+ToneTunner is developed and maintained by [DevilVed](https://github.com/DevilVed).
 
 ToneTunner is an input method editor (IME) that leverages voice recognition technology based on the Whisper engine.
 It offers a seamless user experience, functioning both as a standalone application and an integrated IME that can be activated, e.g. via the microphone button in HeliBoard.
@@ -30,16 +25,20 @@ To get the most out of ToneTunner, follow these simple tips:
 
 By following these guidelines, you'll be able to enjoy accurate and efficient voice recognition with Whisper.
 
-[<img src="https://fdroid.gitlab.io/artwork/badge/get-it-on.png" height="75">](https://f-droid.org/de/packages/org.DevilVed.whisperplus/)
-
 # License
 
-This work is licensed under GPLv3 license, © DevilVed
+ToneTunner is free software licensed under the GNU GPLv3 (see [LICENSE](LICENSE)).
+Copyright © 2025-2026 DevilVed. See [NOTICE](NOTICE) for full copyright and attribution details.
 
-- This app is based on [whisperIME](https://github.com/DevilVed/whisperIME), which is published under MIT license
-- It uses code and the Whisper ONNX models from [RTranslator](https://github.com/niedev/RTranslator)
+## Credits
+
+ToneTunner began as a fork of [whisperIMEplus](https://github.com/woheller69/whisperIMEplus) by woheller69 (GPLv3) and is now developed independently by DevilVed.
+
+- whisperIMEplus is based on [whisperIME](https://github.com/woheller69/whisperIME) by woheller69, published under MIT license
+- It uses code and the Whisper ONNX models from [RTranslator](https://github.com/niedev/RTranslator), published under Apache-2.0 license
 - It uses code from [Whisper-Android project](https://github.com/vilassn/whisper_android), published under MIT license
 - It uses [OpenAI Whisper](https://github.com/openai/whisper) published under MIT license. Details on Whisper are found [here](https://arxiv.org/abs/2212.04356).
 - It uses [Android VAD](https://github.com/gkonovalov/android-vad), which is published under MIT license
 - It uses [Opencc4j](https://github.com/houbb/opencc4j), for Chinese conversions, published under Apache-2.0 license
+- It uses [FreeDroidWarn](https://github.com/DevilVed/FreeDroidWarn), DevilVed's fork of woheller69's library, published under Apache-2.0 license
 - At first start you need to download the Whisper model from [HuggingFace](https://huggingface.co/DocWolle/whisperOnnx), which is published under MIT license
