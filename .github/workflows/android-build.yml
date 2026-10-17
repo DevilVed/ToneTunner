@@ -1,0 +1,87 @@
+name: Android build
+
+# Builds the APK on GitHub's cloud runners (Android SDK is preinstalled on ubuntu-latest).
+# Run it manually from the Actions tab ("Run workflow") or with:
+#   gh workflow run android-build.yml -f ref=testing-phase-1
+# then download the APK with:
+#   gh run download --name <artifact-name>
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Branch, tag or commit SHA to build"
+        required: false
+        default: ""
+      build_type:
+        description: "debug (installable) or release (unsigned unless signing secrets are set)"
+        required: false
+        default: debug
+        type: choice
+        options:
+          - debug
+          - release
+  push:
+    branches: [master, testing-phase-1, "ci/**"]
+  pull_request:
+
+concurrency:
+  group: android-build-${{ github.event.inputs.ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      BUILD_TYPE: ${{ github.event.inputs.build_type || 'debug' }}
+      DEBUG_KEYSTORE_B64: ${{ secrets.DEBUG_KEYSTORE_B64 }}
+      # Passed through env (not inlined into scripts) so branch names cannot inject shell code.
+      BUILD_REF: ${{ github.event.inputs.ref || github.head_ref || github.ref_name }}
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.ref || github.sha }}
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle 8.6
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          # The repo has no gradlew script on master, so use the version from gradle-wrapper.properties directly.
+          gradle-version: "8.6"
+
+      - name: Point the build at the runner's Android SDK
+        # The committed local.properties contains another machine's sdk.dir, which would break the build.
+        run: echo "sdk.dir=$ANDROID_HOME" > local.properties
+
+      - name: Install a stable debug keystore
+        # Without this every run signs with a fresh random key, so a new APK cannot be installed
+        # over the previous one (and uninstalling deletes the downloaded model).
+        if: env.DEBUG_KEYSTORE_B64 != ''
+        run: |
+          mkdir -p ~/.android
+          echo "$DEBUG_KEYSTORE_B64" | base64 -d > ~/.android/debug.keystore
+
+      - name: Build APK
+        run: |
+          if [ "$BUILD_TYPE" = "release" ]; then task=assembleRelease; else task=assembleDebug; fi
+          gradle "$task" --stacktrace
+
+      - name: Name the artifact
+        id: meta
+        run: |
+          echo "name=ToneTunner-${BUILD_REF//\//-}-$(git rev-parse --short HEAD)-${BUILD_TYPE}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.meta.outputs.name }}
+          path: app/build/outputs/apk/**/*.apk
+          if-no-files-found: error
+          retention-days: 30
