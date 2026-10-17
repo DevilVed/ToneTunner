@@ -28,6 +28,7 @@ import com.devilved.tonetunner.asr.Whisper;
 import com.devilved.tonetunner.asr.WhisperResult;
 import com.devilved.tonetunner.utils.HapticFeedback;
 import java.util.ArrayList;
+import java.util.Locale;
 
 public class WhisperRecognitionService extends RecognitionService {
     private static final String TAG = "WhisperRecognitionService";
@@ -45,12 +46,12 @@ public class WhisperRecognitionService extends RecognitionService {
 
         if (targetLang != null) {
             Log.d(TAG,"StartListening in " + targetLang);
-            langCode = targetLang.split("[-_]")[0].toLowerCase();   //support both de_DE and de-DE
+            langCode = targetLang.split("[-_]")[0].toLowerCase(Locale.ROOT);   //support both de_DE and de-DE
         } else {
             Log.d(TAG,"StartListening, no language specified");
         }
 
-        checkRecordPermission(callback);
+        if (!checkRecordPermission(callback)) return;
 
         initModel(callback, langCode);
 
@@ -60,21 +61,21 @@ public class WhisperRecognitionService extends RecognitionService {
                 try {
                     callback.rmsChanged(10);
                 } catch (RemoteException e) {
-                    throw new RuntimeException(e);
+                    Log.w(TAG, "Recognition client is no longer reachable", e);  // e.g. the calling app was closed; must not crash ToneTunner
                 }
             } else if (message.equals(Recorder.MSG_RECORDING_DONE)) {
                 HapticFeedback.vibrate(this);
                 try {
                     callback.rmsChanged(-20.0f);
                 } catch (RemoteException e) {
-                    throw new RuntimeException(e);
+                    Log.w(TAG, "Recognition client is no longer reachable", e);  // e.g. the calling app was closed; must not crash ToneTunner
                 }
                 startTranscription();
             } else if (message.equals(Recorder.MSG_RECORDING_ERROR)) {
                 try {
                     callback.error(ERROR_CLIENT);
                 } catch (RemoteException e) {
-                    throw new RuntimeException(e);
+                    Log.w(TAG, "Recognition client is no longer reachable", e);  // e.g. the calling app was closed; must not crash ToneTunner
                 }
             }
         });
@@ -85,7 +86,7 @@ public class WhisperRecognitionService extends RecognitionService {
             try {
                 callback.beginningOfSpeech();
             } catch (RemoteException e) {
-                throw new RuntimeException(e);
+                Log.w(TAG, "Recognition client is no longer reachable", e);  // e.g. the calling app was closed; must not crash ToneTunner
             }
         }
 
@@ -124,7 +125,27 @@ public class WhisperRecognitionService extends RecognitionService {
             public void onUpdateReceived(String message) { }
 
             @Override
+            public void onError(String message) {
+                Log.e(TAG, message);
+                deinitModel();
+                try {
+                    callback.error(SpeechRecognizer.ERROR_SERVER);  // the recognition engine (model) failed
+                } catch (RemoteException e) {
+                    Log.w(TAG, "Recognition client is no longer reachable", e);
+                }
+            }
+
+            @Override
             public void onResultReceived(WhisperResult whisperResult) {
+                if (whisperResult.getResult().trim().isEmpty()) {
+                    deinitModel();
+                    try {
+                        callback.error(SpeechRecognizer.ERROR_NO_MATCH);  // tell the caller instead of leaving it waiting
+                    } catch (RemoteException e) {
+                        Log.w(TAG, "Recognition client is no longer reachable", e);
+                    }
+                    return;
+                }
                 if (whisperResult.getResult().trim().length() > 0){
                     Log.d(TAG, whisperResult.getResult().trim());
                     try {
@@ -143,7 +164,7 @@ public class WhisperRecognitionService extends RecognitionService {
                         results.putStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION, resultList);
                         callback.results(results);
                     } catch (RemoteException e) {
-                        throw new RuntimeException(e);
+                        Log.w(TAG, "Recognition client is no longer reachable", e);  // e.g. the calling app was closed; must not crash ToneTunner
                     }
                 }
             }
@@ -191,16 +212,18 @@ public class WhisperRecognitionService extends RecognitionService {
         }
     }
 
-    private void checkRecordPermission(Callback callback) {
+    private boolean checkRecordPermission(Callback callback) {
         int permission = ContextCompat.checkSelfPermission(this, android.Manifest.permission.RECORD_AUDIO);
-        if (permission != PackageManager.PERMISSION_GRANTED){
+        boolean granted = permission == PackageManager.PERMISSION_GRANTED;
+        if (!granted){
             Log.d(TAG,getString(R.string.need_record_audio_permission));
             try {
                 callback.error(ERROR_INSUFFICIENT_PERMISSIONS);
             } catch (RemoteException e) {
-                throw new RuntimeException(e);
+                Log.w(TAG, "Recognition client is no longer reachable", e);  // e.g. the calling app was closed; must not crash ToneTunner
             }
         }
+        return granted;
     }
 
 }

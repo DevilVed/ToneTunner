@@ -45,6 +45,8 @@ public class Recorder {
     private final Lock lock = new ReentrantLock();
     private final Condition hasTask = lock.newCondition();
     private final Object fileSavedLock = new Object(); // Lock object for wait/notify
+    private boolean recordingActive = false; // guarded by fileSavedLock; true from start() until the recording thread is done
+    private static final long STOP_TIMEOUT_MS = 3000;
 
     private volatile boolean shouldStartRecording = false;
     private boolean useVAD = false;
@@ -70,6 +72,9 @@ public class Recorder {
         if (!mInProgress.compareAndSet(false, true)) {
             Log.d(TAG, "Recording is already in progress...");
             return;
+        }
+        synchronized (fileSavedLock) {
+            recordingActive = true;
         }
         lock.lock();
         try {
@@ -98,10 +103,19 @@ public class Recorder {
         Log.d(TAG, "Recording stopped");
         mInProgress.set(false);
 
-        // Wait for the recording thread to finish
+        // Wait for the recording thread to finish. Waiting on a condition (not a bare wait()) means a
+        // recording that already ended, failed or lacked permission cannot leave the caller blocked forever.
         synchronized (fileSavedLock) {
+            long deadline = System.currentTimeMillis() + STOP_TIMEOUT_MS;
             try {
-                fileSavedLock.wait(); // Wait until notified by the recording thread
+                while (recordingActive) {
+                    long remaining = deadline - System.currentTimeMillis();
+                    if (remaining <= 0) {
+                        Log.w(TAG, "Timed out waiting for the recording thread to finish");
+                        break;
+                    }
+                    fileSavedLock.wait(remaining);
+                }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt(); // Restore interrupted status
             }
@@ -141,6 +155,11 @@ public class Recorder {
                 sendUpdate(e.getMessage());
             } finally {
                 mInProgress.set(false);
+                // Notify that recording is finished, on every path including errors
+                synchronized (fileSavedLock) {
+                    recordingActive = false;
+                    fileSavedLock.notifyAll();
+                }
             }
         }
     }
@@ -244,11 +263,6 @@ public class Recorder {
             sendUpdate(MSG_RECORDING_DONE);
         } else {
             sendUpdate(MSG_RECORDING_ERROR);
-        }
-
-        // Notify the waiting thread that recording is complete
-        synchronized (fileSavedLock) {
-            fileSavedLock.notify(); // Notify that recording is finished
         }
 
     }

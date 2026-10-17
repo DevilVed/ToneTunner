@@ -237,8 +237,9 @@ public class Recognizer extends NeuralNetworkApi {
                     detokenizerSession = onnxEnv.createSession(detokenizerPath, detokenizerSessionOptions);
 
                     initListener.onInitializationFinished();
-                } catch (OrtException e) {
-                    e.printStackTrace();
+                } catch (OrtException | RuntimeException | OutOfMemoryError e) {
+                    // OutOfMemoryError: a model too large for the device must be reported, not crash the app
+                    Log.e("recognizer", "Loading the model failed", e);
                     initListener.onError(new int[]{ErrorCodes.ERROR_LOADING_MODEL},0);
                 }
             }
@@ -552,11 +553,15 @@ public class Recognizer extends NeuralNetworkApi {
 
                     Log.i("performance", "SPEECH RECOGNITION DONE IN: " + (SystemClock.elapsedRealtime() - startTimeInMs) + "ms");
 
-                } catch (OrtException e) {
-                    e.printStackTrace();
+                } catch (OrtException | RuntimeException e) {
+                    // RuntimeException too: an uncaught one would kill this thread and leave "recognizing" stuck
+                    Log.e("recognizer", "Recognition failed", e);
                     notifyError(new int[]{ErrorCodes.ERROR_EXECUTING_MODEL}, 0);
                 }
             }
+        } else if (data != null) {
+            Log.e("recognizer", "Model not loaded, dropping recognition request");
+            notifyError(new int[]{ErrorCodes.ERROR_MODEL_NOT_READY}, 0);
         }
         if (!dataToRecognize.isEmpty()){
             recognize();

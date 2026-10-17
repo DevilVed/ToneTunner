@@ -18,6 +18,7 @@ import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.app.AppCompatDelegate;
 
+import com.devilved.tonetunner.asr.Whisper;
 import com.devilved.tonetunner.utils.ThemeUtils;
 
 import java.io.File;
@@ -80,58 +81,67 @@ public class SetupActivity extends AppCompatActivity {
             byte[] readBuffer = new byte[4096];
             try {
                 InputStream src = context.getContentResolver().openInputStream(zipFile);
-                try {
-                    try (ZipInputStream zipInputStream = new ZipInputStream(src)) {
-                        // Pre-compute target directory canonical path for performance and security
-                        String canonicalTarget = targetDir.getCanonicalPath();
-                        if (!canonicalTarget.endsWith(File.separator)) {
-                            canonicalTarget += File.separator;
-                        }
-
-                        while ((zipEntry = zipInputStream.getNextEntry()) != null) {
-                            File extractedFile = new File(targetDir ,zipEntry.getName());
-
-                            // Zip Slip protection
-                            String canonicalPath = extractedFile.getCanonicalPath();
-                            if (!canonicalPath.startsWith(canonicalTarget)) {
-                                throw new SecurityException("Zip Slip vulnerability detected: " + canonicalPath);
-                            }
-
-                            if (zipEntry.isDirectory()) {
-                                if (!extractedFile.isDirectory() && !extractedFile.mkdirs()) {
-                                    throw new IOException("Failed to create directory " + extractedFile);
-                                }
-                                continue;
-                            }
-
-                            // Ensure parent directories exist
-                            File parent = extractedFile.getParentFile();
-                            if (parent != null && !parent.exists() && !parent.mkdirs()) {
-                                throw new IOException("Failed to create directory " + parent);
-                            }
-
-                            runOnUiThread(()->{
-                                extractedFileTV.setVisibility(View.VISIBLE);
-                                extractedFileTV.setText(extractedFile.getName());
-                            });
-                            try (OutputStream outputStream = Files.newOutputStream(extractedFile.toPath())) {
-                                while ((readLen = zipInputStream.read(readBuffer)) != -1) {
-                                    outputStream.write(readBuffer, 0, readLen);
-                                }
-                            }
-                        }
-                        runOnUiThread(()->{
-                            progressBar.setIndeterminate(false);
-                            progressBar.setVisibility(View.GONE);
-                            extractedFileTV.setVisibility(View.GONE);
-                            startButton.setVisibility(View.VISIBLE);
-                        });
+                if (src == null) throw new FileNotFoundException("Cannot open " + zipFile);
+                try (ZipInputStream zipInputStream = new ZipInputStream(src)) {
+                    // Pre-compute target directory canonical path for performance and security
+                    String canonicalTarget = targetDir.getCanonicalPath();
+                    if (!canonicalTarget.endsWith(File.separator)) {
+                        canonicalTarget += File.separator;
                     }
-                } catch (IOException ioException) {
-                    ioException.printStackTrace();
+
+                    while ((zipEntry = zipInputStream.getNextEntry()) != null) {
+                        File extractedFile = new File(targetDir ,zipEntry.getName());
+
+                        // Zip Slip protection
+                        String canonicalPath = extractedFile.getCanonicalPath();
+                        if (!canonicalPath.startsWith(canonicalTarget)) {
+                            throw new SecurityException("Zip Slip vulnerability detected: " + canonicalPath);
+                        }
+
+                        if (zipEntry.isDirectory()) {
+                            if (!extractedFile.isDirectory() && !extractedFile.mkdirs()) {
+                                throw new IOException("Failed to create directory " + extractedFile);
+                            }
+                            continue;
+                        }
+
+                        // Ensure parent directories exist
+                        File parent = extractedFile.getParentFile();
+                        if (parent != null && !parent.exists() && !parent.mkdirs()) {
+                            throw new IOException("Failed to create directory " + parent);
+                        }
+
+                        runOnUiThread(()->{
+                            extractedFileTV.setVisibility(View.VISIBLE);
+                            extractedFileTV.setText(extractedFile.getName());
+                        });
+                        try (OutputStream outputStream = Files.newOutputStream(extractedFile.toPath())) {
+                            while ((readLen = zipInputStream.read(readBuffer)) != -1) {
+                                outputStream.write(readBuffer, 0, readLen);
+                            }
+                        }
+                    }
                 }
-            } catch (FileNotFoundException e) {
-                e.printStackTrace();
+                boolean installed = Whisper.isModelInstalled(context);
+                runOnUiThread(()->{
+                    progressBar.setIndeterminate(false);
+                    progressBar.setVisibility(View.GONE);
+                    extractedFileTV.setVisibility(View.GONE);
+                    if (installed) {
+                        startButton.setVisibility(View.VISIBLE);
+                    } else {
+                        Toast.makeText(context, R.string.setup_wrong_zip, Toast.LENGTH_LONG).show();
+                    }
+                });
+            } catch (IOException | RuntimeException e) {
+                // RuntimeException includes the Zip Slip SecurityException; uncaught it would crash the app
+                Log.e("SetupActivity", "Model installation failed", e);
+                runOnUiThread(()->{
+                    progressBar.setIndeterminate(false);
+                    progressBar.setVisibility(View.GONE);
+                    extractedFileTV.setVisibility(View.GONE);
+                    Toast.makeText(context, getString(R.string.setup_failed, String.valueOf(e.getMessage())), Toast.LENGTH_LONG).show();
+                });
             }
         });
         thread.start();
