@@ -45,7 +45,7 @@ jobs:
           if-no-files-found: warn
       - name: Publish lint findings to code scanning
         if: always() && hashFiles('app/build/reports/lint-results-debug.sarif') != ''
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: app/build/reports/lint-results-debug.sarif
           category: android-lint
@@ -68,14 +68,14 @@ jobs:
           gradle-version: "8.6"
       - name: Point the build at the runner's Android SDK
         run: echo "sdk.dir=$ANDROID_HOME" > local.properties
-      - uses: github/codeql-action/init@v3
+      - uses: github/codeql-action/init@v4
         with:
           languages: java-kotlin
           build-mode: manual
           queries: security-and-quality
       - name: Build for analysis
         run: gradle assembleDebug --no-build-cache --stacktrace
-      - uses: github/codeql-action/analyze@v3
+      - uses: github/codeql-action/analyze@v4
         with:
           category: codeql-java
 
