@@ -28,7 +28,6 @@ import com.devilved.tonetunner.asr.Whisper;
 import com.devilved.tonetunner.asr.WhisperResult;
 import com.devilved.tonetunner.utils.HapticFeedback;
 import java.util.ArrayList;
-import java.util.Locale;
 
 public class WhisperRecognitionService extends RecognitionService {
     private static final String TAG = "WhisperRecognitionService";
@@ -46,8 +45,8 @@ public class WhisperRecognitionService extends RecognitionService {
         Log.d(TAG,"default langCode " + langCode);
 
         if (targetLang != null) {
-            Log.d(TAG,"StartListening in " + targetLang);
-            langCode = targetLang.split("[-_]")[0].toLowerCase(Locale.ROOT);   //support both de_DE and de-DE
+            langCode = WhisperRecognizeActivity.sanitizeLanguageCode(targetLang);
+            Log.d(TAG,"StartListening in " + langCode);
         } else {
             Log.d(TAG,"StartListening, no language specified");
         }

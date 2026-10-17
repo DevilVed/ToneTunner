@@ -25,6 +25,7 @@ import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Locale;
 import java.util.MissingResourceException;
+import java.util.Objects;
 import java.util.Set;
 
 public class CustomLocale implements Comparable<CustomLocale>, Serializable {
@@ -200,6 +201,18 @@ public class CustomLocale implements Comparable<CustomLocale>, Serializable {
             }
         }
         return false;
+    }
+
+    @Override
+    public int hashCode() {
+        // Must agree with equals(): languages are compared by ISO-3 code (so "iw" and "he" are equal), plus country
+        String language;
+        try {
+            language = getISO3Language();
+        } catch (MissingResourceException e) {
+            language = getLanguage();
+        }
+        return Objects.hash(language, getCountry());
     }
 
     public boolean equalsLanguage(CustomLocale locale) {
