@@ -32,4 +32,6 @@
     <string name="error_no_input">No voice input received</string>
     <string name="install_model">Install model</string>
     <string name="auto_lang">Detect language</string>
+    <string name="setup_failed">Model installation failed: %1$s</string>
+    <string name="setup_wrong_zip">This ZIP file does not contain the Whisper model files.</string>
 </resources>

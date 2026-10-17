@@ -19,6 +19,7 @@ import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.inputmethod.EditorInfo;
+import android.view.inputmethod.InputConnection;
 import android.widget.ImageButton;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
@@ -157,17 +158,17 @@ public class WhisperInputMethodService extends InputMethodService {
             @Override
             public boolean onTouch(View v, MotionEvent event) {
                 if (event.getAction() == MotionEvent.ACTION_DOWN) {
-                    getCurrentInputConnection().sendKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DEL));
+                    sendKey(KeyEvent.KEYCODE_DEL);
                     // Post the initial delay of 500ms
                     initialDeleteRunnable = new Runnable() {
                         @Override
                         public void run() {
-                            getCurrentInputConnection().sendKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DEL));
+                            sendKey(KeyEvent.KEYCODE_DEL);
                             // Start repeating every 100ms
                             repeatDeleteRunnable = new Runnable() {
                                 @Override
                                 public void run() {
-                                    getCurrentInputConnection().sendKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DEL));
+                                    sendKey(KeyEvent.KEYCODE_DEL);
                                     handler.postDelayed(this, 100);
                                 }
                             };
@@ -195,6 +196,7 @@ public class WhisperInputMethodService extends InputMethodService {
                 // Pressed
                 handler.post(() -> btnRecord.setBackgroundResource(R.drawable.rounded_button_background_pressed));
                 if (checkRecordPermission()){
+                    if (mWhisper == null) initModel();  // the model is unloaded when an input field without text input starts
                     if (!mWhisper.isInProgress()) {
                         HapticFeedback.vibrate(this);
                         startRecording();
@@ -240,7 +242,7 @@ public class WhisperInputMethodService extends InputMethodService {
         });
 
         btnEnter.setOnClickListener(v -> {
-            getCurrentInputConnection().sendKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER));
+            sendKey(KeyEvent.KEYCODE_ENTER);
         });
 
         btnModeAuto.setOnClickListener(v -> {
@@ -253,6 +255,11 @@ public class WhisperInputMethodService extends InputMethodService {
             switchToPreviousInputMethod();
         });
         return view;
+    }
+
+    private void sendKey(int keyCode) {
+        InputConnection inputConnection = getCurrentInputConnection();
+        if (inputConnection != null) inputConnection.sendKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, keyCode));
     }
 
     private void startRecording() {
@@ -271,6 +278,16 @@ public class WhisperInputMethodService extends InputMethodService {
             }
 
             @Override
+            public void onError(String message) {
+                handler.post(() -> {
+                    processingBar.setIndeterminate(false);
+                    processingBar.setProgress(0);
+                    tvStatus.setText(message);
+                    tvStatus.setVisibility(View.VISIBLE);
+                });
+            }
+
+            @Override
             public void onResultReceived(WhisperResult whisperResult) {
                 handler.post(() -> processingBar.setIndeterminate(false));
                 handler.post(() -> {
@@ -284,7 +301,8 @@ public class WhisperInputMethodService extends InputMethodService {
                     result = simpleChinese ? ZhConverterUtil.toSimple(result) : ZhConverterUtil.toTraditional(result);
                 }
                 boolean commitSuccess = false;
-                if (result.trim().length() > 0) commitSuccess = getCurrentInputConnection().commitText(result.trim() + " ",1);
+                InputConnection inputConnection = getCurrentInputConnection();  // null if the text field went away meanwhile
+                if (result.trim().length() > 0 && inputConnection != null) commitSuccess = inputConnection.commitText(result.trim() + " ",1);
                 if (modeAuto && commitSuccess) handler.postDelayed(() -> switchToPreviousInputMethod(), 100);  //slightly delayed, otherwise some apps, e.g. WhatsApp, do not accept the committed text (commitText on inactive InputConnection)
             }
         });

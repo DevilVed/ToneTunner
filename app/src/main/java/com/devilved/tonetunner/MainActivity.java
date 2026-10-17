@@ -304,6 +304,15 @@ public class MainActivity extends AppCompatActivity {
             }
 
             @Override
+            public void onError(String message) {
+                runOnUiThread(() -> {
+                    processingBar.setIndeterminate(false);
+                    processingBar.setProgress(0);
+                    tvStatus.setText(message);
+                });
+            }
+
+            @Override
             public void onResultReceived(WhisperResult whisperResult) {
                 long timeTaken = System.currentTimeMillis() - startTime;
                 runOnUiThread(() -> tvStatus.setText(getString(R.string.processing_done) + timeTaken + "\u2009ms" + "\n"

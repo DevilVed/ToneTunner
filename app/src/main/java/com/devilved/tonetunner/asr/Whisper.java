@@ -8,6 +8,7 @@ import android.util.Log;
 
 import com.devilved.tonetunner.SetupActivity;
 import com.devilved.tonetunner.voice_translation.neural_networks.NeuralNetworkApi;
+import com.devilved.tonetunner.voice_translation.neural_networks.voice.ErrorCodes;
 import com.devilved.tonetunner.voice_translation.neural_networks.voice.Recognizer;
 import com.devilved.tonetunner.voice_translation.neural_networks.voice.RecognizerListener;
 
@@ -22,7 +23,19 @@ public class Whisper {
     public interface WhisperListener {
         void onUpdateReceived(String message);
         void onResultReceived(WhisperResult result);
+        // Called when the model failed to load or a transcription failed, so the UI can stop waiting.
+        default void onError(String message) {}
     }
+
+    // Files of the Whisper Small model set (from RTranslator) that Recognizer loads.
+    private static final String[] MODEL_FILES = {
+            "Whisper_initializer.onnx",
+            "Whisper_encoder.onnx",
+            "Whisper_decoder.onnx",
+            "Whisper_cache_initializer.onnx",
+            "Whisper_cache_initializer_batch.onnx",
+            "Whisper_detokenizer.onnx"
+    };
 
     private static final String TAG = "Whisper";
     public static final String MSG_PROCESSING = "Processing...";
@@ -44,19 +57,7 @@ public class Whisper {
     public Whisper(Context context) {
         mContext = context;
 
-        //check if model is installed
-        File sdcardDataFolder = mContext.getExternalFilesDir(null);
-        if (sdcardDataFolder == null) sdcardDataFolder.mkdir();
-
-        File[] files = sdcardDataFolder.listFiles();
-
-        int fileCount = 0;
-        for (File file : files) {
-            if (file.isFile()) {
-                fileCount++;
-            }
-        }
-        if (fileCount != 6) { //install model
+        if (!isModelInstalled(mContext)) { //install model
             Intent intent = new Intent(mContext, SetupActivity.class);
             intent.addFlags(FLAG_ACTIVITY_NEW_TASK);
             mContext.startActivity(intent);
@@ -65,6 +66,15 @@ public class Whisper {
             threadProcessRecordBuffer.start();
         }
 
+    }
+
+    public static boolean isModelInstalled(Context context) {
+        File modelDir = context.getExternalFilesDir(null); // null if shared storage is unavailable
+        if (modelDir == null) return false;
+        for (String name : MODEL_FILES) {
+            if (!new File(modelDir, name).isFile()) return false;
+        }
+        return true;
     }
 
     public void setListener(WhisperListener listener) {
@@ -80,7 +90,8 @@ public class Whisper {
 
             @Override
             public void onError(int[] reasons, long value) {
-                Log.d(TAG, "Recognizer init error");
+                Log.e(TAG, "Recognizer init error");
+                sendError("Model could not be loaded");
             }
         });
 
@@ -100,7 +111,10 @@ public class Whisper {
 
             @Override
             public void onError(int[] reasons, long value) {
-                Log.d(TAG, "ERROR during recognition");
+                Log.e(TAG, "ERROR during recognition");
+                sendError(reasons.length > 0 && reasons[0] == ErrorCodes.ERROR_MODEL_NOT_READY
+                        ? "Model is still loading, please try again"
+                        : "Transcription failed");
             }
         });
     }
@@ -165,11 +179,11 @@ public class Whisper {
                 sendUpdate(MSG_PROCESSING);
                 recognizer.recognize(RecordBuffer.getSamples(),1, mLangCode, mAction );
             } else {
-                sendUpdate("Engine not initialized or file path not set");
+                sendError("No recording available");
             }
         } catch (Exception e) {
             Log.e(TAG, "Error during transcription", e);
-            sendUpdate("Transcription failed: " + e.getMessage());
+            sendError("Transcription failed: " + e.getMessage());
         } finally {
             mInProgress.set(false);
         }
@@ -178,6 +192,12 @@ public class Whisper {
     private void sendUpdate(String message) {
         if (mUpdateListener != null) {
             mUpdateListener.onUpdateReceived(message);
+        }
+    }
+
+    private void sendError(String message) {
+        if (mUpdateListener != null) {
+            mUpdateListener.onError(message);
         }
     }
 

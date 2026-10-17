@@ -30,6 +30,7 @@ import com.devilved.tonetunner.asr.WhisperResult;
 import com.devilved.tonetunner.utils.HapticFeedback;
 
 import java.util.ArrayList;
+import java.util.Locale;
 
 public class WhisperRecognizeActivity extends AppCompatActivity {
     private static final String TAG = "WhisperRecognizeActivity";
@@ -57,7 +58,7 @@ public class WhisperRecognizeActivity extends AppCompatActivity {
 
         if (targetLang != null) {
             Log.d("WhisperRecognition","StartListening in " + targetLang);
-            langCode = targetLang.split("[-_]")[0].toLowerCase();  //support both de_DE and de-DE
+            langCode = targetLang.split("[-_]")[0].toLowerCase(Locale.ROOT);  //support both de_DE and de-DE
         } else {
             Log.d("WhisperRecognition","StartListening, no language specified");
         }
@@ -188,6 +189,15 @@ public class WhisperRecognizeActivity extends AppCompatActivity {
             public void onUpdateReceived(String message) { }
 
             @Override
+            public void onError(String message) {
+                runOnUiThread(() -> {
+                    processingBar.setIndeterminate(false);
+                    processingBar.setProgress(0);
+                    Toast.makeText(mContext, message, Toast.LENGTH_SHORT).show();
+                });
+            }
+
+            @Override
             public void onResultReceived(WhisperResult whisperResult) {
                 runOnUiThread(() -> processingBar.setIndeterminate(false));
 
@@ -198,6 +208,8 @@ public class WhisperRecognizeActivity extends AppCompatActivity {
                 }
                 if (result.trim().length() > 0){
                     sendResult(result.trim());
+                } else {
+                    runOnUiThread(() -> Toast.makeText(mContext, R.string.error_no_input, Toast.LENGTH_SHORT).show());
                 }
             }
         });

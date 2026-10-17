@@ -39,6 +39,7 @@ public class ErrorCodes {
     //neural networks
     public static final int ERROR_LOADING_MODEL = 34;
     public static final int ERROR_EXECUTING_MODEL = 35;
+    public static final int ERROR_MODEL_NOT_READY = 36;  // recognition requested before the model finished loading (or after loading failed)
 
     //language identification
     public static final int LANGUAGE_UNKNOWN = 15;
