@@ -153,6 +153,7 @@
             android:layout_height="wrap_content"
             android:indeterminate="false"
             android:indeterminateTint="@color/brandSky"
+            android:importantForAccessibility="no"
             style="?android:attr/progressBarStyleHorizontal"/>
         <RelativeLayout
             android:layout_width="match_parent"
@@ -183,6 +184,7 @@
                 android:contentDescription="@string/copy_to_clipboard"
                 app:backgroundTint="@color/brandOrange"
                 app:tint="@android:color/white"
+                android:tooltipText="@string/copy_to_clipboard"
                 android:src="@drawable/ic_copy" />
         </RelativeLayout>
 
@@ -208,6 +210,7 @@
                 android:layout_centerHorizontal="true"
                 android:background="@drawable/rounded_button_background"
                 android:contentDescription="@string/record_button"
+                android:tooltipText="@string/record_button"
                 android:src="@drawable/ic_mic_48dp" />
 
             <ImageButton
@@ -217,6 +220,7 @@
                 android:layout_alignParentEnd="true"
                 android:background="@null"
                 android:contentDescription="@string/info"
+                android:tooltipText="@string/info"
                 android:src="@drawable/ic_info_48dp" />
         </RelativeLayout>
     </LinearLayout>
