@@ -32,9 +32,10 @@ import java.util.Locale;
 
 public class WhisperRecognitionService extends RecognitionService {
     private static final String TAG = "WhisperRecognitionService";
-    private Recorder mRecorder = null;
-    private Whisper mWhisper = null;
-    private boolean recognitionCancelled = false;
+    // volatile: model errors arrive on the model-loading thread while a request is starting on the main thread
+    private volatile Recorder mRecorder = null;
+    private volatile Whisper mWhisper = null;
+    private volatile boolean recognitionCancelled = false;
     private SharedPreferences sp = null;
 
     @Override
@@ -55,6 +56,7 @@ public class WhisperRecognitionService extends RecognitionService {
 
         initModel(callback, langCode);
 
+        if (mRecorder != null) mRecorder.release();  // each request creates a new recorder
         mRecorder = new Recorder(this);
         mRecorder.setListener(message -> {
             if (message.equals(Recorder.MSG_RECORDING)){
@@ -80,7 +82,9 @@ public class WhisperRecognitionService extends RecognitionService {
             }
         });
 
-        if (!mWhisper.isInProgress()) {
+        Whisper whisper = mWhisper;
+        if (whisper == null) return;  // the model failed to load meanwhile; onError() already reported it
+        if (!whisper.isInProgress()) {
             HapticFeedback.vibrate(this);
             startRecording();
             try {
@@ -94,8 +98,9 @@ public class WhisperRecognitionService extends RecognitionService {
     }
 
     private void stopRecording() {
-        if (mRecorder != null && mRecorder.isInProgress()) {
-            mRecorder.stop();
+        Recorder recorder = mRecorder;
+        if (recorder != null && recorder.isInProgress()) {
+            recorder.stop();
         }
     }
 
@@ -116,17 +121,23 @@ public class WhisperRecognitionService extends RecognitionService {
     // Model initialization
     private void initModel(Callback callback, String langCode) {
 
-        mWhisper = new Whisper(this);
-        mWhisper.loadModel();
-        mWhisper.setLanguage(langCode);
+        Whisper whisper = new Whisper(this);  // local: a model error may clear mWhisper while this runs
+        mWhisper = whisper;
+        whisper.loadModel();
+        whisper.setLanguage(langCode);
         Log.d(TAG, "Language token " + langCode);
-        mWhisper.setListener(new Whisper.WhisperListener() {
+        whisper.setListener(new Whisper.WhisperListener() {
             @Override
             public void onUpdateReceived(String message) { }
 
             @Override
             public void onError(String message) {
                 Log.e(TAG, message);
+                // Cancel and silence the recorder before dropping the model, so no later "recording done"
+                // callback tries to transcribe with it
+                recognitionCancelled = true;
+                Recorder recorder = mRecorder;
+                if (recorder != null) recorder.release();
                 deinitModel();
                 try {
                     callback.error(SpeechRecognizer.ERROR_SERVER);  // the recognition engine (model) failed
@@ -178,7 +189,8 @@ public class WhisperRecognitionService extends RecognitionService {
     }
 
     private void startTranscription() {
-        if (!recognitionCancelled){
+        Whisper whisper = mWhisper;
+        if (!recognitionCancelled && whisper != null){
             Handler handler = new Handler(Looper.getMainLooper());
             handler.post(()-> {
                 Toast toast = new Toast(this);
@@ -195,8 +207,8 @@ public class WhisperRecognitionService extends RecognitionService {
                 }
                 toast.show();
             });
-            mWhisper.setAction(ACTION_TRANSCRIBE);
-            mWhisper.start();
+            whisper.setAction(ACTION_TRANSCRIBE);
+            whisper.start();
             Log.d(TAG,"Start Transcription");
         }
     }
@@ -204,8 +216,11 @@ public class WhisperRecognitionService extends RecognitionService {
     @Override
     public void onDestroy (){
         deinitModel();
+        if (mRecorder != null) mRecorder.release();
+        super.onDestroy();
     }
-    private void deinitModel() {
+    // synchronized: called from the main thread (cancel, destroy) and from model callbacks (error, result)
+    private synchronized void deinitModel() {
         if (mWhisper != null) {
             mWhisper.unloadModel();
             mWhisper = null;

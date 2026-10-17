@@ -41,7 +41,8 @@ public class Recorder {
     private final Context mContext;
     private final AtomicBoolean mInProgress = new AtomicBoolean(false);
 
-    private RecorderListener mListener;
+    private volatile RecorderListener mListener;
+    private volatile boolean released = false;
     private final Lock lock = new ReentrantLock();
     private final Condition hasTask = lock.newCondition();
     private final Object fileSavedLock = new Object(); // Lock object for wait/notify
@@ -122,13 +123,24 @@ public class Recorder {
         }
     }
 
+    // Ends the worker thread; call when this Recorder is no longer used, otherwise the thread lives forever.
+    // Also silences the recorder: a recording cut short by release() must not report "done" (or an error) to a
+    // caller that is being torn down, e.g. MainActivity.onDestroy() after its model was unloaded.
+    public void release() {
+        released = true;
+        mListener = null;
+        mInProgress.set(false);
+        workerThread.interrupt();
+    }
+
     public boolean isInProgress() {
         return mInProgress.get();
     }
 
     private void sendUpdate(String message) {
-        if (mListener != null)
-            mListener.onUpdateReceived(message);
+        RecorderListener listener = mListener;
+        if (listener != null && !released)
+            listener.onUpdateReceived(message);
     }
 
 

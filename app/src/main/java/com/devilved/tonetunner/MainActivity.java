@@ -83,6 +83,7 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onDestroy() {
         deinitModel();
+        if (mRecorder != null) mRecorder.release();
         deinitTTS();
         super.onDestroy();
     }
@@ -395,6 +396,7 @@ public class MainActivity extends AppCompatActivity {
         if (countDownTimer != null) {
             countDownTimer.cancel();
         }
+        if (mWhisper == null) return;  // activity is being destroyed and the model was already unloaded
         runOnUiThread(() -> {
             processingBar.setProgress(0);
             processingBar.setIndeterminate(true);
