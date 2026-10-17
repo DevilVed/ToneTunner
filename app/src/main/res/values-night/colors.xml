@@ -1,7 +1,33 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="darkGrey">#555555</color>
-    <color name="colorAccent">#ff6750A4</color>
-    <color name="colorAccentDark">#996750A4</color>
-    <color name="windowBackground">#111111</color>
+    <!-- ToneTunner palette, dark mode: navy blue + dark orange on pure black. -->
+
+    <!-- Fills: record/delete/enter buttons, progress bars, active icons (white icons on it: 3.9:1) -->
+    <color name="brandSky">#0288D1</color>
+    <!-- Recording / pressed state and the copy button: darker orange (white icons on it: 5.6:1) -->
+    <color name="brandOrange">#BF360C</color>
+    <!-- Setting labels: lighter sky so they stay readable on black (10.5:1) -->
+    <color name="accentText">#4FC3F7</color>
+
+    <!-- Keyboard and pop-up recognizer panel: navy -->
+    <color name="panelBackground">#0B1D3A</color>
+    <color name="panelIcon">#FFFFFF</color>
+    <color name="iconInactive">#6F8BA8</color>
+    <color name="statusError">#FF8A80</color>
+
+    <color name="windowBackground">#000000</color>
+
+    <color name="m3Primary">#4FC3F7</color>
+    <color name="m3OnPrimary">#00293F</color>
+    <color name="m3PrimaryContainer">#12305A</color>
+    <color name="m3OnPrimaryContainer">#B3E5FC</color>
+    <color name="m3Secondary">#FF8A50</color>
+    <color name="m3OnSecondary">#3A1300</color>
+    <color name="m3SecondaryContainer">#BF360C</color>
+    <color name="m3OnSecondaryContainer">#FFFFFF</color>
+    <color name="m3Surface">#000000</color>
+    <color name="m3SurfaceContainer">#0B1D3A</color>
+    <color name="m3OnSurface">#E3F2FD</color>
+    <color name="m3OnSurfaceVariant">#B0C4DE</color>
+    <color name="m3Outline">#6F8BA8</color>
 </resources>

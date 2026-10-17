@@ -1,10 +1,42 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- ToneTunner palette, light mode: sky blue + orange on white.
+         Dark-mode values are in values-night/colors.xml and are picked automatically
+         when the device is in dark mode. -->
+
+    <!-- Fills: record/delete/enter buttons, progress bars, active icons (white icons on it: 4.8:1) -->
+    <color name="brandSky">#0277BD</color>
+    <!-- Recording / pressed state and the copy button (white icons on it: 3.8:1) -->
+    <color name="brandOrange">#E65100</color>
+    <!-- Setting labels (on white: 4.8:1) -->
+    <color name="accentText">#0277BD</color>
+
+    <!-- Keyboard and pop-up recognizer panel -->
+    <color name="panelBackground">#E1F5FE</color>
+    <!-- Icons drawn directly on the panel (on panelBackground: 6.6:1) -->
+    <color name="panelIcon">#01579B</color>
+    <!-- "Off" toggle icons and progress-bar track (on panelBackground: 3.9:1) -->
+    <color name="iconInactive">#5F7D95</color>
+    <!-- Error text on the keyboard panel (5.0:1) -->
+    <color name="statusError">#C62828</color>
+
+    <color name="windowBackground">#FFFFFF</color>
+
+    <!-- Material 3 roles (checkboxes, spinner, dialogs, text) -->
+    <color name="m3Primary">#0277BD</color>
+    <color name="m3OnPrimary">#FFFFFF</color>
+    <color name="m3PrimaryContainer">#B3E5FC</color>
+    <color name="m3OnPrimaryContainer">#01395C</color>
+    <color name="m3Secondary">#E65100</color>
+    <color name="m3OnSecondary">#FFFFFF</color>
+    <color name="m3SecondaryContainer">#FFE0B2</color>
+    <color name="m3OnSecondaryContainer">#4A1F00</color>
+    <color name="m3Surface">#FFFFFF</color>
+    <color name="m3SurfaceContainer">#F0F9FF</color>
+    <color name="m3OnSurface">#0B1D3A</color>
+    <color name="m3OnSurfaceVariant">#37506B</color>
+    <color name="m3Outline">#7E9AB0</color>
+
     <color name="black">#FF000000</color>
     <color name="ic_launcher_background">#000000</color>
-    <color name="lightGrey">#DDDDDD</color>
-    <color name="darkGrey">#999999</color>
-    <color name="colorAccent">#996750A4</color>
-    <color name="colorAccentDark">#ff6750A4</color>
-    <color name="windowBackground">#FAFAFA</color>
 </resources>

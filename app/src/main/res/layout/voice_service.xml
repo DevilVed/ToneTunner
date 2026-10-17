@@ -3,7 +3,7 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:background="@color/darkGrey"
+    android:background="@color/panelBackground"
     android:fitsSystemWindows="true"
     android:padding="5dp">
 
@@ -12,9 +12,9 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:indeterminate="false"
-        android:progressTint="@color/colorAccent"
-        android:progressBackgroundTint="@color/lightGrey"
-        android:indeterminateTint="@color/colorAccent"
+        android:progressTint="@color/brandSky"
+        android:progressBackgroundTint="@color/iconInactive"
+        android:indeterminateTint="@color/brandSky"
         style="?android:attr/progressBarStyleHorizontal"/>
 
     <RelativeLayout
@@ -28,7 +28,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_alignParentStart="true"
-            android:background="@color/darkGrey"
+            android:background="@color/panelBackground"
             android:src="@drawable/ic_keyboard_36dp"
             android:contentDescription="@string/exit_button"/>
 
@@ -37,7 +37,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_centerHorizontal="true"
-            android:background="@color/darkGrey"
+            android:background="@color/panelBackground"
             android:src="@drawable/ic_auto_off_36dp"
             android:contentDescription="@string/auto_button"/>
 
@@ -46,7 +46,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_alignParentEnd="true"
-            android:background="@color/darkGrey"
+            android:background="@color/panelBackground"
             android:src="@drawable/ic_english_off_36dp"
             android:contentDescription="@string/translate"/>
 
@@ -60,8 +60,8 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:paddingHorizontal="10dp"
-        android:textSize="20dp"
-        android:textColor="@android:color/holo_red_dark" />
+        android:textSize="20sp"
+        android:textColor="@color/statusError" />
     <LinearLayout
         android:id="@+id/layout_buttons"
         android:layout_width="wrap_content"
