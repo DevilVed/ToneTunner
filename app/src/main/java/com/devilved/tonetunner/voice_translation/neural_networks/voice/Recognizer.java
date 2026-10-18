@@ -156,8 +156,9 @@ public class Recognizer extends NeuralNetworkApi {
             "ha",
             "ba",
             "jw",
-            "su",
-            "yue"
+            "su"
+            // "yue" (Cantonese) is not listed: it exists only in large-v3's vocabulary. In the Small model its
+            // position (50358) is the TRANSLATE token, so selecting it made Whisper translate instead of transcribe.
     };
 
     private final int START_TOKEN_ID = 50258;
@@ -313,7 +314,9 @@ public class Recognizer extends NeuralNetworkApi {
                     toClose.add(audioTensor);
 
                     // if we generate more than this number of tokens it means that we have an infinite loop due to the fact that the sound cannot be transcribed with the language selected
-                    int maxTokens = (data.data.length / 16000) * MAX_TOKENS_PER_SECOND;
+                    // Integer seconds made this 0 for recordings under 1 s, so they always returned UNDEFINED_TEXT.
+                    // The 4 prompt tokens (start, language, task, no-timestamps) are counted in j too.
+                    int maxTokens = 4 + (int) Math.ceil(data.data.length / 16000.0 * MAX_TOKENS_PER_SECOND);
                     if(maxTokens > MAX_TOKENS){
                         maxTokens = MAX_TOKENS;
                     }
@@ -521,7 +524,7 @@ public class Recognizer extends NeuralNetworkApi {
                         String finalText = UNDEFINED_TEXT;
                         if(!execution1HitMaxLength) {
                             int[] sequences = completeOutput.stream().mapToInt(i -> i).toArray();
-                            if (language.equals("auto")) language = getLanguageCode(sequences);
+                            if (languageID == -1) language = getLanguageCode(sequences);
                             OnnxTensor sequencesTensor = TensorUtils.createInt32Tensor(onnxEnv, sequences, new long[]{1, 1, sequences.length});
                             toClose.add(sequencesTensor);
                             detokenizerInputs.put("sequences", sequencesTensor);
@@ -541,7 +544,7 @@ public class Recognizer extends NeuralNetworkApi {
                         String firstText = UNDEFINED_TEXT;
                         if(!execution1HitMaxLength) {
                             int[] sequence1 = completeOutput.stream().mapToInt(i -> i).toArray();
-                            if (language.equals("auto")) language = getLanguageCode(sequence1);
+                            if (languageID == -1) language = getLanguageCode(sequence1);
                             OnnxTensor sequencesTensor1 = OnnxTensor.createTensor(onnxEnv, IntBuffer.wrap(sequence1), TensorUtils.tensorShape(1, 1, sequence1.length));
                             toClose.add(sequencesTensor1);
                             detokenizerInputs.put("sequences", sequencesTensor1);
@@ -554,7 +557,7 @@ public class Recognizer extends NeuralNetworkApi {
                         String secondText = UNDEFINED_TEXT;
                         if(!execution2HitMaxLength) {
                             int[] sequence2 = completeOutput2.stream().mapToInt(i -> i).toArray();
-                            if (language.equals("auto")) language2 = getLanguageCode(sequence2);
+                            if (languageID2 == -1) language2 = getLanguageCode(sequence2);
                             detokenizerInputs = (Map) (new LinkedHashMap());
                             OnnxTensor sequencesTensor2 = OnnxTensor.createTensor(onnxEnv, IntBuffer.wrap(sequence2), TensorUtils.tensorShape(1, 1, sequence2.length));
                             toClose.add(sequencesTensor2);

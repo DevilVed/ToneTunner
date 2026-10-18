@@ -57,8 +57,8 @@ public class WhisperRecognizeActivity extends AppCompatActivity {
         Log.d("WhisperRecognition","default langCode " + langCode);
 
         if (targetLang != null) {
-            Log.d("WhisperRecognition","StartListening in " + targetLang);
-            langCode = targetLang.split("[-_]")[0].toLowerCase(Locale.ROOT);  //support both de_DE and de-DE
+            langCode = sanitizeLanguageCode(targetLang);
+            Log.d("WhisperRecognition","StartListening in " + langCode);
         } else {
             Log.d("WhisperRecognition","StartListening, no language specified");
         }
@@ -213,6 +213,12 @@ public class WhisperRecognizeActivity extends AppCompatActivity {
                 }
             }
         });
+    }
+
+    // EXTRA_LANGUAGE comes from any app: accept only a plain language code (also keeps it out of the log raw)
+    static String sanitizeLanguageCode(String requested) {
+        String code = requested.split("[-_]")[0].toLowerCase(Locale.ROOT);  //support both de_DE and de-DE
+        return code.matches("[a-z]{2,3}") ? code : "auto";
     }
 
     private void sendResult(String result) {
