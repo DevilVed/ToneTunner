@@ -2,7 +2,7 @@ name: Android build
 
 # Builds the APK on GitHub's cloud runners (Android SDK is preinstalled on ubuntu-latest).
 # Run it manually from the Actions tab ("Run workflow") or with:
-#   gh workflow run android-build.yml -f ref=testing-phase-1
+#   gh workflow run android-build.yml -f ref=beta-test-v1
 # then download the APK with:
 #   gh run download --name <artifact-name>
 
