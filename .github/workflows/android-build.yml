@@ -22,7 +22,7 @@ on:
           - debug
           - release
   push:
-    branches: [master, testing-phase-1, "ci/**"]
+    branches: [master, beta-test-v1, "ci/**"]
   pull_request:
 
 concurrency:
