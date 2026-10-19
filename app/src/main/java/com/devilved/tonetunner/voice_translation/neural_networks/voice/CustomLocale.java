@@ -234,22 +234,23 @@ public class CustomLocale implements Comparable<CustomLocale>, Serializable {
     }
 
     public static int search(@Nullable ArrayList<CustomLocale> array, @Nullable CustomLocale locale) {
-        int index = -1;
         if (array != null && locale != null) {
-            // look for a locale that matches perfectly
-            for (int i = 0; i < array.size() && index == -1; i++) {
-                if (locale.equals(array.get(i))) {
-                    index = i;
+            int languageMatchIndex = -1;
+            // Single pass traversal: check equalsLanguage first, then exact equals match for early return
+            for (int i = 0; i < array.size(); i++) {
+                CustomLocale item = array.get(i);
+                if (locale.equalsLanguage(item)) {
+                    if (locale.equals(item)) {
+                        return i; // Exact match found, return immediately
+                    }
+                    if (languageMatchIndex == -1) {
+                        languageMatchIndex = i; // Save first matching language index
+                    }
                 }
             }
-            // if we don't find anything, we look for a locale for which at least the language matches
-            for (int i = 0; i < array.size() && index == -1; i++) {
-                if (locale.equalsLanguage(array.get(i))) {
-                    index = i;
-                }
-            }
+            return languageMatchIndex;
         }
-        return index;
+        return -1;
     }
 
     public Locale getLocale() {
