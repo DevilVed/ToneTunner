@@ -31,7 +31,7 @@
 - [x] 2. Settings: AiSettings, SecretStore, AiSettingsActivity and dedicated settings layout/strings. Owner: settings agent. Follow the spec's public contracts; no edits to existing Activities or manifest.
 - [x] 3. Shared pipeline: adapt Whisper facade, snapshot/clear audio, retain local ASR and cancellation, apply enhancement, remove transcript logging. Owner: primary agent.
 - [x] 4. Android integration: settings access, permission/setup flow, progress/errors, keyboard session guards and sensitive fields; recognition lifecycle. Owner: primary agent.
-- [ ] 5. Verification: meaningful unit tests, XML/resource validation, independent whole-change review; resolve findings. Update README and workflow to run tests, build debug APK in Actions, and report test/build evidence and device-only limits.
+- [x] 5. Verification: meaningful unit tests, XML/resource validation, independent whole-change review; resolve findings. Update README and workflow to run tests, build debug APK in Actions, and report test/build evidence and device-only limits.
 
 ## Progress and review record
 
@@ -44,4 +44,14 @@
 - Local model memory is protected by a process-wide lease that is returned only after native session cleanup. A model is reused across chunks within one operation, then closed at the end of that operation so an idle facade cannot block another entrypoint. This adds model initialization cost to later local dictations. Capture files belong to the recorder that created them; cancellation cannot claim another entrypoint's audio.
 - New capture removes crashed-process spool leftovers while preserving all live recordings. Recording, cancellation, and terminal paths delete their owned files.
 - Public OpenRouter catalogs verified without keys or audio: 26 transcription entries with the expected modality metadata; text catalog below the response cap. Executable provider tests continue to use local HTTP fixtures in CI.
-- No local build/compile/test commands. XML/resource-reference and diff checks only on Mac. Executable tests, lint and APK assembly will run in GitHub Actions, in that order.
+- No local build/compile/test commands. XML/resource-reference and diff checks only on Mac. Executable tests, lint and APK assembly ran in GitHub Actions, in that order.
+
+## Cloud verification evidence
+
+- Verified application commit: `6dc4e44377e834f675a9b22a0820dbb918e11502` on `agents/voiceink4android`.
+- [Successful GitHub Actions run](https://github.com/DevilVed/ToneTunner/actions/runs/39425136179): `testDebugUnitTest lintDebug` passed before `assembleDebug` ran and passed.
+- Downloaded JUnit XML reports: **97 tests in 17 suites; zero failures, errors or skipped tests**.
+- Lint SARIF: **zero errors, 44 warnings**. Warnings include legacy native library 16 KB alignment, dependency/toolchain updates, and layout/style recommendations. Physical-device/native compatibility remains to be validated before release.
+- APK artifact: `ToneTunner-agents-voiceink4android-6dc4e44-debug`; size 102,452,991 bytes; SHA-256 `82b608a0b9d1d36ba40f1771d21233711ef176f0cdfd5e90321680dbc7ce95d7`.
+- Earlier cloud compiler runs caught a stale Activity helper call and a test-only crypto import; corrected both, then ran the full verification suite successfully.
+- Verification uses fixture HTTP responses, real JVM crypto with an injected test key source, Robolectric UI/lifecycle checks, and fake local transcribers. It does not demonstrate live-provider quality, physical microphone/Bluetooth behavior, actual ONNX inference performance, or complete platform IME/RecognitionService integration on a phone.
