@@ -39,6 +39,8 @@ Temporary audio is deleted on completion, cancellation, or failure. If Android t
 
 ## Development and verification
 
+The [full engineering record](docs/2026-10-20-voiceink-android-engineering-record.md) explains how this transition proceeded, why the architectural choices were made, the alternatives and failed attempts, the exact delivered result, and the remaining evidence limits. The [test inventory](docs/2026-10-20-verification-test-inventory.md) lists every JVM and connected Android test from the final reports, plus the native-validator fixtures.
+
 Build on GitHub Actions; no local Android SDK is required. The Android build workflow prepares aligned native dependencies, runs `testDebugUnitTest` and `lintDebug`, then runs connected Android tests on API 28 and an API 35 16 KB emulator before delivering the APK. Test/lint/runtime reports are uploaded even if verification fails. Debug APK artifacts are available after every verification gate succeeds. Development uses Gradle 8.14.5 and JDK 17 in CI.
 
 The [native dependency build](tools/native/README.md) rebuilds ONNX Runtime Extensions' JNI libraries from pinned upstream source with 16 KB linker alignment. Its published Android AAR still contains unaligned libraries. The build preserves the official Java classes, records provenance, and includes the upstream MIT license. Final APKs receive ELF and ZIP alignment checks.
