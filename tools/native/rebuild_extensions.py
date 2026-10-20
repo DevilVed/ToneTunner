@@ -30,6 +30,7 @@ def build(source, sdk, ndk, output):
             f"--build_dir={build_dir}", "--config=Release", "--update", "--build",
             "--parallel=2", "--skip_tests", "--cmake_extra_defines",
             "OCOS_BUILD_PYTHON=OFF", "OCOS_ENABLE_CTEST=OFF", "OCOS_ENABLE_AUDIO=ON", "OCOS_BUILD_JAVA=ON",
+            "ANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON", "ANDROID_STL=c++_static",
             f"CMAKE_SHARED_LINKER_FLAGS={linker_flags}", f"CMAKE_MODULE_LINKER_FLAGS={linker_flags}",
         ], cwd=source, check=True)
         for library in ("libortextensions.so", "libonnxruntime_extensions4j_jni.so"):

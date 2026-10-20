@@ -24,13 +24,13 @@ runs:
     - name: Install pinned Android NDK
       if: steps.cache.outputs.cache-hit != 'true'
       shell: bash
-      run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;28.2.13676358"'
+      run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;27.2.12479018"'
     - name: Rebuild upstream JNI libraries for all supported ABIs
       if: steps.cache.outputs.cache-hit != 'true'
       shell: bash
       run: |
         python3 tools/native/rebuild_extensions.py --source native-source \
-          --sdk "$ANDROID_HOME" --ndk "$ANDROID_HOME/ndk/28.2.13676358" \
+          --sdk "$ANDROID_HOME" --ndk "$ANDROID_HOME/ndk/27.2.12479018" \
           --output native-dependencies/onnxruntime-extensions-android.aar
     - name: Validate rebuilt or cached native libraries
       shell: bash
