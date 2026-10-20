@@ -242,6 +242,7 @@ public class WhisperRecognizeActivity extends AppCompatActivity {
         if (Recorder.MSG_RECORDING_DONE.equals(message)) {
             HapticFeedback.vibrate(this);
             recording = false;
+            processing = true;
             updateRecordingScreen();
             startTranscription(token);
         } else if (Recorder.MSG_RECORDING.equals(message)) {
@@ -314,8 +315,8 @@ public class WhisperRecognizeActivity extends AppCompatActivity {
         setResult(RESULT_OK, resultIntent);
         sessionActive = false;
         recording = false;
-        updateRecordingScreen();
         processing = false;
+        updateRecordingScreen();
         releaseRecorder(true);
         deinitModel();
         finish();
@@ -329,8 +330,8 @@ public class WhisperRecognizeActivity extends AppCompatActivity {
         if (token != sessionGeneration || !sessionActive || isFinishing() || isDestroyed()) return;
         sessionActive = false;
         recording = false;
-        updateRecordingScreen();
         processing = false;
+        updateRecordingScreen();
         processingBar.setIndeterminate(false);
         processingBar.setProgress(0);
         releaseRecorder(true);
@@ -354,8 +355,8 @@ public class WhisperRecognizeActivity extends AppCompatActivity {
         sessionGeneration++;
         sessionActive = false;
         recording = false;
-        updateRecordingScreen();
         processing = false;
+        updateRecordingScreen();
         if (processingBar != null) {
             processingBar.setIndeterminate(false);
             processingBar.setProgress(0);
@@ -392,7 +393,7 @@ public class WhisperRecognizeActivity extends AppCompatActivity {
     }
 
     private void updateRecordingScreen() {
-        if (recording) getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        if (recording || processing) getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         else getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
     }
 

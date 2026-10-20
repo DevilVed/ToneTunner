@@ -401,6 +401,7 @@ public class MainActivity extends AppCompatActivity {
         } else if (Recorder.MSG_RECORDING_DONE.equals(message)) {
             HapticFeedback.vibrate(this);
             recording = false;
+            processing = true;
             updateRecordingScreen();
             startProcessing(token, translate.isChecked() ? ACTION_TRANSLATE : ACTION_TRANSCRIBE);
         } else {
@@ -485,8 +486,8 @@ public class MainActivity extends AppCompatActivity {
         if (token != sessionGeneration || !sessionActive) return;
         sessionActive = false;
         recording = false;
-        updateRecordingScreen();
         processing = false;
+        updateRecordingScreen();
         processingBar.setIndeterminate(false);
         processingBar.setProgress(0);
         releaseRecorder(true);
@@ -501,8 +502,8 @@ public class MainActivity extends AppCompatActivity {
         sessionGeneration++;
         sessionActive = false;
         recording = false;
-        updateRecordingScreen();
         processing = false;
+        updateRecordingScreen();
         processingBar.setIndeterminate(false);
         processingBar.setProgress(0);
         releaseRecorder(true);
@@ -549,7 +550,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void updateRecordingScreen() {
-        if (recording) getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        if (recording || processing) getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         else getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
     }
 
