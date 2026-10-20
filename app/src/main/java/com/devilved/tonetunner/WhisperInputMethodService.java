@@ -303,18 +303,19 @@ public class WhisperInputMethodService extends InputMethodService {
     private void initModel() {
 
         mWhisper = new Whisper(this);
+        Whisper requestWhisper = mWhisper;
         mWhisper.loadModel();
         mWhisper.setListener(new Whisper.WhisperListener() {
             @Override
             public void onUpdateReceived(String message) {
-                if (requestEditorGeneration != editorGeneration || !inputActive) return;
+                if (mWhisper != requestWhisper || requestEditorGeneration != editorGeneration || !inputActive) return;
                 if (Whisper.MSG_ENHANCING.equals(message)) showStatus(getString(R.string.dictation_enhancing));
                 else if (Whisper.MSG_PROCESSING.equals(message)) showStatus(getString(R.string.dictation_transcribing));
             }
 
             @Override
             public void onError(String message) {
-                if (requestEditorGeneration != editorGeneration || !inputActive) return;
+                if (mWhisper != requestWhisper || requestEditorGeneration != editorGeneration || !inputActive) return;
                 processingBar.setIndeterminate(false);
                 processingBar.setProgress(0);
                 showStatus(message);
@@ -322,7 +323,7 @@ public class WhisperInputMethodService extends InputMethodService {
 
             @Override
             public void onResultReceived(WhisperResult whisperResult) {
-                if (requestEditorGeneration != editorGeneration || !inputActive) return;
+                if (mWhisper != requestWhisper || requestEditorGeneration != editorGeneration || !inputActive) return;
                 AiSettings settings = new AiSettings(WhisperInputMethodService.this);
                 if (!eligibleEditor(settings.isCloudTranscription() || settings.isEnhancementEnabled())) return;
                 processingBar.setIndeterminate(false);

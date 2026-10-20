@@ -54,7 +54,6 @@
             android:name=".WhisperRecognizeActivity"
             android:exported="true"
             android:clearTaskOnLaunch="true"
-            android:launchMode="singleInstance"
             android:visibleToInstantApps="true"
             android:theme="@style/Theme.WhisperFloating"
             android:configChanges="orientation|screenLayout|screenSize|keyboardHidden|keyboard|uiMode|density">

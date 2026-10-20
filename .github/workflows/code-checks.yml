@@ -34,6 +34,8 @@ jobs:
           gradle-version: "8.14.5"
       - name: Point the build at the runner's Android SDK
         run: echo "sdk.dir=$ANDROID_HOME" > local.properties
+      - name: Prepare aligned native extensions
+        uses: ./.github/actions/setup-native
       - name: Run lint
         run: gradle lintDebug --stacktrace
       - name: Upload lint reports
@@ -73,6 +75,8 @@ jobs:
           languages: java-kotlin
           build-mode: manual
           queries: security-and-quality
+      - name: Prepare aligned native extensions
+        uses: ./.github/actions/setup-native
       - name: Build for analysis
         run: gradle assembleDebug --no-build-cache --stacktrace
       - uses: github/codeql-action/analyze@v4
@@ -95,6 +99,8 @@ jobs:
           java-version: "17"
       - name: Point the build at the runner's Android SDK
         run: echo "sdk.dir=$ANDROID_HOME" > local.properties
+      - name: Prepare aligned native extensions
+        uses: ./.github/actions/setup-native
       - name: Submit dependencies to GitHub
         uses: gradle/actions/dependency-submission@v4
         with:

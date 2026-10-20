@@ -30,7 +30,28 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  native-extensions:
+    name: Build 16 KB native extensions
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.ref || github.sha }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: ./.github/actions/setup-native
+      - uses: actions/upload-artifact@v4
+        with:
+          name: aligned-native-extensions
+          path: native-dependencies/onnxruntime-extensions-android.aar
+          if-no-files-found: error
+          retention-days: 30
+
   verify:
+    needs: native-extensions
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -54,6 +75,11 @@ jobs:
       - name: Point the build at the runner's Android SDK
         # The committed local.properties contains another machine's sdk.dir, which would break the build.
         run: echo "sdk.dir=$ANDROID_HOME" > local.properties
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: aligned-native-extensions
+          path: native-dependencies
 
       # Verification must pass before assembling an installable APK.
       - name: Verify edge cases and Android lint
@@ -104,6 +130,10 @@ jobs:
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
+      - uses: actions/download-artifact@v4
+        with:
+          name: aligned-native-extensions
+          path: native-dependencies
       - name: Verify Android framework, native inference and long capture
         uses: reactivecircus/android-emulator-runner@v2
         with:
@@ -152,6 +182,11 @@ jobs:
         run: |
           mkdir -p ~/.android
           echo "$DEBUG_KEYSTORE_B64" | base64 -d > ~/.android/debug.keystore
+      - name: Download verified native extensions
+        uses: actions/download-artifact@v4
+        with:
+          name: aligned-native-extensions
+          path: native-dependencies
       - name: Build APK after all verification gates pass
         run: |
           if [ "$BUILD_TYPE" = "release" ]; then task=assembleRelease; else task=assembleDebug; fi
@@ -161,6 +196,7 @@ jobs:
         run: |
           for apk in app/build/outputs/apk/*/*.apk; do
             "$ANDROID_HOME/build-tools/35.0.0/zipalign" -c -P 16 4 "$apk"
+            python3 tools/native/check_alignment.py --apk "$apk"
           done
 
       - name: Name the artifact

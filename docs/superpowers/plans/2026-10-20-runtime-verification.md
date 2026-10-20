@@ -28,3 +28,12 @@
 ## Limits
 
 Emulator fixtures do not prove Bluetooth hardware routing, OEM keyboard behavior, real Whisper weight quality/performance, or a cloud provider's live retention policy. Keep those distinctions explicit in the result; do not claim physical-device verification from emulator tests.
+
+## Evidence and decisions
+
+- Initial regression run [39431452697](https://github.com/DevilVed/ToneTunner/actions/runs/39431452697), commit `49e4fc1`: 105 JVM tests ran, with exactly three expected failures (cancelled IME listener delivery, selection-change cancellation, and recognition Activity launch mode). Lint also rejected nine native alignment errors. No APK was delivered.
+- AOSP confirms `singleInstance` forces a new task and cancels the caller's activity-result route. The intended fix is standard per-request Activity instances, with a real Android caller-result instrumentation test.
+- The IME callback now also checks its owning Whisper instance. Cancellation invalidates that owner even if a callback retained the previous listener. The lower-level operation gate continues protecting normal asynchronous delivery.
+- Published AAR bytes were inspected, not just version labels: ONNX Runtime Android 1.27.0 has 16 KB-aligned arm64 libraries; Extensions Android 0.13.0 still has 4 KB-aligned libraries and remains Maven Central's latest published Android artifact. WebRTC 2.0.10's upstream release documents the alignment fix.
+- Build Extensions' JNI libraries from the pinned upstream 0.13.0 source with explicit 16 KB shared/module linker flags and NDK 28. Preserve the checksum-verified official Java/resources package and its API, add MIT/provenance, and reject mismatched package layouts. Share the rebuilt AAR across all verification/package jobs. No unaligned fallback or lint suppression.
+- These repairs are awaiting the next complete Actions run and independent patch review; this document does not claim runtime acceptance yet.

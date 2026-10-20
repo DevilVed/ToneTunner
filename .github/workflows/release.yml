@@ -81,6 +81,12 @@ jobs:
       - name: Point the build at the runner's Android SDK
         run: echo "sdk.dir=$ANDROID_HOME" > local.properties
 
+      - name: Prepare aligned native extensions
+        uses: ./.github/actions/setup-native
+
+      - name: Verify release code before assembly
+        run: gradle testReleaseUnitTest lintRelease --stacktrace
+
       - name: Build release APK
         run: gradle assembleRelease --stacktrace
 
@@ -94,10 +100,11 @@ jobs:
           keystore="$RUNNER_TEMP/release.keystore"
           echo "$RELEASE_KEYSTORE_B64" | base64 -d > "$keystore"
           mkdir -p dist
-          "$build_tools/zipalign" -p -f 4 app/build/outputs/apk/release/app-release-unsigned.apk "$RUNNER_TEMP/aligned.apk"
+          "$build_tools/zipalign" -P 16 -f 4 app/build/outputs/apk/release/app-release-unsigned.apk "$RUNNER_TEMP/aligned.apk"
           "$build_tools/apksigner" sign --ks "$keystore" --ks-pass env:RELEASE_KEYSTORE_PASSWORD \
             --ks-key-alias "$RELEASE_KEY_ALIAS" --out "dist/ToneTunner-$TAG.apk" "$RUNNER_TEMP/aligned.apk"
           "$build_tools/apksigner" verify --print-certs "dist/ToneTunner-$TAG.apk"
+          python3 tools/native/check_alignment.py --apk "dist/ToneTunner-$TAG.apk"
           rm -f "$keystore"
           (cd dist && sha256sum "ToneTunner-$TAG.apk" > "ToneTunner-$TAG.apk.sha256")
 

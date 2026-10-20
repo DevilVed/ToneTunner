@@ -37,7 +37,9 @@ Temporary audio is deleted on completion, cancellation, or failure. If Android t
 
 ## Development and verification
 
-Build on GitHub Actions; no local Android SDK is required. The Android build workflow runs `testDebugUnitTest` and `lintDebug` before assembling the APK, and uploads test/lint reports even if verification fails. Debug APK artifacts are available on a successful workflow run. Development uses Gradle 8.14.5 and JDK 17 in CI.
+Build on GitHub Actions; no local Android SDK is required. The Android build workflow prepares aligned native dependencies, runs `testDebugUnitTest` and `lintDebug`, then runs connected Android tests on API 28 and an API 35 16 KB emulator before delivering the APK. Test/lint/runtime reports are uploaded even if verification fails. Debug APK artifacts are available after every verification gate succeeds. Development uses Gradle 8.14.5 and JDK 17 in CI.
+
+The [native dependency build](tools/native/README.md) rebuilds ONNX Runtime Extensions' JNI libraries from pinned upstream source with 16 KB linker alignment. Its published Android AAR still contains unaligned libraries. The build preserves the official Java classes, records provenance, and includes the upstream MIT license. Final APKs receive ELF and ZIP alignment checks.
 
 Tests exercise request construction, privacy filters, provider failures, cancellation, malformed/truncated results, credential configuration, editor eligibility, audio ownership, and long recording segmentation. The [long-recording design and reference implementations](docs/superpowers/specs/2026-10-20-cloud-dictation.md#long-recording-requirement-user-update) explain the file spool and bounded inference algorithm. Physical-device microphone/keyboard testing and real-provider transcription quality testing are separate from automated verification.
 
@@ -55,6 +57,7 @@ ToneTunner began as a fork of [whisperIMEplus](https://github.com/woheller69/whi
 - It uses code from [Whisper-Android project](https://github.com/vilassn/whisper_android), published under MIT license
 - It uses [OpenAI Whisper](https://github.com/openai/whisper) published under MIT license. Details on Whisper are found [here](https://arxiv.org/abs/2212.04356).
 - It uses [Android VAD](https://github.com/gkonovalov/android-vad), which is published under MIT license
+- It uses [ONNX Runtime and ONNX Runtime Extensions](https://github.com/microsoft/onnxruntime-extensions), published under MIT license; the upstream Extensions license is also included in the APK's license assets
 - It uses [Opencc4j](https://github.com/houbb/opencc4j), for Chinese conversions, published under Apache-2.0 license
 - It uses [FreeDroidWarn](https://github.com/DevilVed/FreeDroidWarn), DevilVed's fork of woheller69's library, published under Apache-2.0 license
 - At first start you need to download the Whisper model from [HuggingFace](https://huggingface.co/DocWolle/whisperOnnx), which is published under MIT license
