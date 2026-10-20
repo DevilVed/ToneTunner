@@ -5,8 +5,11 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.MissingResourceException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
@@ -43,6 +46,8 @@ public final class CloudClient {
 
     private static final MediaType JSON_MEDIA_TYPE = MediaType.parse("application/json; charset=utf-8");
     private static final MediaType WAV_MEDIA_TYPE = MediaType.parse("audio/wav");
+    private static final Map<String, String> ISO_639_3_TO_639_1 = createIso3ToIso2Map();
+    private static final Map<String, String> ENGLISH_LANGUAGE_NAMES = createEnglishLanguageNameMap();
 
     private static final String INVALID_ENDPOINT = "Invalid provider endpoint.";
     private static final String API_KEY_REQUIRED = "API key is required.";
@@ -125,12 +130,12 @@ public final class CloudClient {
             if (text.trim().isEmpty()) {
                 throw new NoSpeechException();
             }
-            String detectedLanguage = stringValue(json, "language");
-            if (detectedLanguage == null || detectedLanguage.trim().isEmpty()) {
+            String detectedLanguage = normalizeDetectedLanguage(stringValue(json, "language"));
+            if (detectedLanguage.isEmpty()) {
                 detectedLanguage = translate ? "en" : normalizeLanguage(language);
             }
             checkNotCancelled();
-            return new Transcript(text.trim(), detectedLanguage == null ? "" : detectedLanguage.trim());
+            return new Transcript(text.trim(), detectedLanguage);
         } catch (JSONException e) {
             throw safe(INVALID_RESPONSE);
         }
@@ -234,8 +239,11 @@ public final class CloudClient {
                 .setType(MultipartBody.FORM)
                 .addFormDataPart("model", config.model)
                 .addFormDataPart("file", "recording.wav", RequestBody.create(WAV_MEDIA_TYPE, wav));
+        if (!translate && supportsVerboseJson(config)) {
+            multipart.addFormDataPart("response_format", "verbose_json");
+        }
         String languageCode = translate ? null : normalizeLanguage(language);
-        if (languageCode != null && !languageCode.isEmpty()) {
+        if (!languageCode.isEmpty()) {
             multipart.addFormDataPart("language", languageCode);
         }
         return multipart.build();
@@ -250,7 +258,7 @@ public final class CloudClient {
                     .put("data", Base64.getEncoder().encodeToString(wav))
                     .put("format", "wav"));
             String languageCode = translate ? null : normalizeLanguage(language);
-            if (languageCode != null && !languageCode.isEmpty()) {
+            if (!languageCode.isEmpty()) {
                 payload.put("language", languageCode);
             }
             if (config.requireZdr) {
@@ -607,19 +615,116 @@ public final class CloudClient {
         return config.provider == Provider.OPENAI && "whisper-1".equals(model);
     }
 
-    private static String normalizeLanguage(String language) {
+    private static boolean supportsVerboseJson(ProviderConfig config) {
+        String model = config.model.toLowerCase(Locale.ROOT);
+        if (config.provider == Provider.OPENAI) {
+            return "whisper-1".equals(model);
+        }
+        if (config.provider == Provider.GROQ) {
+            return "whisper-large-v3".equals(model) || "whisper-large-v3-turbo".equals(model);
+        }
+        return false;
+    }
+
+    /** Returns the normalized language code for a user-supplied BCP 47-like tag, or empty if invalid/automatic. */
+    public static String normalizeLanguage(String language) {
         if (language == null) {
-            return null;
+            return "";
         }
         String value = language.trim().toLowerCase(Locale.ROOT);
         if (value.isEmpty() || "auto".equals(value) || "automatic".equals(value)) {
-            return null;
+            return "";
+        }
+        if (!value.matches("[a-z]{2,3}(?:-[a-z0-9]{2,8})*")) {
+            return "";
         }
         int separator = value.indexOf('-');
         if (separator >= 0) {
             value = value.substring(0, separator);
         }
-        return value.matches("[a-z]{2}") ? value : null;
+        value = canonicalTwoLetterAlias(value);
+        if (value.length() == 3) {
+            String twoLetter = ISO_639_3_TO_639_1.get(value);
+            if (twoLetter != null) {
+                value = twoLetter;
+            }
+        }
+        return value;
+    }
+
+    /** Normalizes provider language metadata, which may be a code or an English language name. */
+    public static String normalizeDetectedLanguage(String language) {
+        if (language == null) {
+            return "";
+        }
+        String value = language.trim().toLowerCase(Locale.ROOT);
+        if (value.isEmpty()) {
+            return "";
+        }
+        String code = normalizeLanguage(value);
+        if (!code.isEmpty()) {
+            return code;
+        }
+        return ENGLISH_LANGUAGE_NAMES.getOrDefault(value, "");
+    }
+
+    private static String canonicalTwoLetterAlias(String language) {
+        switch (language) {
+            case "iw":
+                return "he";
+            case "in":
+                return "id";
+            case "ji":
+                return "yi";
+            default:
+                return language;
+        }
+    }
+
+    private static Map<String, String> createIso3ToIso2Map() {
+        Map<String, String> mapping = new HashMap<>();
+        for (String language : Locale.getISOLanguages()) {
+            String twoLetter = canonicalTwoLetterAlias(language.toLowerCase(Locale.ROOT));
+            try {
+                String threeLetter = new Locale(language).getISO3Language().toLowerCase(Locale.ROOT);
+                mapping.putIfAbsent(threeLetter, twoLetter);
+            } catch (MissingResourceException ignored) {
+                // Some installed language tags do not have an ISO-639-3 mapping in this runtime.
+            }
+        }
+        // Java's ISO-639-1 catalogue does not enumerate these valid ISO-639-3-only tags.
+        mapping.remove("yue");
+        mapping.remove("haw");
+        mapping.put("eng", "en");
+        mapping.put("heb", "he");
+        mapping.put("ind", "id");
+        mapping.put("yid", "yi");
+        mapping.put("fra", "fr");
+        mapping.put("deu", "de");
+        mapping.put("ger", "de");
+        mapping.put("fre", "fr");
+        return Collections.unmodifiableMap(mapping);
+    }
+
+    private static Map<String, String> createEnglishLanguageNameMap() {
+        Map<String, String> mapping = new HashMap<>();
+        for (String language : Locale.getISOLanguages()) {
+            Locale locale = new Locale(language);
+            String code = canonicalTwoLetterAlias(language.toLowerCase(Locale.ROOT));
+            addEnglishLanguageName(mapping, locale.getDisplayLanguage(Locale.ENGLISH), code);
+        }
+        addEnglishLanguageName(mapping, new Locale("yue").getDisplayLanguage(Locale.ENGLISH), "yue");
+        addEnglishLanguageName(mapping, new Locale("haw").getDisplayLanguage(Locale.ENGLISH), "haw");
+        mapping.put("cantonese", "yue");
+        mapping.put("yue chinese", "yue");
+        mapping.put("hawaiian", "haw");
+        return Collections.unmodifiableMap(mapping);
+    }
+
+    private static void addEnglishLanguageName(Map<String, String> mapping, String name, String code) {
+        if (name != null && !name.trim().isEmpty()) {
+            mapping.putIfAbsent(name.trim().toLowerCase(Locale.ROOT), code);
+        }
     }
 
     private static void requireConfig(ProviderConfig config) throws IOException {

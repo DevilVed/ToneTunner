@@ -8,6 +8,7 @@ import java.io.OutputStream;
 import java.io.RandomAccessFile;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.UUID;
 
 /**
  * A disk-backed spool for mono, 16 kHz, signed PCM16 audio.
@@ -32,19 +33,55 @@ public final class PcmRecording implements AutoCloseable {
     private static final Object LIVE_FILES_LOCK = new Object();
     private static final Set<String> LIVE_FILE_PATHS = new HashSet<>();
 
-    private final File file;
-    private final String registryPath;
+    private File file;
+    private String registryPath;
     private OutputStream output;
     private RandomAccessFile input;
     private long lengthBytes;
     private long readPosition;
     private boolean finished;
     private boolean closed;
+    private boolean deletionOwned = true;
+    private boolean registeredLiveFile = true;
+    private boolean lastChunkHardCut;
+    private String captureWarning;
+    private Runnable afterClose;
+
+    /** Releases the recovery owner's read lease after the recording's handles close. */
+    synchronized void afterClose(Runnable callback) {
+        if (closed) callback.run();
+        else afterClose = callback;
+    }
 
     private PcmRecording(File file, String registryPath, OutputStream output) {
         this.file = file;
         this.registryPath = registryPath;
         this.output = output;
+    }
+
+    /** Opens retained PCM read-only; closing or failing to read it never deletes the archive. */
+    public static PcmRecording openExisting(File file, long positionBytes, String captureWarning)
+            throws IOException {
+        if (file == null || !file.isFile()) throw new IOException("Retained recording audio is unavailable.");
+        final String registryPath;
+        final long length = file.length();
+        try {
+            registryPath = file.getCanonicalPath();
+        } catch (IOException e) {
+            throw new IOException("Unable to open retained recording audio.");
+        }
+        if ((length & 1L) != 0 || positionBytes < 0 || (positionBytes & 1L) != 0
+                || positionBytes > length) {
+            throw new IOException("Retained recording position is invalid.");
+        }
+        PcmRecording recording = new PcmRecording(file, registryPath, null);
+        recording.lengthBytes = length;
+        recording.readPosition = positionBytes;
+        recording.finished = true;
+        recording.deletionOwned = false;
+        recording.registeredLiveFile = false;
+        recording.captureWarning = captureWarning;
+        return recording;
     }
 
     /** Creates a unique temporary PCM file under the app's private storage directory. */
@@ -89,14 +126,14 @@ public final class PcmRecording implements AutoCloseable {
         ensureWritable();
         if (length == 0) return;
         if (Long.MAX_VALUE - lengthBytes < length) {
-            failAndDelete();
+            failAndClose();
             throw new IOException("Recording is too large to store safely.");
         }
         try {
             output.write(data, offset, length);
             lengthBytes += length;
         } catch (IOException e) {
-            failAndDelete();
+            failAndClose();
             throw new IOException("Unable to write recording audio to private storage.");
         }
     }
@@ -111,7 +148,7 @@ public final class PcmRecording implements AutoCloseable {
             output = null;
             finished = true;
         } catch (IOException e) {
-            failAndDelete();
+            failAndClose();
             throw new IOException("Unable to finish recording audio in private storage.");
         }
     }
@@ -121,6 +158,121 @@ public final class PcmRecording implements AutoCloseable {
         return lengthBytes;
     }
 
+    /** Returns the current absolute PCM byte position. Positions are always sample-aligned. */
+    public synchronized long positionBytes() {
+        return readPosition;
+    }
+
+    /** Moves the read cursor to an absolute even byte offset in a finished recording. */
+    public synchronized void seekTo(long positionBytes) throws IOException {
+        ensureOpen();
+        if (!finished) throw new IOException("Finish the recording before seeking audio windows.");
+        if (positionBytes < 0 || (positionBytes & 1L) != 0 || positionBytes > lengthBytes) {
+            throw new IllegalArgumentException("Recording position must be an even offset within the audio.");
+        }
+        readPosition = positionBytes;
+        lastChunkHardCut = false;
+    }
+
+    /** Whether the most recent non-empty chunk ended at the fixed maximum boundary. */
+    public synchronized boolean wasHardCut() {
+        return lastChunkHardCut;
+    }
+
+    /** Stores an optional warning about capture quality for the result and recovery metadata. */
+    public synchronized void setCaptureWarning(String warning) {
+        captureWarning = warning;
+    }
+
+    /** Returns the optional capture-quality warning. */
+    public synchronized String getCaptureWarning() {
+        return captureWarning;
+    }
+
+    /**
+     * Moves a finished temporary spool to its retained location and relinquishes deletion
+     * ownership. The destination must not already exist and should be on the same filesystem.
+     */
+    public synchronized void retainTo(File destination) throws IOException {
+        ensureOpen();
+        if (!finished) throw new IOException("Finish the recording before retaining audio.");
+        if (!deletionOwned) throw new IOException("Recording audio is already retained.");
+        if (destination == null || destination.exists()) {
+            throw new IOException("Unable to retain recording audio.");
+        }
+        File parent = destination.getParentFile();
+        if (parent == null || !parent.isDirectory()) {
+            throw new IOException("Unable to retain recording audio.");
+        }
+        if (input != null) {
+            try {
+                input.close();
+            } catch (IOException e) {
+                input = null;
+                throw new IOException("Unable to close recording before retaining audio.");
+            }
+            input = null;
+        }
+        final String destinationPath;
+        try {
+            destinationPath = destination.getCanonicalPath();
+        } catch (IOException e) {
+            throw new IOException("Unable to retain recording audio.");
+        }
+        if (!file.renameTo(destination)) throw new IOException("Unable to retain recording audio.");
+
+        synchronized (LIVE_FILES_LOCK) {
+            if (registeredLiveFile) LIVE_FILE_PATHS.remove(registryPath);
+            registeredLiveFile = false;
+        }
+        file = destination;
+        registryPath = destinationPath;
+        deletionOwned = false;
+    }
+
+    /** Keeps a finished spool for later RecoveryStore import after both archive roots fail. */
+    public synchronized File retainForRecoveryFailure() throws IOException {
+        ensureOpen();
+        if (!finished) throw new IOException("Finish the recording before retaining audio.");
+        if (!deletionOwned) throw new IOException("Recording audio is already retained.");
+        File parent = file.getParentFile();
+        if (parent == null || !parent.isDirectory()) {
+            throw new IOException("Unable to retain recording audio for recovery.");
+        }
+        if (input != null) {
+            try {
+                input.close();
+            } catch (IOException e) {
+                input = null;
+                throw new IOException("Unable to close recording before retaining audio.");
+            }
+            input = null;
+        }
+
+        File destination;
+        do {
+            destination = new File(parent, "recovery-orphan-" + UUID.randomUUID() + ".pcm");
+        } while (destination.exists());
+        final String destinationPath;
+        try {
+            destinationPath = destination.getCanonicalPath();
+        } catch (IOException e) {
+            throw new IOException("Unable to retain recording audio for recovery.");
+        }
+        if (!file.renameTo(destination)) {
+            throw new IOException("Unable to retain recording audio for recovery.");
+        }
+
+        synchronized (LIVE_FILES_LOCK) {
+            if (registeredLiveFile) LIVE_FILE_PATHS.remove(registryPath);
+            registeredLiveFile = false;
+        }
+        file = destination;
+        registryPath = destinationPath;
+        deletionOwned = false;
+        return destination;
+    }
+
     /**
      * Reads the next bounded, even-length PCM16 window, or {@code null} at end of file.
      * A quiet run is preferred only when the recording has more than one maximum-sized window
@@ -128,11 +280,13 @@ public final class PcmRecording implements AutoCloseable {
      */
     public synchronized byte[] nextChunk() throws IOException {
         ensureOpen();
+        lastChunkHardCut = false;
         if (!finished) throw new IOException("Finish the recording before reading audio windows.");
         if (readPosition >= lengthBytes) return null;
 
         try {
             if (input == null) input = new RandomAccessFile(file, "r");
+            long chunkStart = readPosition;
             long end = chooseChunkEnd();
             long chunkLength = end - readPosition;
             if (chunkLength <= 0 || chunkLength > MAX_CHUNK_BYTES || (chunkLength & 1L) != 0) {
@@ -142,18 +296,19 @@ public final class PcmRecording implements AutoCloseable {
             input.seek(readPosition);
             input.readFully(chunk);
             readPosition = end;
+            lastChunkHardCut = end < lengthBytes && end == chunkStart + MAX_CHUNK_BYTES;
             return chunk;
         } catch (IOException e) {
-            failAndDelete();
+            failAndClose();
             throw new IOException("Unable to read recording audio from private storage.");
         }
     }
 
-    /** Closes open handles and deletes the temporary recording. Safe to call repeatedly. */
+    /** Closes open handles and deletes an owned spool; retained recordings remain on disk. */
     @Override
     public synchronized void close() throws IOException {
         if (closed) {
-            deleteFileIfPresent();
+            if (deletionOwned) deleteFileIfPresent();
             return;
         }
 
@@ -177,11 +332,18 @@ public final class PcmRecording implements AutoCloseable {
                 input = null;
             }
         }
-        try {
-            deleteFileIfPresent();
-        } catch (IOException e) {
-            if (failure == null) failure = e;
+        if (deletionOwned) {
+            try {
+                deleteFileIfPresent();
+            } catch (IOException e) {
+                if (failure == null) failure = e;
+            }
+        } else {
+            unregisterLiveFile();
         }
+        Runnable callback = afterClose;
+        afterClose = null;
+        if (callback != null) callback.run();
         if (failure != null) throw failure;
     }
 
@@ -254,7 +416,7 @@ public final class PcmRecording implements AutoCloseable {
         if (closed) throw new IOException("Recording is closed.");
     }
 
-    private void failAndDelete() {
+    private void failAndClose() {
         try {
             close();
         } catch (IOException ignored) {
@@ -267,10 +429,15 @@ public final class PcmRecording implements AutoCloseable {
         if (file.exists() && !file.delete()) {
             failure = new IOException("Unable to delete temporary recording from private storage.");
         }
-        synchronized (LIVE_FILES_LOCK) {
-            LIVE_FILE_PATHS.remove(registryPath);
-        }
+        unregisterLiveFile();
         if (failure != null) throw failure;
+    }
+
+    private void unregisterLiveFile() {
+        synchronized (LIVE_FILES_LOCK) {
+            if (registeredLiveFile) LIVE_FILE_PATHS.remove(registryPath);
+            registeredLiveFile = false;
+        }
     }
 
     private static void removeStaleSpoolFiles(File privateDirectory) throws IOException {

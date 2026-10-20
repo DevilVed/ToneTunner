@@ -139,6 +139,16 @@ public class CloudClientTest {
     }
 
     @Test
+    public void detectedIso639ThreeLetterAliasesMapToTheirTwoLetterCodes() throws Exception {
+        assertDetectedLanguage("eng", "en");
+        assertDetectedLanguage("heb", "he");
+        assertDetectedLanguage("ind", "id");
+        assertDetectedLanguage("yid", "yi");
+        assertDetectedLanguage("fra", "fr");
+        assertDetectedLanguage("deu", "de");
+    }
+
+    @Test
     public void unrecognizedDetectedLanguageMetadataIsDiscarded() throws Exception {
         assertDetectedLanguage("not-a-real-language", "");
     }

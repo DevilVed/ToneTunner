@@ -6,12 +6,20 @@ public class WhisperResult {
     private final String result;
     private final String language;
     private final Recognizer.Action task;
+    private final String warning;
 
     public WhisperResult(String result, String language, Recognizer.Action task){
+        this(result, language, task, "");
+    }
+
+    public WhisperResult(String result, String language, Recognizer.Action task, String warning){
+        this.warning = warning == null ? "" : warning;
         this.result = result;
         this.language = language;
         this.task = task;
     }
+
+    public String getWarning() { return warning; }
 
     public String getResult() {
         return result;

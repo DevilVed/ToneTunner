@@ -23,6 +23,7 @@ import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import static org.junit.Assert.*;
 
@@ -45,6 +46,9 @@ public class WhisperFailureRecoveryTest {
     private WhisperResult result;
     private int errors;
     private int errorCode;
+    private int blockAt;
+    private final CountDownLatch blocked = new CountDownLatch(1);
+    private final CountDownLatch allowBlocked = new CountDownLatch(1);
 
     @Before public void setUp() {
         context = RuntimeEnvironment.getApplication();
@@ -54,11 +58,15 @@ public class WhisperFailureRecoveryTest {
         deleteTree(new File(context.getNoBackupFilesDir(), "dictation-recovery"));
         whisper = new Whisper(context, ignored -> new Whisper.LocalTranscriber() {
             public CloudClient.Transcript transcribe(byte[] pcm, String language, Recognizer.Action action)
-                    throws IOException {
+                    throws IOException, InterruptedException {
                 languages.add(language);
                 firstSamples.add((int) (short) ((pcm[0] & 255) | (pcm[1] << 8)));
                 windowSizes.add(pcm.length);
                 calls++;
+                if (calls == blockAt) {
+                    blocked.countDown();
+                    if (!allowBlocked.await(10, TimeUnit.SECONDS)) throw new IOException("Blocked fixture timed out");
+                }
                 if (calls == failAt) throw new IOException("Synthetic later-window failure");
                 String text = windowTexts != null ? windowTexts.get(calls - 1)
                         : failAt > 0 ? "part-" + calls : rawText;
@@ -76,6 +84,7 @@ public class WhisperFailureRecoveryTest {
     }
 
     @After public void tearDown() {
+        allowBlocked.countDown();
         whisper.unloadModel();
         Shadows.shadowOf(Looper.getMainLooper()).idle();
         deleteTree(new File(context.getNoBackupFilesDir(), "dictation-recovery"));
@@ -89,6 +98,7 @@ public class WhisperFailureRecoveryTest {
         assertEquals(rawText, result.getResult());
         assertEquals(0, errors);
         assertEquals(1, FailingEnhancement.calls);
+        assertTrue(result.getWarning().contains("raw transcript"));
     }
 
     @Test public void laterEnhancementFailureDoesNotDeliverAnEnhancedPrefix() throws Exception {
@@ -123,6 +133,88 @@ public class WhisperFailureRecoveryTest {
         assertEquals("en", result.getLanguage());
     }
 
+    @Test public void retryResumesAtTheFailedWindowWithoutReplayingCompletedAudio() throws Exception {
+        failAt = 3;
+        startAndDrain(recording(60, 2048));
+        RecoveryStore store = new RecoveryStore(context);
+        assertEquals(1, store.list().size());
+        String id = store.list().get(0).id;
+        assertEquals("part-1 part-2", store.get(id).transcript);
+        assertEquals(3, calls);
+
+        whisper.retrySaved(id);
+        drainWorker();
+
+        assertEquals("only the failed window should be sent again", 4, calls);
+        assertNotNull(result);
+        assertEquals("part-1 part-2 part-4", result.getResult());
+        assertTrue("successful delivery removes the retained recording", store.list().isEmpty());
+        assertEquals(1, errors);
+    }
+
+    @Test public void failedRetryCheckpointsNewProgressWithoutReplacingTheOriginalAudio() throws Exception {
+        failAt = 2;
+        startAndDrain(recording(60, 2048));
+        RecoveryStore store = new RecoveryStore(context);
+        String id = store.list().get(0).id;
+        failAt = 4;
+        whisper.retrySaved(id);
+        drainWorker();
+
+        assertEquals(1, store.list().size());
+        assertEquals("part-1 part-3", store.get(id).transcript);
+        assertEquals(60L * 32_000, store.get(id).lengthBytes);
+        assertEquals(2, errors);
+        assertNull(result);
+    }
+
+    @Test public void cancellingASavedRetryDoesNotDiscardTheRetainedOriginal() throws Exception {
+        failAt = 2;
+        startAndDrain(recording(60, 2048));
+        RecoveryStore store = new RecoveryStore(context);
+        String id = store.list().get(0).id;
+        whisper.retrySaved(id);
+        whisper.stop();
+        drainWorker();
+        assertNotNull(store.get(id));
+        assertEquals(60L * 32_000, store.get(id).lengthBytes);
+        assertNull(result);
+    }
+
+    @Test public void cancellationDuringALaterWindowKeepsAudioAndCompletedProgress() throws Exception {
+        blockAt = 2;
+        whisper.start(recording(60, 2048));
+        assertTrue(blocked.await(5, TimeUnit.SECONDS));
+        whisper.stop();
+        allowBlocked.countDown();
+        drainWorker();
+        RecoveryStore.Entry entry = new RecoveryStore(context).list().get(0);
+        assertEquals(rawText, entry.transcript);
+        assertEquals(60L * 32_000, entry.lengthBytes);
+        assertNull(result);
+    }
+
+    @Test public void cancellingBeforeQueuedSuccessDeliveryKeepsTheCompleteTextRecoverable() throws Exception {
+        whisper.start(recording(1, 2048));
+        Field field = Whisper.class.getDeclaredField("worker");
+        field.setAccessible(true);
+        ((ExecutorService) field.get(whisper)).submit(() -> { }).get(10, TimeUnit.SECONDS);
+        // Do not drain the UI queue: inference is done but its result has not been delivered.
+        whisper.stop();
+        Shadows.shadowOf(Looper.getMainLooper()).idle();
+        RecoveryStore store = new RecoveryStore(context);
+        RecoveryStore.Entry entry = store.list().get(0);
+        assertEquals(rawText, entry.transcript);
+        assertEquals(32_000, entry.offset);
+        assertNull(result);
+        whisper.retrySaved(entry.id);
+        drainWorker();
+        assertNotNull(result);
+        assertEquals(rawText, result.getResult());
+        assertEquals("already completed audio must not be uploaded again", 1, calls);
+        assertTrue(store.list().isEmpty());
+    }
+
     @Test public void veryQuietNonzeroRoomNoiseDoesNotReachTheModel() throws Exception {
         startAndDrain(recording(2, 12));
         assertEquals("room noise must not become full-scale speech", 0, calls);
@@ -135,6 +227,19 @@ public class WhisperFailureRecoveryTest {
         assertEquals(android.speech.SpeechRecognizer.ERROR_NO_MATCH, errorCode);
         assertNull(result);
         assertEquals(1, errors);
+    }
+
+    @Test public void explicitRetryCanSendQuietAudioWithoutLosingItsBeginning() throws Exception {
+        startAndDrain(recording(2, 12));
+        RecoveryStore store = new RecoveryStore(context);
+        RecoveryStore.Entry entry = store.list().get(0);
+        assertEquals(0, entry.offset);
+        whisper.retrySaved(entry.id);
+        drainWorker();
+        assertEquals(1, calls);
+        assertNotNull(result);
+        assertEquals(rawText, result.getResult());
+        assertTrue(store.list().isEmpty());
     }
 
     @Test public void hardCutContextDoesNotDuplicateAnOverlappingPhrase() throws Exception {
@@ -176,6 +281,10 @@ public class WhisperFailureRecoveryTest {
 
     private void startAndDrain(PcmRecording recording) throws Exception {
         whisper.start(recording);
+        drainWorker();
+    }
+
+    private void drainWorker() throws Exception {
         Field field = Whisper.class.getDeclaredField("worker");
         field.setAccessible(true);
         ((ExecutorService) field.get(whisper)).submit(() -> { }).get(10, TimeUnit.SECONDS);

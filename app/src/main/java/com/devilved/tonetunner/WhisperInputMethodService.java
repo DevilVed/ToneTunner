@@ -121,11 +121,10 @@ public class WhisperInputMethodService extends InputMethodService {
     public void onUpdateSelection(int oldSelStart, int oldSelEnd, int newSelStart, int newSelEnd,
             int candidatesStart, int candidatesEnd) {
         super.onUpdateSelection(oldSelStart, oldSelEnd, newSelStart, newSelEnd, candidatesStart, candidatesEnd);
-        if ((acceptRecording || (mWhisper != null && mWhisper.isInProgress()))
-                && (oldSelStart != newSelStart || oldSelEnd != newSelEnd)) {
-            cancelDictation();
-            showStatus(getString(R.string.dictation_cancelled));
-        }
+        // Host apps also move selection for formatting/composition. The current editor owns the
+        // operation; selection notifications alone must not destroy its recording or pending text.
+        // Editor replacement/finish and explicit cancellation still invalidate the listener.
+
     }
 
     @SuppressLint("ClickableViewAccessibility")
@@ -367,6 +366,11 @@ public class WhisperInputMethodService extends InputMethodService {
                 boolean committed = connection != null && !result.trim().isEmpty()
                         && connection.commitText(result.trim() + " ", 1);
                 showStatus(getString(committed ? R.string.dictation_inserted : R.string.dictation_editor_closed));
+                if (!whisperResult.getWarning().isEmpty()) {
+                    showStatus(whisperResult.getWarning());
+                    android.widget.Toast.makeText(WhisperInputMethodService.this,
+                            whisperResult.getWarning(), android.widget.Toast.LENGTH_LONG).show();
+                }
                 if (modeAuto && committed) {
                     long deliveredGeneration = editorGeneration;
                     handler.postDelayed(() -> {

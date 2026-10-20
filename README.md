@@ -2,6 +2,8 @@ ToneTunner is developed and maintained by [DevilVed](https://github.com/DevilVed
 
 ToneTunner is an open-source Android voice dictation app and voice keyboard. Use your own API keys for cloud transcription, optionally clean up the transcript with a separately selected enhancement model, or run the existing Whisper model locally.
 
+**Experimental-build review:** The previously verified `bd0e80a` APK has confirmed failure-handling gaps: one failed audio-window request discards the completed transcript and deletes the entire recording, and enhancement failure discards valid raw text. Automatic mode can also remain open indefinitely before initial speech. The [review repair record](docs/superpowers/plans/2026-10-20-dictation-review-repairs.md) tracks the corrections and new cloud verification. Earlier passing test counts do not establish these cases were safe.
+
 ## Configure your models
 
 Open **AI settings** from the app or voice keyboard. The two sections are independent:

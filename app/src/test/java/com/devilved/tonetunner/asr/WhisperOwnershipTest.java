@@ -81,6 +81,7 @@ public class WhisperOwnershipTest {
         whisper.setListener(callbacks);
 
         whisper.start(recording.recording); // Fresh settings have not granted cloud upload consent.
+        drainWorker(whisper); // Failure preservation is disk I/O and runs off the UI thread.
         assertTrue(recording.recording.isClosed());
         assertFalse(recording.file.exists());
         assertTrue(whisper.isInProgress()); // Terminal delivery is queued on the main looper.
@@ -99,6 +100,7 @@ public class WhisperOwnershipTest {
         whisper.setListener(callbacks);
 
         whisper.start(first.recording); // Settings failure keeps the operation busy until its queued error runs.
+        drainWorker(whisper);
         assertTrue(first.recording.isClosed());
         assertTrue(whisper.isInProgress());
         whisper.start(rejected.recording);

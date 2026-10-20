@@ -55,6 +55,17 @@ public class WhisperRecognizeActivityRequestContractTest {
         assertEquals(ActivityInfo.LAUNCH_MULTIPLE, info.launchMode);
     }
 
+    @Test public void externalLanguageTagsMapAliasesAndRejectMalformedSuffixes() {
+        assertEquals("he", WhisperRecognizeActivity.sanitizeLanguageCode("iw_IL"));
+        assertEquals("id", WhisperRecognizeActivity.sanitizeLanguageCode("in-ID"));
+        assertEquals("yi", WhisperRecognizeActivity.sanitizeLanguageCode("ji"));
+        assertEquals("yue", WhisperRecognizeActivity.sanitizeLanguageCode("yue-Hant-TW"));
+        assertEquals("haw", WhisperRecognizeActivity.sanitizeLanguageCode("haw"));
+        assertEquals("en", WhisperRecognizeActivity.sanitizeLanguageCode("eng"));
+        assertEquals("auto", WhisperRecognizeActivity.sanitizeLanguageCode("en-../../evil"));
+        assertEquals("auto", WhisperRecognizeActivity.sanitizeLanguageCode(null));
+    }
+
     @Test public void separateRecognitionRequestsKeepSanitizedLanguagesAndResultsIndependent()
             throws Exception {
         ActivityController<WhisperRecognizeActivity> firstController =

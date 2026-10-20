@@ -53,18 +53,27 @@ public class RecorderFailureTest {
     @Test public void autoStopEndsAfterThirtySecondsOfInitialSilence() throws Exception {
         BlockingQueue<String> messages = new ArrayBlockingQueue<>(8);
         AtomicReference<AudioRecord> audioRecord = new AtomicReference<>();
+        AtomicReference<Boolean> terminalAfterMicrophoneRelease = new AtomicReference<>(false);
         SilenceSource source = new SilenceSource(PARTIAL_READS_FOR_36_SECONDS, 480);
         installSource(source, audioRecord);
 
         Recorder recorder = new Recorder(application());
-        recorder.setListener(messages::offer);
+        recorder.setListener(message -> {
+            if (!Recorder.MSG_RECORDING.equals(message)) {
+                AudioRecord microphone = audioRecord.get();
+                terminalAfterMicrophoneRelease.set(microphone != null
+                        && microphone.getState() == AudioRecord.STATE_UNINITIALIZED);
+            }
+            messages.offer(message);
+        });
         try {
             setVadEnabledWithoutNativeClassifier(recorder);
             recorder.start();
 
             assertEquals(Recorder.MSG_RECORDING, messages.poll(SOURCE_WAIT_SECONDS, TimeUnit.SECONDS));
             String terminalMessage = messages.poll(SOURCE_WAIT_SECONDS, TimeUnit.SECONDS);
-            assertNotNull("VAD mode must terminate a capture with no initial speech", terminalMessage);
+            assertEquals("VAD mode must report its initial-silence deadline",
+                    Recorder.MSG_SPEECH_TIMEOUT, terminalMessage);
             assertTrue("the no-speech deadline must represent at least 30 seconds of captured silence",
                     source.capturedDurationMs() >= 30_000L);
             assertTrue("auto mode must terminate before the 36-second runaway guard",
@@ -75,6 +84,8 @@ public class RecorderFailureTest {
             assertNull("no-speech timeout must not publish a transcript-ready recording",
                     recorder.takeRecording());
             assertMicrophoneReleased(audioRecord.get());
+            assertTrue("speech timeout must be delivered after microphone cleanup",
+                    terminalAfterMicrophoneRelease.get());
         } finally {
             source.resume();
             recorder.setListener(null);
@@ -118,13 +129,30 @@ public class RecorderFailureTest {
 
     @Test public void lateNegativeMicrophoneReadPublishesTheCapturedPrefixAndReleasesTheMicrophone()
             throws Exception {
+        assertLateReadPreservesAudio(false);
+    }
+
+    @Test public void lateMicrophoneReadExceptionAlsoPreservesTheCapturedPrefix() throws Exception {
+        assertLateReadPreservesAudio(true);
+    }
+
+    private void assertLateReadPreservesAudio(boolean throwsInsteadOfReturningError) throws Exception {
         BlockingQueue<String> messages = new ArrayBlockingQueue<>(8);
         AtomicReference<AudioRecord> audioRecord = new AtomicReference<>();
-        PrefixThenErrorSource source = new PrefixThenErrorSource(8, (byte) 0x35);
+        AtomicReference<Boolean> terminalAfterMicrophoneRelease = new AtomicReference<>(false);
+        PrefixThenErrorSource source = new PrefixThenErrorSource(8, (byte) 0x35, 960,
+                throwsInsteadOfReturningError);
         installSource(source, audioRecord);
 
         Recorder recorder = new Recorder(application());
-        recorder.setListener(messages::offer);
+        recorder.setListener(message -> {
+            if (!Recorder.MSG_RECORDING.equals(message)) {
+                AudioRecord microphone = audioRecord.get();
+                terminalAfterMicrophoneRelease.set(microphone != null
+                        && microphone.getState() == AudioRecord.STATE_UNINITIALIZED);
+            }
+            messages.offer(message);
+        });
         PcmRecording captured = null;
         try {
             recorder.start();
@@ -135,10 +163,14 @@ public class RecorderFailureTest {
             captured = recorder.takeRecording();
             assertNotNull("the successful prefix must be transferred to the request", captured);
             assertEquals(8L * 960L, captured.lengthBytes());
+            assertEquals("Microphone interrupted. Returned the audio captured before interruption.",
+                    captured.getCaptureWarning());
             assertArrayEquals(source.expectedPrefix(), captured.nextChunk());
             assertNull(captured.nextChunk());
             assertTrue("the recording worker should finish after a read error", awaitStopped(recorder));
             assertMicrophoneReleased(audioRecord.get());
+            assertTrue("terminal callback must follow microphone cleanup",
+                    terminalAfterMicrophoneRelease.get());
         } finally {
             recorder.setListener(null);
             recorder.stop();
@@ -166,6 +198,36 @@ public class RecorderFailureTest {
             recorder.setListener(null);
             recorder.stop();
             recorder.release();
+        }
+    }
+
+    @Test public void shortLateReadPrefixStillPublishesOneWholePcmSample() throws Exception {
+        BlockingQueue<String> messages = new ArrayBlockingQueue<>(8);
+        AtomicReference<AudioRecord> audioRecord = new AtomicReference<>();
+        PrefixThenErrorSource source = new PrefixThenErrorSource(1, (byte) 0x19, 2);
+        installSource(source, audioRecord);
+
+        Recorder recorder = new Recorder(application());
+        recorder.setListener(messages::offer);
+        PcmRecording captured = null;
+        try {
+            recorder.start();
+
+            assertEquals(Recorder.MSG_RECORDING, messages.poll(SOURCE_WAIT_SECONDS, TimeUnit.SECONDS));
+            assertEquals("even the shortest valid PCM prefix should be preserved after interruption",
+                    Recorder.MSG_RECORDING_DONE, messages.poll(SOURCE_WAIT_SECONDS, TimeUnit.SECONDS));
+            captured = recorder.takeRecording();
+            assertNotNull(captured);
+            assertEquals(2L, captured.lengthBytes());
+            assertArrayEquals(source.expectedPrefix(), captured.nextChunk());
+            assertNull(captured.nextChunk());
+            assertTrue(awaitStopped(recorder));
+            assertMicrophoneReleased(audioRecord.get());
+        } finally {
+            recorder.setListener(null);
+            recorder.stop();
+            recorder.release();
+            closeIfOpen(captured);
         }
     }
 
@@ -254,22 +316,37 @@ public class RecorderFailureTest {
     private static final class PrefixThenErrorSource implements ShadowAudioRecord.AudioRecordSource {
         private final int prefixReads;
         private final byte sample;
+        private final int bytesPerRead;
         private int reads;
+        private final boolean throwsInstead;
 
         PrefixThenErrorSource(int prefixReads, byte sample) {
+            this(prefixReads, sample, 960);
+        }
+
+        PrefixThenErrorSource(int prefixReads, byte sample, int bytesPerRead) {
+            this(prefixReads, sample, bytesPerRead, false);
+        }
+
+        PrefixThenErrorSource(int prefixReads, byte sample, int bytesPerRead, boolean throwsInstead) {
             this.prefixReads = prefixReads;
             this.sample = sample;
+            this.bytesPerRead = bytesPerRead;
+            this.throwsInstead = throwsInstead;
         }
 
         @Override public synchronized int readInByteArray(byte[] data, int offset, int size,
                                                            boolean isBlocking) {
-            if (++reads > prefixReads) return AudioRecord.ERROR_INVALID_OPERATION;
-            Arrays.fill(data, offset, offset + size, sample);
-            return size;
+            if (++reads > prefixReads) {
+                if (throwsInstead) throw new IllegalStateException("Synthetic audio-server restart");
+                return AudioRecord.ERROR_INVALID_OPERATION;
+            }
+            Arrays.fill(data, offset, offset + bytesPerRead, sample);
+            return bytesPerRead;
         }
 
         byte[] expectedPrefix() {
-            byte[] prefix = new byte[prefixReads * 960];
+            byte[] prefix = new byte[prefixReads * bytesPerRead];
             Arrays.fill(prefix, sample);
             return prefix;
         }

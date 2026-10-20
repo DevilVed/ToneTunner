@@ -31,6 +31,7 @@ import java.util.ArrayList;
 
 public class WhisperRecognitionService extends RecognitionService {
     static final String PREF_AUTO_STOP_AFTER_SILENCE = "recognitionServiceAutoStop";
+    public static final String EXTRA_WARNING = "com.devilved.tonetunner.WARNING";
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private volatile RecognitionRequest activeRequest;
@@ -103,6 +104,11 @@ public class WhisperRecognitionService extends RecognitionService {
             @Override
             public void onError(String message) {
                 reportError(request, SpeechRecognizer.ERROR_SERVER);
+            }
+
+            @Override
+            public void onError(int errorCode, String message) {
+                reportError(request, errorCode);
             }
 
             @Override
@@ -181,6 +187,10 @@ public class WhisperRecognitionService extends RecognitionService {
                 return;
             }
             startTranscription(request);
+        } else if (Recorder.MSG_RECORDING_ERROR.equals(message)) {
+            reportError(request, SpeechRecognizer.ERROR_AUDIO);
+        } else if (Recorder.MSG_SPEECH_TIMEOUT.equals(message)) {
+            reportError(request, SpeechRecognizer.ERROR_SPEECH_TIMEOUT);
         } else {
             reportError(request, ERROR_CLIENT);
         }
@@ -215,6 +225,9 @@ public class WhisperRecognitionService extends RecognitionService {
         ArrayList<String> resultList = new ArrayList<>();
         resultList.add(text);
         results.putStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION, resultList);
+        if (!TextUtils.isEmpty(whisperResult.getWarning())) {
+            results.putString(EXTRA_WARNING, whisperResult.getWarning());
+        }
         try {
             request.callback.endOfSpeech();
             request.callback.results(results);

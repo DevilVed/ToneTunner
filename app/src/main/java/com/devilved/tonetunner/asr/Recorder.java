@@ -33,11 +33,15 @@ public class Recorder {
     }
 
     private static final String TAG = "Recorder";
+    private static final int INITIAL_SPEECH_TIMEOUT_SECONDS = 30;
+    private static final long INITIAL_SPEECH_TIMEOUT_NANOS =
+            INITIAL_SPEECH_TIMEOUT_SECONDS * 1_000_000_000L;
     public static final String ACTION_STOP = "Stop";
     public static final String ACTION_RECORD = "Record";
     public static final String MSG_RECORDING = "Recording...";
     public static final String MSG_RECORDING_DONE = "Recording done...!";
     public static final String MSG_RECORDING_ERROR = "Recording error...";
+    public static final String MSG_SPEECH_TIMEOUT = "Speech timeout...";
 
     private final Context mContext;
     private final AtomicBoolean mInProgress = new AtomicBoolean(false);
@@ -174,11 +178,12 @@ public class Recorder {
             }
 
             // Start recording process
+            String terminalMessage = null;
             try {
-                recordAudio();
+                terminalMessage = recordAudio();
             } catch (Exception e) {
                 Log.e(TAG, "Recording error...", e);
-                sendUpdate(MSG_RECORDING_ERROR);
+                terminalMessage = MSG_RECORDING_ERROR;
             } finally {
                 mInProgress.set(false);
                 // Notify that recording is finished, on every path including errors
@@ -187,14 +192,16 @@ public class Recorder {
                     fileSavedLock.notifyAll();
                 }
             }
+            // Terminal state is observable only after recordAudio() has released the microphone,
+            // Bluetooth SCO, and VAD resources, and the worker has cleared its active state.
+            if (terminalMessage != null) sendUpdate(terminalMessage);
         }
     }
 
-    private void recordAudio() throws IOException {
+    private String recordAudio() throws IOException {
         if (ActivityCompat.checkSelfPermission(mContext, Manifest.permission.RECORD_AUDIO)
                 != PackageManager.PERMISSION_GRANTED) {
-            sendUpdate(MSG_RECORDING_ERROR);
-            return;
+            return MSG_RECORDING_ERROR;
         }
         int sampleRate = 16000;
         int bufferSize = Math.max(AudioRecord.getMinBufferSize(sampleRate,
@@ -203,6 +210,7 @@ public class Recorder {
         AudioRecord audio = null;
         PcmRecording recording = null;
         boolean transferred = false;
+        String terminalMessage = null;
         try {
             recording = PcmRecording.create(new File(mContext.getNoBackupFilesDir(), "dictation-audio"));
             manager.startBluetoothSco();
@@ -216,26 +224,48 @@ public class Recorder {
             audio.startRecording();
             byte[] frame = new byte[VAD_FRAME_SIZE * 2];
             boolean heardSpeech = false;
+            boolean microphoneReadFailed = false;
+            boolean speechTimedOut = false;
+            long capturedSamples = 0;
+            long initialSpeechDeadlineSamples = (long) sampleRate * INITIAL_SPEECH_TIMEOUT_SECONDS;
+            long initialSpeechStartNanos = System.nanoTime();
             sendUpdate(MSG_RECORDING);
             // Fixed capture buffer; duration is bounded by available disk, never by a RAM array or timer.
             while (mInProgress.get() && !released) {
                 int count = audio.read(frame, 0, frame.length);
-                if (count <= 0 || (count & 1) != 0) throw new IOException("Microphone read failed");
+                if (count <= 0 || (count & 1) != 0) {
+                    microphoneReadFailed = true;
+                    mInProgress.set(false);
+                    break;
+                }
                 recording.write(frame, 0, count);
+                capturedSamples += count / PcmRecording.BYTES_PER_SAMPLE;
                 if (useVAD && count == frame.length) {
                     boolean speech = vad.isSpeech(frame);
                     if (speech) heardSpeech = true;
                     else if (heardSpeech) mInProgress.set(false);
                 }
+                if (useVAD && !heardSpeech
+                        && (capturedSamples >= initialSpeechDeadlineSamples
+                        || System.nanoTime() - initialSpeechStartNanos >= INITIAL_SPEECH_TIMEOUT_NANOS)) {
+                    speechTimedOut = true;
+                    mInProgress.set(false);
+                }
             }
             recording.finish();
             synchronized (this) {
-                if (!released && recording.lengthBytes() > 6400) {
+                if (!released && speechTimedOut) {
+                    terminalMessage = MSG_SPEECH_TIMEOUT;
+                } else if (!released && recording.lengthBytes() >= PcmRecording.BYTES_PER_SAMPLE) {
+                    if (microphoneReadFailed) {
+                        recording.setCaptureWarning(
+                                "Microphone interrupted. Returned the audio captured before interruption.");
+                    }
                     publishedRecording = recording;
                     transferred = true;
-                    sendUpdate(MSG_RECORDING_DONE);
+                    terminalMessage = MSG_RECORDING_DONE;
                 } else if (!released) {
-                    sendUpdate(MSG_RECORDING_ERROR);
+                    terminalMessage = MSG_RECORDING_ERROR;
                 }
             }
         } finally {
@@ -251,5 +281,6 @@ public class Recorder {
             }
             if (!transferred && recording != null) recording.close();
         }
+        return terminalMessage;
     }
 }

@@ -33,11 +33,13 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatDelegate;
 import androidx.core.content.ContextCompat;
 import androidx.preference.PreferenceManager;
 
 import com.devilved.tonetunner.asr.Recorder;
+import com.devilved.tonetunner.asr.RecoveryStore;
 import com.devilved.tonetunner.asr.RecordingGesture;
 import com.devilved.tonetunner.asr.Whisper;
 import com.devilved.tonetunner.asr.WhisperResult;
@@ -53,6 +55,8 @@ import com.google.android.material.floatingactionbutton.FloatingActionButton;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public class MainActivity extends AppCompatActivity {
     private static final int REQUEST_RECORD_AUDIO = 10;
@@ -66,6 +70,8 @@ public class MainActivity extends AppCompatActivity {
     private Button btnAiSettings;
     private Button btnEnableKeyboard;
     private Button btnCancelProcessing;
+    private Button btnSavedDictations;
+    private final ExecutorService recoveryFiles = Executors.newSingleThreadExecutor();
     private LinearLayout layoutModeChinese;
     private LinearLayout layoutTTS;
     private CheckBox append;
@@ -111,6 +117,8 @@ public class MainActivity extends AppCompatActivity {
         btnAiSettings = findViewById(R.id.btnAiSettings);
         btnEnableKeyboard = findViewById(R.id.btnEnableKeyboard);
         btnCancelProcessing = findViewById(R.id.btnCancelProcessing);
+        btnSavedDictations = findViewById(R.id.btnSavedDictations);
+        btnSavedDictations.setOnClickListener(view -> showSavedDictations());
         fabCopy = findViewById(R.id.fabCopy);
 
         modeTTS.setOnCheckedChangeListener((compoundButton, isChecked) -> {
@@ -236,6 +244,7 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onDestroy() {
         cancelCurrentSession(null);
+        recoveryFiles.shutdownNow();
         deinitTTS();
         super.onDestroy();
     }
@@ -462,6 +471,10 @@ public class MainActivity extends AppCompatActivity {
 
         if (!append.isChecked()) tvResult.setText("");
         tvResult.append(text);
+        if (!TextUtils.isEmpty(whisperResult.getWarning())) {
+            tvStatus.append("\n" + whisperResult.getWarning());
+            Toast.makeText(this, whisperResult.getWarning(), Toast.LENGTH_LONG).show();
+        }
         if (modeTTS.isChecked() && tts != null) {
             tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, null);
         }
@@ -541,6 +554,7 @@ public class MainActivity extends AppCompatActivity {
         updateRecordingScreen();
         if (btnRecord == null) return;
         btnRecord.setEnabled(!processing);
+        if (btnSavedDictations != null) btnSavedDictations.setEnabled(!processing && !recording);
         btnCancelProcessing.setVisibility(processing || recording ? View.VISIBLE : View.GONE);
         btnCancelProcessing.setEnabled(processing || recording);
         btnRecord.setBackgroundResource(recording
@@ -552,6 +566,67 @@ public class MainActivity extends AppCompatActivity {
     private void updateRecordingScreen() {
         if (recording || processing) getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         else getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+    }
+
+    private void showSavedDictations() {
+        if (recording || processing) return;
+        btnSavedDictations.setEnabled(false);
+        recoveryFiles.execute(() -> {
+            try {
+                List<RecoveryStore.Entry> entries = new RecoveryStore(this).list();
+                runOnUiThread(() -> {
+                    if (isFinishing() || isDestroyed()) return;
+                    setControlsForState();
+                    if (entries.isEmpty()) {
+                        new AlertDialog.Builder(this).setTitle(R.string.recovery_title)
+                                .setMessage(R.string.recovery_empty).setPositiveButton(android.R.string.ok, null).show();
+                        return;
+                    }
+                    String[] labels = new String[entries.size()];
+                    for (int i = 0; i < entries.size(); i++) labels[i] = getString(
+                            R.string.recovery_entry, i + 1, entries.get(i).lengthBytes / 32_000L);
+                    new AlertDialog.Builder(this).setTitle(R.string.recovery_title)
+                            .setItems(labels, (dialog, which) -> showSavedDictation(entries.get(which)))
+                            .setNegativeButton(android.R.string.cancel, null).show();
+                });
+            } catch (Exception e) { showRecoveryStorageError(); }
+        });
+    }
+
+    private void showSavedDictation(RecoveryStore.Entry entry) {
+        String preview = entry.transcript.isEmpty() ? getString(R.string.recovery_no_text) : entry.transcript;
+        new AlertDialog.Builder(this).setTitle(R.string.recovery_title)
+                .setMessage(getString(R.string.recovery_disclosure) + "\n\n" + preview)
+                .setPositiveButton(R.string.recovery_retry, (dialog, which) -> resumeSavedDictation(entry.id))
+                .setNeutralButton(R.string.recovery_copy, (dialog, which) -> {
+                    ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+                    if (clipboard != null && !entry.transcript.isEmpty()) clipboard.setPrimaryClip(
+                            ClipData.newPlainText(getString(R.string.model_output), entry.transcript));
+                })
+                .setNegativeButton(R.string.recovery_discard, (dialog, which) -> recoveryFiles.execute(() -> {
+                    try { new RecoveryStore(this).delete(entry.id); }
+                    catch (Exception e) { showRecoveryStorageError(); }
+                })).show();
+    }
+
+    private void resumeSavedDictation(String id) {
+        if (recording || processing) return;
+        long token = ++sessionGeneration;
+        sessionActive = true;
+        processing = true;
+        recording = false;
+        startTime = System.currentTimeMillis();
+        setControlsForState();
+        ensureWhisper(token);
+        mWhisper.retrySaved(id);
+    }
+
+    private void showRecoveryStorageError() {
+        runOnUiThread(() -> {
+            if (isFinishing() || isDestroyed()) return;
+            setControlsForState();
+            Toast.makeText(this, R.string.recovery_storage_error, Toast.LENGTH_LONG).show();
+        });
     }
 
     private void deinitTTS() {

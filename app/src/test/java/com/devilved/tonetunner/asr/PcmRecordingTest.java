@@ -241,6 +241,102 @@ public class PcmRecordingTest {
         }
     }
 
+    @Test public void retainToTransfersDeletionOwnershipAndKeepsTheCompletedAudio() throws Exception {
+        File sourceDirectory = temporaryFolder.newFolder("source-recording");
+        File recoveryDirectory = temporaryFolder.newFolder("retained-recording");
+        byte[] source = {1, 0, 2, 0, 3, 0, 4, 0};
+        PcmRecording recording = PcmRecording.create(sourceDirectory);
+        recording.write(source, 0, source.length);
+        recording.finish();
+        File[] sourceFiles = sourceDirectory.listFiles();
+        assertNotNull(sourceFiles);
+        assertEquals(1, sourceFiles.length);
+
+        File archivedAudio = new File(recoveryDirectory, "audio.pcm");
+        recording.retainTo(archivedAudio);
+        assertFalse(sourceFiles[0].exists());
+        assertTrue(archivedAudio.isFile());
+        recording.close();
+        assertTrue("closing the old owner must not remove retained audio", archivedAudio.isFile());
+
+        try (PcmRecording reader = PcmRecording.openExisting(archivedAudio, 0, null)) {
+            assertArrayEquals(source, reader.nextChunk());
+        }
+        assertTrue("closing a read-only archive handle must not delete its PCM", archivedAudio.isFile());
+    }
+
+    @Test public void failedRecoveryCanKeepTheFinishedSpoolAsAnImportableOrphan() throws Exception {
+        File captureDirectory = temporaryFolder.newFolder("dictation-audio");
+        byte[] audio = {9, 0, 18, 0, 27, 0};
+        PcmRecording recording = PcmRecording.create(captureDirectory);
+        recording.write(audio, 0, audio.length);
+        recording.finish();
+
+        File orphan = recording.retainForRecoveryFailure();
+        assertTrue(orphan.getParentFile().equals(captureDirectory));
+        assertTrue(orphan.getName().startsWith("recovery-orphan-"));
+        assertTrue(orphan.getName().endsWith(".pcm"));
+        recording.close();
+        assertTrue("closing the failed request must keep the orphan audio", orphan.isFile());
+        assertArrayEquals(audio, java.nio.file.Files.readAllBytes(orphan.toPath()));
+
+        PcmRecording nextCapture = PcmRecording.create(captureDirectory);
+        try {
+            assertTrue("new capture cleanup must not sweep recovery orphans", orphan.isFile());
+        } finally {
+            nextCapture.close();
+            orphan.delete();
+        }
+    }
+
+    @Test public void retainedReadFailureClosesHandleWithoutDeletingMovedArchive() throws Exception {
+        File directory = temporaryFolder.newFolder("retained-read-failure");
+        File archive = new File(directory, "audio.pcm");
+        byte[] source = {1, 0, 2, 0};
+        try (PcmRecording writer = PcmRecording.create(directory)) {
+            writer.write(source, 0, source.length);
+            writer.finish();
+            writer.retainTo(archive);
+        }
+
+        PcmRecording reader = PcmRecording.openExisting(archive, 0, null);
+        File movedArchive = new File(directory, "audio-preserved-after-read-failure.pcm");
+        assertTrue(archive.renameTo(movedArchive)); // The reader's old path now fails to open.
+        try {
+            reader.nextChunk();
+            fail("expected opening the moved archive at its old path to fail");
+        } catch (IOException expected) {
+            assertTrue(reader.isClosed());
+            assertTrue("read failure must not delete a retained file", movedArchive.isFile());
+            assertArrayEquals(source, java.nio.file.Files.readAllBytes(movedArchive.toPath()));
+        } finally {
+            reader.close();
+        }
+    }
+
+    @Test public void seekAndHardCutMetadataTrackTheMostRecentWindow() throws Exception {
+        byte[] source = noisyPcm(29 * PcmRecording.SAMPLE_RATE);
+        PcmRecording recording = PcmRecording.create(temporaryFolder.newFolder("hard-cut-recording"));
+        try {
+            recording.write(source, 0, source.length);
+            recording.finish();
+
+            assertEquals(0L, recording.positionBytes());
+            assertFalse(recording.wasHardCut());
+            assertEquals(PcmRecording.MAX_CHUNK_BYTES, recording.nextChunk().length);
+            assertTrue(recording.wasHardCut());
+            assertEquals((long) PcmRecording.MAX_CHUNK_BYTES, recording.positionBytes());
+
+            recording.seekTo(source.length - 2L);
+            assertEquals((long) source.length - 2L, recording.positionBytes());
+            assertArrayEquals(new byte[]{source[source.length - 2], source[source.length - 1]},
+                    recording.nextChunk());
+            assertFalse("the final window is not a hard cut", recording.wasHardCut());
+        } finally {
+            recording.close();
+        }
+    }
+
     private static void writeInFixedPieces(PcmRecording recording, byte[] source) throws IOException {
         int offset = 0;
         while (offset < source.length) {

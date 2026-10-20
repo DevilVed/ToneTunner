@@ -27,6 +27,7 @@ import com.devilved.tonetunner.asr.RecordingGesture;
 import com.devilved.tonetunner.asr.Whisper;
 import com.devilved.tonetunner.asr.WhisperResult;
 import com.devilved.tonetunner.cloud.AiSettings;
+import com.devilved.tonetunner.cloud.CloudClient;
 import com.devilved.tonetunner.cloud.ProviderConfig;
 import com.devilved.tonetunner.utils.HapticFeedback;
 import com.github.houbb.opencc4j.util.ZhConverterUtil;
@@ -296,21 +297,25 @@ public class WhisperRecognizeActivity extends AppCompatActivity {
             boolean simpleChinese = sp.getBoolean("simpleChinese", false);
             result = simpleChinese ? ZhConverterUtil.toSimple(result) : ZhConverterUtil.toTraditional(result);
         }
-        sendResult(token, result);
+        sendResult(token, result, whisperResult.getWarning());
     }
 
     // EXTRA_LANGUAGE comes from another app: accept only a plain language code.
     static String sanitizeLanguageCode(String requested) {
-        String code = requested.split("[-_]")[0].toLowerCase(Locale.ROOT);
-        return code.matches("[a-z]{2,3}") ? code : "auto";
+        String code = CloudClient.normalizeLanguage(requested == null ? null : requested.replace('_', '-'));
+        return code.isEmpty() ? "auto" : code;
     }
 
-    private void sendResult(long token, String result) {
+    private void sendResult(long token, String result, String warning) {
         if (!isCurrentSession(token)) return;
         Intent resultIntent = new Intent();
         ArrayList<String> results = new ArrayList<>();
         results.add(result);
         resultIntent.putStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS, results);
+        if (!warning.isEmpty()) {
+            resultIntent.putExtra("com.devilved.tonetunner.WARNING", warning);
+            Toast.makeText(this, warning, Toast.LENGTH_LONG).show();
+        }
         resultIntent.putExtra(RecognizerIntent.EXTRA_CONFIDENCE_SCORES, new float[]{1.0f});
         setResult(RESULT_OK, resultIntent);
         sessionActive = false;
