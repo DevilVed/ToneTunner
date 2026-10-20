@@ -242,7 +242,7 @@ public final class CloudClient {
         if (!translate && supportsVerboseJson(config)) {
             multipart.addFormDataPart("response_format", "verbose_json");
         }
-        String languageCode = translate ? null : normalizeLanguage(language);
+        String languageCode = translate ? "" : normalizeLanguage(language);
         if (!languageCode.isEmpty()) {
             multipart.addFormDataPart("language", languageCode);
         }
@@ -257,7 +257,7 @@ public final class CloudClient {
             payload.put("input_audio", new JSONObject()
                     .put("data", Base64.getEncoder().encodeToString(wav))
                     .put("format", "wav"));
-            String languageCode = translate ? null : normalizeLanguage(language);
+            String languageCode = translate ? "" : normalizeLanguage(language);
             if (!languageCode.isEmpty()) {
                 payload.put("language", languageCode);
             }

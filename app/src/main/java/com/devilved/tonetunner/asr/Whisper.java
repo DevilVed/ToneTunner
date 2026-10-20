@@ -28,6 +28,11 @@ public class Whisper {
     public interface WhisperListener {
         void onUpdateReceived(String message);
         void onResultReceived(WhisperResult result);
+        /** Called on the main thread. Return true only after the destination accepts the text. */
+        default boolean onResultDelivery(WhisperResult result) {
+            onResultReceived(result);
+            return true;
+        }
         default void onError(String message) {}
         default void onError(int code, String message) { onError(message); }
     }
@@ -264,8 +269,7 @@ public class Whisper {
                         WhisperListener current = listener;
                         if (current != null) {
                             current.onUpdateReceived(MSG_PROCESSING_DONE);
-                            current.onResultReceived(result);
-                            delivered = true;
+                            delivered = current.onResultDelivery(result);
                         }
                     } finally {
                         try { new RecoveryStore(context).finishDelivery(session, delivered); }

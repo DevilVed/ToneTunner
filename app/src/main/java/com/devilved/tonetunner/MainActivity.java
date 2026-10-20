@@ -388,8 +388,12 @@ public class MainActivity extends AppCompatActivity {
 
             @Override
             public void onResultReceived(WhisperResult whisperResult) {
-                if (!isCurrentSession(token)) return;
                 handleResult(token, whisperResult);
+            }
+
+            @Override
+            public boolean onResultDelivery(WhisperResult result) {
+                return handleResult(token, result);
             }
         });
         if (loadModel) whisper.loadModel();
@@ -446,12 +450,13 @@ public class MainActivity extends AppCompatActivity {
         mWhisper.start(mRecorder == null ? null : mRecorder.takeRecording());
     }
 
-    private void handleResult(long token, WhisperResult whisperResult) {
+    private boolean handleResult(long token, WhisperResult whisperResult) {
+        if (!isCurrentSession(token)) return false;
         String rawText = whisperResult.getResult();
         String text = rawText == null ? "" : rawText.trim();
         if (text.isEmpty()) {
             failCurrentSession(token, getString(R.string.error_no_input));
-            return;
+            return false;
         }
 
         long timeTaken = System.currentTimeMillis() - startTime;
@@ -479,6 +484,7 @@ public class MainActivity extends AppCompatActivity {
             tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, null);
         }
         completeCurrentSession(token);
+        return true;
     }
 
     private boolean isCurrentSession(long token) {

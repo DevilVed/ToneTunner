@@ -227,6 +227,11 @@ public class WhisperRecognizeActivity extends AppCompatActivity {
                 if (!isCurrentSession(token)) return;
                 runOnUiThread(() -> handleResult(token, result));
             }
+
+            @Override
+            public boolean onResultDelivery(WhisperResult result) {
+                return handleResult(token, result);
+            }
         });
         whisper.loadModel();
     }
@@ -285,19 +290,19 @@ public class WhisperRecognizeActivity extends AppCompatActivity {
         mWhisper.start(mRecorder == null ? null : mRecorder.takeRecording());
     }
 
-    private void handleResult(long token, WhisperResult whisperResult) {
-        if (!isCurrentSession(token)) return;
+    private boolean handleResult(long token, WhisperResult whisperResult) {
+        if (!isCurrentSession(token)) return false;
         String rawText = whisperResult.getResult();
         String result = rawText == null ? "" : rawText.trim();
         if (result.isEmpty()) {
             showFailure(token, getString(R.string.error_no_input));
-            return;
+            return false;
         }
         if ("zh".equals(whisperResult.getLanguage())) {
             boolean simpleChinese = sp.getBoolean("simpleChinese", false);
             result = simpleChinese ? ZhConverterUtil.toSimple(result) : ZhConverterUtil.toTraditional(result);
         }
-        sendResult(token, result, whisperResult.getWarning());
+        return sendResult(token, result, whisperResult.getWarning());
     }
 
     // EXTRA_LANGUAGE comes from another app: accept only a plain language code.
@@ -306,8 +311,8 @@ public class WhisperRecognizeActivity extends AppCompatActivity {
         return code.isEmpty() ? "auto" : code;
     }
 
-    private void sendResult(long token, String result, String warning) {
-        if (!isCurrentSession(token)) return;
+    private boolean sendResult(long token, String result, String warning) {
+        if (!isCurrentSession(token)) return false;
         Intent resultIntent = new Intent();
         ArrayList<String> results = new ArrayList<>();
         results.add(result);
@@ -325,6 +330,7 @@ public class WhisperRecognizeActivity extends AppCompatActivity {
         releaseRecorder(true);
         deinitModel();
         finish();
+        return true;
     }
 
     private boolean isCurrentSession(long token) {

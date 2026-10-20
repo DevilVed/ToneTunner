@@ -25,7 +25,9 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertTrue;
 
 /**
  * Exercises the IME's installed Whisper listener across real service lifecycle callbacks. No
@@ -55,6 +57,34 @@ public class WhisperInputMethodServiceLifecycleTest {
         }
     }
 
+    @Test public void resultDeliveryAcknowledgesSuccessfulCommit() throws Exception {
+        ServiceFixture fixture = startService(InputType.TYPE_CLASS_TEXT, 0);
+        try {
+            Whisper.WhisperListener listener = installListener(fixture.service);
+
+            assertTrue(listener.onResultDelivery(result("accepted editor")));
+
+            assertEquals(1, fixture.connection.commitCount);
+            assertEquals("accepted editor ", fixture.connection.text());
+        } finally {
+            fixture.controller.destroy();
+        }
+    }
+
+    @Test public void resultDeliveryRejectsWhenInputConnectionRejectsCommit() throws Exception {
+        ServiceFixture fixture = startService(InputType.TYPE_CLASS_TEXT, 0, false);
+        try {
+            Whisper.WhisperListener listener = installListener(fixture.service);
+
+            assertFalse(listener.onResultDelivery(result("rejected editor")));
+
+            assertEquals(1, fixture.connection.commitCount);
+            assertEquals("", fixture.connection.text());
+        } finally {
+            fixture.controller.destroy();
+        }
+    }
+
     @Test public void resultFromFinishedEditorCannotCommitToEitherOldOrReplacementConnection()
             throws Exception {
         ServiceFixture fixture = startService(InputType.TYPE_CLASS_TEXT, 0);
@@ -72,6 +102,30 @@ public class WhisperInputMethodServiceLifecycleTest {
             fixture.service.onStartInputView(replacementEditor, false);
 
             oldListener.onResultReceived(result("late result"));
+
+            assertEquals(0, oldConnection.commitCount);
+            assertEquals(0, replacementConnection.commitCount);
+            assertEquals("", replacementConnection.text());
+        } finally {
+            fixture.controller.destroy();
+        }
+    }
+
+    @Test public void resultDeliveryRejectsEditorThatBecameStale() throws Exception {
+        ServiceFixture fixture = startService(InputType.TYPE_CLASS_TEXT, 0);
+        try {
+            Whisper.WhisperListener oldListener = installListener(fixture.service);
+            RecordingInputConnection oldConnection = fixture.connection;
+
+            fixture.service.onFinishInputView(true);
+            fixture.service.onFinishInput();
+            EditorInfo replacementEditor = editor(InputType.TYPE_CLASS_TEXT, 0);
+            RecordingInputConnection replacementConnection = new RecordingInputConnection();
+            fixture.service.focus(replacementEditor, replacementConnection);
+            fixture.service.onStartInput(replacementEditor, false);
+            fixture.service.onStartInputView(replacementEditor, false);
+
+            assertFalse(oldListener.onResultDelivery(result("late result")));
 
             assertEquals(0, oldConnection.commitCount);
             assertEquals(0, replacementConnection.commitCount);
@@ -129,6 +183,21 @@ public class WhisperInputMethodServiceLifecycleTest {
         }
     }
 
+    @Test public void resultDeliveryRejectsPasswordEditor() throws Exception {
+        ServiceFixture fixture = startService(
+                InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD, 0);
+        try {
+            Whisper.WhisperListener listener = installListener(fixture.service);
+
+            assertFalse(listener.onResultDelivery(result("private")));
+
+            assertEquals(0, fixture.connection.commitCount);
+            assertEquals("", fixture.connection.text());
+        } finally {
+            fixture.controller.destroy();
+        }
+    }
+
     @Test public void noPersonalizedLearningEditorNeverReceivesCloudResult() throws Exception {
         ServiceFixture fixture = startService(InputType.TYPE_CLASS_TEXT,
                 EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING);
@@ -144,13 +213,32 @@ public class WhisperInputMethodServiceLifecycleTest {
         }
     }
 
+    @Test public void resultDeliveryRejectsNoPersonalizedLearningEditor() throws Exception {
+        ServiceFixture fixture = startService(InputType.TYPE_CLASS_TEXT,
+                EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING);
+        try {
+            Whisper.WhisperListener listener = installListener(fixture.service);
+
+            assertFalse(listener.onResultDelivery(result("private")));
+
+            assertEquals(0, fixture.connection.commitCount);
+            assertEquals("", fixture.connection.text());
+        } finally {
+            fixture.controller.destroy();
+        }
+    }
+
     private static ServiceFixture startService(int inputType, int imeOptions) {
+        return startService(inputType, imeOptions, true);
+    }
+
+    private static ServiceFixture startService(int inputType, int imeOptions, boolean acceptCommit) {
         ServiceController<EditorTestService> controller =
                 Robolectric.buildService(EditorTestService.class).create();
         EditorTestService service = controller.get();
         View inputView = service.onCreateInputView();
         EditorInfo editor = editor(inputType, imeOptions);
-        RecordingInputConnection connection = new RecordingInputConnection();
+        RecordingInputConnection connection = new RecordingInputConnection(acceptCommit);
         service.focus(editor, connection);
         service.onStartInput(editor, false);
         service.onStartInputView(editor, false);
@@ -219,13 +307,20 @@ public class WhisperInputMethodServiceLifecycleTest {
 
     private static final class RecordingInputConnection extends BaseInputConnection {
         private int commitCount;
+        private final boolean acceptCommit;
 
         RecordingInputConnection() {
+            this(true);
+        }
+
+        RecordingInputConnection(boolean acceptCommit) {
             super(new View(RuntimeEnvironment.getApplication()), true);
+            this.acceptCommit = acceptCommit;
         }
 
         @Override public boolean commitText(CharSequence text, int newCursorPosition) {
             commitCount++;
+            if (!acceptCommit) return false;
             return super.commitText(text, newCursorPosition);
         }
 

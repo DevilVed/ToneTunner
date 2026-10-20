@@ -1,0 +1,174 @@
+package com.devilved.tonetunner;
+
+import android.content.Context;
+import android.os.RemoteException;
+import android.speech.RecognitionService;
+
+import com.devilved.tonetunner.asr.Recorder;
+import com.devilved.tonetunner.asr.WhisperResult;
+import com.devilved.tonetunner.voice_translation.neural_networks.voice.Recognizer;
+
+import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.robolectric.Robolectric;
+import org.robolectric.RobolectricTestRunner;
+import org.robolectric.android.controller.ServiceController;
+import org.robolectric.annotation.Config;
+import org.robolectric.annotation.Implementation;
+import org.robolectric.annotation.Implements;
+
+import java.lang.reflect.Constructor;
+import java.lang.reflect.Field;
+import java.lang.reflect.InvocationHandler;
+import java.lang.reflect.Method;
+import java.lang.reflect.Proxy;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
+
+/** The framework result callback is the acceptance boundary for a recognition-service delivery. */
+@RunWith(RobolectricTestRunner.class)
+@Config(sdk = 28, shadows = WhisperRecognitionServiceDeliveryTest.RecorderShadow.class)
+public class WhisperRecognitionServiceDeliveryTest {
+
+    @Test public void disconnectedClientRejectsDeliveryAndStillReleasesTheRequest() throws Exception {
+        RecorderShadow.reset();
+        ServiceController<WhisperRecognitionService> controller =
+                Robolectric.buildService(WhisperRecognitionService.class).create();
+        WhisperRecognitionService service = controller.get();
+        ListenerState listener = new ListenerState(true);
+        Object request = installRequest(service, listener);
+
+        try {
+            Object delivered = deliver(service, request);
+
+            assertEquals("a RemoteException from the framework callback must reject delivery",
+                    Boolean.FALSE, delivered);
+            assertEquals(1, listener.endOfSpeechCalls);
+            assertEquals(1, listener.resultCalls);
+            assertEquals(0, listener.errorCalls);
+            assertNull("a terminal callback must clear the active request",
+                    field(WhisperRecognitionService.class, "activeRequest").get(service));
+            assertTrue("disconnected requests must release their recorder", RecorderShadow.released);
+        } finally {
+            controller.destroy();
+        }
+    }
+
+    @Test public void acceptedClientConfirmsDeliveryAndReleasesTheRequest() throws Exception {
+        RecorderShadow.reset();
+        ServiceController<WhisperRecognitionService> controller =
+                Robolectric.buildService(WhisperRecognitionService.class).create();
+        WhisperRecognitionService service = controller.get();
+        ListenerState listener = new ListenerState(false);
+        Object request = installRequest(service, listener);
+
+        try {
+            Object delivered = deliver(service, request);
+
+            assertEquals(Boolean.TRUE, delivered);
+            assertEquals(1, listener.endOfSpeechCalls);
+            assertEquals(1, listener.resultCalls);
+            assertEquals(0, listener.errorCalls);
+            assertNull("a terminal callback must clear the active request",
+                    field(WhisperRecognitionService.class, "activeRequest").get(service));
+            assertTrue("completed requests must release their recorder", RecorderShadow.released);
+        } finally {
+            controller.destroy();
+        }
+    }
+
+    private static Object installRequest(WhisperRecognitionService service, ListenerState state)
+            throws Exception {
+        RecognitionService.Callback callback = callback(service, state);
+        Class<?> requestClass = Class.forName(
+                "com.devilved.tonetunner.WhisperRecognitionService$RecognitionRequest");
+        Constructor<?> constructor = requestClass.getDeclaredConstructor(long.class,
+                RecognitionService.Callback.class, String.class, boolean.class, boolean.class);
+        constructor.setAccessible(true);
+        Object request = constructor.newInstance(7L, callback, "en", false, false);
+
+        field(requestClass, "recorder").set(request, new Recorder(service));
+        field(WhisperRecognitionService.class, "requestSequence").setLong(service, 7L);
+        field(WhisperRecognitionService.class, "activeRequest").set(service, request);
+        return request;
+    }
+
+    private static RecognitionService.Callback callback(WhisperRecognitionService service,
+            ListenerState state) throws Exception {
+        Constructor<?> constructor = RecognitionService.Callback.class.getDeclaredConstructors()[0];
+        constructor.setAccessible(true);
+        Class<?>[] parameterTypes = constructor.getParameterTypes();
+        Object[] arguments = new Object[parameterTypes.length];
+        for (int index = 0; index < parameterTypes.length; index++) {
+            Class<?> parameterType = parameterTypes[index];
+            if (parameterType.isInstance(service)) {
+                arguments[index] = service;
+            } else if (parameterType == int.class) {
+                arguments[index] = 0;
+            } else if (parameterType.isInterface()) {
+                arguments[index] = Proxy.newProxyInstance(parameterType.getClassLoader(),
+                        new Class<?>[]{parameterType}, state);
+            } else {
+                throw new IllegalStateException("Unexpected RecognitionService.Callback constructor parameter: "
+                        + parameterType.getName());
+            }
+        }
+        return (RecognitionService.Callback) constructor.newInstance(arguments);
+    }
+
+    private static Object deliver(WhisperRecognitionService service, Object request) throws Exception {
+        Class<?> requestClass = request.getClass();
+        Method method = WhisperRecognitionService.class.getDeclaredMethod("handleResult",
+                requestClass, WhisperResult.class);
+        method.setAccessible(true);
+        return method.invoke(service, request,
+                new WhisperResult("recognized words", "en", Recognizer.ACTION_TRANSCRIBE));
+    }
+
+    private static Field field(Class<?> owner, String name) throws NoSuchFieldException {
+        Field result = owner.getDeclaredField(name);
+        result.setAccessible(true);
+        return result;
+    }
+
+    private static final class ListenerState implements InvocationHandler {
+        final boolean disconnectedOnResults;
+        int endOfSpeechCalls;
+        int resultCalls;
+        int errorCalls;
+
+        ListenerState(boolean disconnectedOnResults) {
+            this.disconnectedOnResults = disconnectedOnResults;
+        }
+
+        @Override public Object invoke(Object proxy, Method method, Object[] arguments)
+                throws Throwable {
+            if ("onEndOfSpeech".equals(method.getName())) endOfSpeechCalls++;
+            if ("onResults".equals(method.getName())) {
+                resultCalls++;
+                if (disconnectedOnResults) throw new RemoteException("client disconnected");
+            }
+            if ("onError".equals(method.getName())) errorCalls++;
+            if (method.getReturnType() == boolean.class) return false;
+            if (method.getReturnType() == int.class) return 0;
+            if (method.getReturnType() == long.class) return 0L;
+            if (method.getReturnType() == float.class) return 0f;
+            if (method.getReturnType() == double.class) return 0d;
+            return null;
+        }
+    }
+
+    @Implements(value = Recorder.class, isInAndroidSdk = false)
+    public static class RecorderShadow {
+        static boolean released;
+
+        static void reset() { released = false; }
+
+        @Implementation protected void __constructor__(Context context) { }
+        @Implementation protected void setListener(Recorder.RecorderListener listener) { }
+        @Implementation protected boolean isInProgress() { return false; }
+        @Implementation protected void release() { released = true; }
+    }
+}

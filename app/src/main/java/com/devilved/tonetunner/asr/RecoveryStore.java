@@ -202,6 +202,7 @@ public final class RecoveryStore {
     public synchronized void delete(String id) throws IOException {
         validateId(id);
         synchronized (AUDIO_LOCK) {
+            // Keep this lock through removal; open() reserves the same canonical path here.
             for (File root : recoveryRoots()) {
                 if (!root.exists() || !root.isDirectory()) continue;
                 File stable = new File(root, id);
@@ -260,10 +261,10 @@ public final class RecoveryStore {
             if (OPEN_AUDIO.contains(path)) {
                 throw new IOException("Close the retained recording before completing delivery.");
             }
-            File directory = audioFile.getParentFile();
-            File root = containingRecoveryRoot(directory);
-            if (root == null) throw new IOException("Recovery entry is outside private storage.");
             try {
+                File directory = audioFile.getParentFile();
+                File root = containingRecoveryRoot(directory);
+                if (root == null) throw new IOException("Recovery entry is outside private storage.");
                 deleteEntryDirectory(root, directory);
             } finally {
                 DELIVERY_AUDIO.remove(path);
@@ -360,12 +361,12 @@ public final class RecoveryStore {
     private File findClaimedAudioFile(String id) throws IOException {
         for (int pass = 0; pass < 2; pass++) {
             for (File root : recoveryRoots()) {
-                if (!root.isDirectory()) continue;
                 File directory = new File(root, pass == 0 ? id : PENDING_PREFIX + id);
-                if (!directory.isDirectory() || !isContained(root, directory)) continue;
+                if (!isContained(root, directory)) continue;
                 File audio = childFile(directory, AUDIO_NAME);
-                if (audio.isFile() && isContained(directory, audio)
-                        && DELIVERY_AUDIO.contains(audio.getCanonicalPath())) return audio;
+                if (isContained(directory, audio) && DELIVERY_AUDIO.contains(audio.getCanonicalPath())) {
+                    return audio;
+                }
             }
         }
         return null;

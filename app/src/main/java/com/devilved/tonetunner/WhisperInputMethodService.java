@@ -350,11 +350,16 @@ public class WhisperInputMethodService extends InputMethodService {
 
             @Override
             public void onResultReceived(WhisperResult whisperResult) {
-                if (mWhisper != requestWhisper || requestEditorGeneration != editorGeneration || !inputActive) return;
+                onResultDelivery(whisperResult);
+            }
+
+            @Override
+            public boolean onResultDelivery(WhisperResult whisperResult) {
+                if (mWhisper != requestWhisper || requestEditorGeneration != editorGeneration || !inputActive) return false;
                 processing = false;
                 updateInputViewKeepScreenOn();
                 AiSettings settings = new AiSettings(WhisperInputMethodService.this);
-                if (!eligibleEditor(settings.isCloudTranscription() || settings.isEnhancementEnabled())) return;
+                if (!eligibleEditor(settings.isCloudTranscription() || settings.isEnhancementEnabled())) return false;
                 processingBar.setIndeterminate(false);
                 processingBar.setProgress(0);
                 String result = whisperResult.getResult();
@@ -377,6 +382,7 @@ public class WhisperInputMethodService extends InputMethodService {
                         if (inputActive && deliveredGeneration == editorGeneration) switchToPreviousInputMethod();
                     }, 100);
                 }
+                return committed;
             }
 
         });

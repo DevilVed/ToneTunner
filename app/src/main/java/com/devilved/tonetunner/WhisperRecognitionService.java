@@ -115,6 +115,11 @@ public class WhisperRecognitionService extends RecognitionService {
             public void onResultReceived(WhisperResult result) {
                 runOnMain(() -> handleResult(request, result));
             }
+
+            @Override
+            public boolean onResultDelivery(WhisperResult result) {
+                return handleResult(request, result);
+            }
         });
         whisper.loadModel();
         if (!isCurrentRequest(request)) return;
@@ -209,13 +214,13 @@ public class WhisperRecognitionService extends RecognitionService {
         whisper.start(request.recorder == null ? null : request.recorder.takeRecording());
     }
 
-    private void handleResult(RecognitionRequest request, WhisperResult whisperResult) {
-        if (!isCurrentRequest(request)) return;
+    private boolean handleResult(RecognitionRequest request, WhisperResult whisperResult) {
+        if (!isCurrentRequest(request)) return false;
         String rawText = whisperResult.getResult();
         String text = rawText == null ? "" : rawText.trim();
         if (text.isEmpty()) {
             reportError(request, SpeechRecognizer.ERROR_NO_MATCH);
-            return;
+            return false;
         }
         if ("zh".equals(whisperResult.getLanguage())) {
             text = request.simpleChinese ? ZhConverterUtil.toSimple(text) : ZhConverterUtil.toTraditional(text);
@@ -231,8 +236,10 @@ public class WhisperRecognitionService extends RecognitionService {
         try {
             request.callback.endOfSpeech();
             request.callback.results(results);
+            return true;
         } catch (RemoteException e) {
-            // The caller may have closed; the guarded cleanup below prevents a later result.
+            // Keep the saved dictation when the caller can no longer receive it.
+            return false;
         } finally {
             finishRequest(request);
         }
