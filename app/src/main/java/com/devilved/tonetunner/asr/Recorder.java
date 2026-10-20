@@ -232,7 +232,14 @@ public class Recorder {
             sendUpdate(MSG_RECORDING);
             // Fixed capture buffer; duration is bounded by available disk, never by a RAM array or timer.
             while (mInProgress.get() && !released) {
-                int count = audio.read(frame, 0, frame.length);
+                final int count;
+                try {
+                    count = audio.read(frame, 0, frame.length);
+                } catch (RuntimeException e) {
+                    microphoneReadFailed = true;
+                    mInProgress.set(false);
+                    break;
+                }
                 if (count <= 0 || (count & 1) != 0) {
                     microphoneReadFailed = true;
                     mInProgress.set(false);

@@ -3,6 +3,7 @@ package com.devilved.tonetunner.cloud;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
@@ -60,10 +61,8 @@ public class CloudClientTest {
         assertEquals("Bearer fixture-key", request.getHeader("Authorization"));
         assertTrue(request.getHeader("Content-Type").startsWith("multipart/form-data; boundary="));
         String body = request.getBody().readUtf8();
-        assertTrue(body.contains("name=\"model\""));
-        assertTrue(body.contains("whisper-1"));
-        assertTrue(body.contains("name=\"language\""));
-        assertTrue(body.contains("\nen\r\n"));
+        assertEquals("whisper-1", multipartPartValue(body, "model"));
+        assertEquals("en", multipartPartValue(body, "language"));
         assertTrue(body.contains("filename=\"recording.wav\""));
         assertTrue(body.contains("RIFF"));
         assertTrue(body.contains("WAVE"));
@@ -151,6 +150,16 @@ public class CloudClientTest {
     @Test
     public void unrecognizedDetectedLanguageMetadataIsDiscarded() throws Exception {
         assertDetectedLanguage("not-a-real-language", "");
+    }
+
+    @Test
+    public void openAiWhisperTranslationUsesTranslationEndpointAndOmitsSourceLanguage() throws Exception {
+        assertTranslationRequest(Provider.OPENAI, Provider.OPENAI.transcriptionEndpoint(), "whisper-1");
+    }
+
+    @Test
+    public void groqWhisperTranslationUsesTranslationEndpointAndOmitsSourceLanguage() throws Exception {
+        assertTranslationRequest(Provider.GROQ, Provider.GROQ.transcriptionEndpoint(), "whisper-large-v3");
     }
 
     @Test
@@ -612,11 +621,7 @@ public class CloudClientTest {
         RecordedRequest request = server.takeRequest(1, TimeUnit.SECONDS);
         assertNotNull(request);
         String body = request.getBody().readUtf8();
-        if (expectedLanguage == null) {
-            assertFalse(body.contains("name=\"language\""));
-        } else {
-            assertTrue(body.contains("name=\"language\"\r\n\r\n" + expectedLanguage + "\r\n"));
-        }
+        assertEquals(expectedLanguage, multipartPartValue(body, "language"));
     }
 
     private void assertMultipartResponseFormat(Provider provider, String endpoint,
@@ -629,12 +634,42 @@ public class CloudClientTest {
         RecordedRequest request = server.takeRequest(1, TimeUnit.SECONDS);
         assertNotNull(request);
         String body = request.getBody().readUtf8();
-        if (expectedResponseFormat == null) {
-            assertFalse(body.contains("name=\"response_format\""));
-        } else {
-            assertTrue(body.contains("name=\"response_format\"\r\n\r\n"
-                    + expectedResponseFormat + "\r\n"));
+        assertEquals(expectedResponseFormat, multipartPartValue(body, "response_format"));
+    }
+
+    private void assertTranslationRequest(Provider provider, String endpoint, String model) throws Exception {
+        server.enqueue(new MockResponse().setBody("{\"text\":\"translated words\"}"));
+        ProviderConfig config = new ProviderConfig(provider, endpoint, model, "fixture-key", false);
+
+        CloudClient.Transcript transcript = client().transcribe(
+                new byte[] {1, 2}, config, "iw", true);
+
+        assertEquals("translated words", transcript.text);
+        assertEquals("en", transcript.language);
+        RecordedRequest request = server.takeRequest(1, TimeUnit.SECONDS);
+        assertNotNull(request);
+        assertEquals(HttpUrl.parse(endpoint.replace("transcriptions", "translations")).encodedPath(),
+                request.getPath());
+        String body = request.getBody().readUtf8();
+        assertEquals(model, multipartPartValue(body, "model"));
+        assertNull(multipartPartValue(body, "language"));
+        assertNull(multipartPartValue(body, "response_format"));
+    }
+
+    private String multipartPartValue(String body, String name) {
+        String disposition = "Content-Disposition: form-data; name=\"" + name + "\"";
+        int headerStart = body.indexOf(disposition);
+        if (headerStart < 0) {
+            return null;
         }
+        assertEquals("Multipart field must occur once: " + name, -1,
+                body.indexOf(disposition, headerStart + disposition.length()));
+        int contentStart = body.indexOf("\r\n\r\n", headerStart);
+        assertTrue("Multipart headers must end with CRLF: " + name, contentStart >= 0);
+        contentStart += "\r\n\r\n".length();
+        int contentEnd = body.indexOf("\r\n--", contentStart);
+        assertTrue("Multipart field must end at a boundary: " + name, contentEnd >= contentStart);
+        return body.substring(contentStart, contentEnd);
     }
 
     private void assertDetectedLanguage(String providerLanguage, String expectedLanguage) throws Exception {

@@ -46,6 +46,7 @@ public class WhisperFailureRecoveryTest {
     private WhisperResult result;
     private int errors;
     private int errorCode;
+    private boolean acceptDelivery = true;
     private int blockAt;
     private final CountDownLatch blocked = new CountDownLatch(1);
     private final CountDownLatch allowBlocked = new CountDownLatch(1);
@@ -78,6 +79,11 @@ public class WhisperFailureRecoveryTest {
         whisper.setListener(new Whisper.WhisperListener() {
             public void onUpdateReceived(String message) { }
             public void onResultReceived(WhisperResult value) { result = value; }
+            public boolean onResultDelivery(WhisperResult value) {
+                if (!acceptDelivery) return false;
+                onResultReceived(value);
+                return true;
+            }
             public void onError(String message) { errors++; }
             public void onError(int code, String message) { errorCode = code; errors++; }
         });
@@ -220,6 +226,23 @@ public class WhisperFailureRecoveryTest {
         assertEquals("room noise must not become full-scale speech", 0, calls);
         assertNull(result);
         assertEquals(1, errors);
+    }
+
+    @Test public void rejectedResultDeliveryKeepsCompletedAudioAndTextForRetry() throws Exception {
+        acceptDelivery = false;
+        startAndDrain(recording(1, 2048));
+        assertNull("a closed editor/client must not accept a result", result);
+        RecoveryStore store = new RecoveryStore(context);
+        RecoveryStore.Entry saved = store.list().get(0);
+        assertEquals(rawText, saved.transcript);
+        assertEquals(32_000, saved.offset);
+        acceptDelivery = true;
+        whisper.retrySaved(saved.id);
+        drainWorker();
+        assertNotNull(result);
+        assertEquals(rawText, result.getResult());
+        assertEquals("delivery retry must not retranscribe completed audio", 1, calls);
+        assertTrue(store.list().isEmpty());
     }
 
     @Test public void noSpeechHasANoMatchErrorInsteadOfAGenericServerError() throws Exception {

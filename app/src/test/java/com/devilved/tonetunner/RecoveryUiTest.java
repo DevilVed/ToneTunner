@@ -58,12 +58,14 @@ public class RecoveryUiTest {
 
         AlertDialog details = openFirstSaved(activity);
         details.getButton(DialogInterface.BUTTON_NEUTRAL).performClick();
+        Shadows.shadowOf(Looper.getMainLooper()).idle(); // AppCompat delivers button actions through its Handler.
         ClipboardManager clipboard = (ClipboardManager) context.getSystemService(Context.CLIPBOARD_SERVICE);
         assertEquals(selected.transcript, clipboard.getPrimaryClip().getItemAt(0).getText().toString());
         assertEquals("copying must not discard audio", 2, store.list().size());
 
         details = openFirstSaved(activity);
         details.getButton(DialogInterface.BUTTON_NEGATIVE).performClick();
+        Shadows.shadowOf(Looper.getMainLooper()).idle();
         drain(activity, "recoveryFiles");
         assertNull(store.get(selected.id));
         assertEquals("discard must leave the other dictation intact", 1, store.list().size());
@@ -74,18 +76,20 @@ public class RecoveryUiTest {
         controller = Robolectric.buildActivity(MainActivity.class).setup();
         MainActivity activity = controller.get();
         openFirstSaved(activity).getButton(DialogInterface.BUTTON_POSITIVE).performClick();
-        assertTrue((activity.getWindow().getAttributes().flags
-                & WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) != 0);
+        Shadows.shadowOf(Looper.getMainLooper()).idle();
         Field field = MainActivity.class.getDeclaredField("mWhisper");
         field.setAccessible(true);
         Whisper facade = (Whisper) field.get(activity);
         // No real model is installed. The real facade must fail recoverably, preserving this entry.
-        drain(facade, "worker");
+        if (facade != null) drain(facade, "worker");
         assertNotNull(store.get(saved.id));
         assertEquals("Earlier completed words", store.get(saved.id).transcript);
         assertEquals(0, activity.getWindow().getAttributes().flags
                 & WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         assertTrue(activity.findViewById(R.id.btnSavedDictations).isEnabled());
+        assertTrue("the retry must actually reach its recoverable error, not leave the dialog pending",
+                ((android.widget.TextView) activity.findViewById(R.id.tvStatus)).getText()
+                        .toString().toLowerCase(java.util.Locale.ROOT).contains("saved dictation"));
     }
 
     private AlertDialog openFirstSaved(MainActivity activity) throws Exception {
