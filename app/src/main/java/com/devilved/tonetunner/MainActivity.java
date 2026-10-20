@@ -19,6 +19,7 @@ import android.text.TextUtils;
 import android.util.Pair;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.WindowManager;
 import android.view.inputmethod.InputMethodInfo;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.AdapterView;
@@ -400,6 +401,7 @@ public class MainActivity extends AppCompatActivity {
         } else if (Recorder.MSG_RECORDING_DONE.equals(message)) {
             HapticFeedback.vibrate(this);
             recording = false;
+            updateRecordingScreen();
             startProcessing(token, translate.isChecked() ? ACTION_TRANSLATE : ACTION_TRANSCRIBE);
         } else {
             failCurrentSession(token, getString(R.string.error_no_input));
@@ -483,6 +485,7 @@ public class MainActivity extends AppCompatActivity {
         if (token != sessionGeneration || !sessionActive) return;
         sessionActive = false;
         recording = false;
+        updateRecordingScreen();
         processing = false;
         processingBar.setIndeterminate(false);
         processingBar.setProgress(0);
@@ -498,6 +501,7 @@ public class MainActivity extends AppCompatActivity {
         sessionGeneration++;
         sessionActive = false;
         recording = false;
+        updateRecordingScreen();
         processing = false;
         processingBar.setIndeterminate(false);
         processingBar.setProgress(0);
@@ -533,6 +537,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void setControlsForState() {
+        updateRecordingScreen();
         if (btnRecord == null) return;
         btnRecord.setEnabled(!processing);
         btnCancelProcessing.setVisibility(processing || recording ? View.VISIBLE : View.GONE);
@@ -541,6 +546,11 @@ public class MainActivity extends AppCompatActivity {
                 ? R.drawable.rounded_button_background_pressed : R.drawable.rounded_button_background);
         btnRecord.setContentDescription(recording ? getString(R.string.entrypoint_stop_recording)
                 : getString(R.string.record_button));
+    }
+
+    private void updateRecordingScreen() {
+        if (recording) getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        else getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
     }
 
     private void deinitTTS() {

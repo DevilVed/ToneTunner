@@ -137,6 +137,7 @@ public class WhisperRecognizeActivity extends AppCompatActivity {
         sessionActive = true;
         recording = true;
         processing = false;
+        updateRecordingScreen();
         try {
             ensureWhisper(token);
             createRecorder(token);
@@ -210,6 +211,7 @@ public class WhisperRecognizeActivity extends AppCompatActivity {
                     processingBar.setProgress(0);
                     processingBar.setIndeterminate(true);
                 }
+                updateRecordingScreen();
             }
 
             @Override
@@ -240,8 +242,10 @@ public class WhisperRecognizeActivity extends AppCompatActivity {
         if (Recorder.MSG_RECORDING_DONE.equals(message)) {
             HapticFeedback.vibrate(this);
             recording = false;
+            updateRecordingScreen();
             startTranscription(token);
         } else if (Recorder.MSG_RECORDING.equals(message)) {
+            updateRecordingScreen();
             btnRecord.setBackgroundResource(R.drawable.rounded_button_background_pressed);
             processingBar.setIndeterminate(true);
         } else {
@@ -256,6 +260,7 @@ public class WhisperRecognizeActivity extends AppCompatActivity {
         }
         recording = false;
         processing = true;
+        updateRecordingScreen();
         btnRecord.setContentDescription(getString(R.string.record_button));
         btnRecord.setEnabled(false);
         processingBar.setProgress(0);
@@ -268,6 +273,7 @@ public class WhisperRecognizeActivity extends AppCompatActivity {
         if (!isCurrentSession(token) || mWhisper == null) return;
         recording = false;
         processing = true;
+        updateRecordingScreen();
         btnRecord.setContentDescription(getString(R.string.record_button));
         btnRecord.setEnabled(false);
         processingBar.setProgress(0);
@@ -308,6 +314,7 @@ public class WhisperRecognizeActivity extends AppCompatActivity {
         setResult(RESULT_OK, resultIntent);
         sessionActive = false;
         recording = false;
+        updateRecordingScreen();
         processing = false;
         releaseRecorder(true);
         deinitModel();
@@ -322,6 +329,7 @@ public class WhisperRecognizeActivity extends AppCompatActivity {
         if (token != sessionGeneration || !sessionActive || isFinishing() || isDestroyed()) return;
         sessionActive = false;
         recording = false;
+        updateRecordingScreen();
         processing = false;
         processingBar.setIndeterminate(false);
         processingBar.setProgress(0);
@@ -346,6 +354,7 @@ public class WhisperRecognizeActivity extends AppCompatActivity {
         sessionGeneration++;
         sessionActive = false;
         recording = false;
+        updateRecordingScreen();
         processing = false;
         if (processingBar != null) {
             processingBar.setIndeterminate(false);
@@ -380,6 +389,11 @@ public class WhisperRecognizeActivity extends AppCompatActivity {
             btnRecord.setBackgroundResource(R.drawable.rounded_button_background);
             btnRecord.setContentDescription(getString(R.string.record_button));
         }
+    }
+
+    private void updateRecordingScreen() {
+        if (recording) getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        else getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
     }
 
     @Override

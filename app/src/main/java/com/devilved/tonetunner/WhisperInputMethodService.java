@@ -53,6 +53,7 @@ public class WhisperInputMethodService extends InputMethodService {
     private static boolean translate = false;
     private boolean modeAuto = false;
     private LinearLayout layoutButtons;
+    private View inputRootView;
     private long editorGeneration;
     private long requestEditorGeneration;
     private boolean inputActive;
@@ -131,6 +132,11 @@ public class WhisperInputMethodService extends InputMethodService {
     public View onCreateInputView() {  //runs before onStartInputView
         sp = PreferenceManager.getDefaultSharedPreferences(this);
         View view = getLayoutInflater().inflate(R.layout.voice_service, null);
+        if (inputRootView != null && inputRootView != view) {
+            inputRootView.setKeepScreenOn(false);
+        }
+        inputRootView = view;
+        setInputViewKeepScreenOn(acceptRecording);
         btnRecord = view.findViewById(R.id.btnRecord);
         btnKeyboard = view.findViewById(R.id.btnKeyboard);
         btnTranslate = view.findViewById(R.id.btnTranslate);
@@ -255,6 +261,7 @@ public class WhisperInputMethodService extends InputMethodService {
         long generation = editorGeneration;
         requestEditorGeneration = generation;
         acceptRecording = true;
+        setInputViewKeepScreenOn(true);
         recorder.setListener(message -> handler.post(() -> {
             if (mRecorder != recorder || !acceptRecording || !inputActive || generation != editorGeneration) return;
             if (Recorder.MSG_RECORDING.equals(message)) {
@@ -262,10 +269,12 @@ public class WhisperInputMethodService extends InputMethodService {
                 showStatus(getString(R.string.dictation_recording));
             } else if (Recorder.MSG_RECORDING_DONE.equals(message)) {
                 acceptRecording = false;
+                setInputViewKeepScreenOn(false);
                 btnRecord.setBackgroundResource(R.drawable.rounded_button_background);
                 startTranscription();
             } else {
                 acceptRecording = false;
+                setInputViewKeepScreenOn(false);
                 processingBar.setProgress(0);
                 btnRecord.setBackgroundResource(R.drawable.rounded_button_background);
                 showStatus(getString(R.string.error_no_input));
@@ -289,10 +298,15 @@ public class WhisperInputMethodService extends InputMethodService {
         tvStatus.setVisibility(View.VISIBLE);
     }
 
+    private void setInputViewKeepScreenOn(boolean keepScreenOn) {
+        if (inputRootView != null) inputRootView.setKeepScreenOn(keepScreenOn);
+    }
+
     private void cancelDictation() {
         handler.removeCallbacks(repeatDelete);
         recordingGesture.cancel();
         acceptRecording = false;
+        setInputViewKeepScreenOn(false);
         if (mRecorder != null) { mRecorder.release(); mRecorder = null; }
         if (mWhisper != null) { mWhisper.unloadModel(); mWhisper = null; }
         if (processingBar != null) { processingBar.setIndeterminate(false); processingBar.setProgress(0); }
