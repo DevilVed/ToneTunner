@@ -55,3 +55,9 @@
 - APK artifact: `ToneTunner-agents-voiceink4android-6dc4e44-debug`; size 102,452,991 bytes; SHA-256 `82b608a0b9d1d36ba40f1771d21233711ef176f0cdfd5e90321680dbc7ce95d7`.
 - Earlier cloud compiler runs caught a stale Activity helper call and a test-only crypto import; corrected both, then ran the full verification suite successfully.
 - Verification uses fixture HTTP responses, real JVM crypto with an injected test key source, Robolectric UI/lifecycle checks, and fake local transcribers. It does not demonstrate live-provider quality, physical microphone/Bluetooth behavior, actual ONNX inference performance, or complete platform IME/RecognitionService integration on a phone.
+
+## Final Android acceptance
+
+The initial 97-test result above is historical. The [completed runtime verification record](2026-10-20-runtime-verification.md#final-acceptance) supersedes it with successful [Actions run 39444393039](https://github.com/DevilVed/ToneTunner/actions/runs/39444393039), application/build commit `bd0e80a`: **121 JVM tests**, **six artifact-validator tests**, **six connected Android tests on each API 28 and API 35/16 KB emulator**, zero test failures/errors/skips, lint zero errors/38 warnings, and validated APK assembly. This includes real Android Keystore/native inference/VAD, Activity-result routing, and microphone capture beyond 30 seconds. Foreground capture, transcription, and enhancement keep the display awake until completion/error/cancel/backgrounding. All build/test work ran in Actions; physical phone and live-provider quality testing remain separate.
+
+The [final debug APK artifact](https://github.com/DevilVed/ToneTunner/actions/runs/39444393039/artifacts/12277090921) is 172,099,534 bytes; SHA-256 `7955053f832a1a26e9feb666334119f05267126db62db52cc69b3041b70cd931`. It contains all four ABIs and is intended for experimental phone testing on this branch.
