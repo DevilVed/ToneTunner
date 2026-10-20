@@ -74,7 +74,9 @@ jobs:
 
       - name: Point the build at the runner's Android SDK
         # The committed local.properties contains another machine's sdk.dir, which would break the build.
-        run: echo "sdk.dir=$ANDROID_HOME" > local.properties
+        run: |
+          echo "sdk.dir=$ANDROID_HOME" > local.properties
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;27.2.12479018"
 
       - uses: actions/download-artifact@v4
         with:
@@ -124,7 +126,9 @@ jobs:
         with:
           gradle-version: "8.14.5"
       - name: Point the build at the runner's Android SDK
-        run: echo "sdk.dir=$ANDROID_HOME" > local.properties
+        run: |
+          echo "sdk.dir=$ANDROID_HOME" > local.properties
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;27.2.12479018"
       - name: Enable hardware accelerated Android emulators
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -176,7 +180,9 @@ jobs:
         with:
           gradle-version: "8.14.5"
       - name: Point the build at the runner's Android SDK
-        run: echo "sdk.dir=$ANDROID_HOME" > local.properties
+        run: |
+          echo "sdk.dir=$ANDROID_HOME" > local.properties
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;27.2.12479018"
       - name: Install a stable debug keystore
         if: env.DEBUG_KEYSTORE_B64 != ''
         run: |

@@ -5,6 +5,8 @@ plugins {
 android {
     namespace 'com.devilved.tonetunner'
     compileSdk 35
+    // Use the same toolchain as the native dependency build, including APK symbol stripping.
+    ndkVersion '27.2.12479018'
 
     testOptions {
         unitTests.includeAndroidResources = true
