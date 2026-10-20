@@ -14,6 +14,7 @@
 - [ ] Primary: make Actions run JVM tests/lint and Android API 28 plus API 35/16 KB emulator tests. Deliver an APK only after all gates pass. Upload all verification reports on failure.
 - [ ] Primary: inspect initial failures, repair demonstrated problems, and rerun the complete verification suite. Validate packaged ELF/ZIP alignment rather than relying on version labels or lint suppression.
 - [ ] Independent reviewer: review the final production changes, tests, and verification scope. Record actual results and remaining physical hardware/live-provider limits.
+- [ ] Foreground recording: verify and repair display timeout behavior. Activities must keep the display awake during capture and release that policy on stop/cancel/error/backgrounding. The visible voice keyboard needs the corresponding view policy; do not add background recording permissions.
 
 ## Acceptance evidence
 
@@ -38,3 +39,5 @@ Emulator fixtures do not prove Bluetooth hardware routing, OEM keyboard behavior
 - Build Extensions' JNI libraries from the pinned upstream 0.13.0 source with explicit 16 KB shared/module linker flags and NDK 27. Preserve the checksum-verified official Java/resources package and its API, add MIT/provenance, and reject mismatched package layouts. Share the rebuilt AAR across all verification/package jobs. No unaligned fallback or lint suppression.
 - Native build run `39433594177` reached C++ compilation and demonstrated Dlib's dependency on the generic `std::char_traits<unsigned int>` template removed by NDK 28/LLVM 19. Pin NDK 27.2, enable flexible page sizes and static C++ linkage, and retain the full artifact/runtime gates. The six native-validator tests passed in CI.
 - These repairs are awaiting the next complete Actions run and independent patch review; this document does not claim runtime acceptance yet.
+- Independent static review found no blocker in the native AAR build/package paths or real Activity-result instrumentation boundary. Native source compilation and runtime acceptance remain unproven until Actions completes.
+- A worker added `RecordingScreenAwakeTest` for actual Activity window flags across existing capture/stop/cancel/pause/error callbacks. It is queued for its initial red CI run after the live native build completes, so an in-flight rebuild is not needlessly cancelled.
