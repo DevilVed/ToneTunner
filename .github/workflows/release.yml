@@ -79,7 +79,9 @@ jobs:
           cache-read-only: true
 
       - name: Point the build at the runner's Android SDK
-        run: echo "sdk.dir=$ANDROID_HOME" > local.properties
+        run: |
+          echo "sdk.dir=$ANDROID_HOME" > local.properties
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;27.2.12479018"
 
       - name: Prepare aligned native extensions
         uses: ./.github/actions/setup-native

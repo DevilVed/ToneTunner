@@ -2,6 +2,8 @@
 
 All native compilation runs on GitHub Actions. The workflow builds ONNX Runtime Extensions before Android verification; later jobs download the same AAR artifact. The AAR is cached by the build scripts' content and is never committed.
 
+Every Android build workflow also installs the pinned NDK explicitly, including when the native AAR cache is warm. Gradle uses that exact NDK to strip native debug symbols before packaging. The cache contains the AAR, not an NDK installation; finding an AAR in the cache must not skip toolchain preparation. Code-check job time limits accommodate the observed cold source build, which took longer than the old 20-minute dependency job limit.
+
 The latest published Extensions Android AAR is 0.13.0. Its native libraries still use 4 KB ELF alignment. This project rebuilds **all four ABIs** from the exact upstream 0.13.0 source revision `9d5638b0b1f28ed2ca9ef589d5ec3ea86f859432`, using Android NDK `27.2.12479018`, API 28, flexible page size support, static C++ linkage, and both shared/module linker flags for maximum/common 16 KB pages. The official Maven AAR's Java classes and resources are preserved, with its SHA-256 verified before replacing its JNI libraries. The result includes the upstream MIT license and build provenance.
 
 NDK 28's LLVM 19 removes the generic `std::char_traits` template used by this source's pinned Dlib dependency. NDK 27 retains that compatibility and explicitly supports flexible 16 KB pages; the finished binary still has to pass the same ELF checks and 16 KB emulator tests. See [LLVM 19 removals](https://releases.llvm.org/19.1.0/projects/libcxx/docs/ReleaseNotes.html#deprecations-and-removals) and [NDK 27 page size support](https://github.com/android/ndk/wiki/Changelog-r27).
