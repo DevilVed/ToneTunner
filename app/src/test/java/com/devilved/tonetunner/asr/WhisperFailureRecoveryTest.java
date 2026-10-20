@@ -188,7 +188,8 @@ public class WhisperFailureRecoveryTest {
         return false;
     }
     private static boolean hasText(File file, String text) throws IOException {
-        if (file.isFile() && file.getName().endsWith(".json")) return Files.readString(file.toPath()).contains(text);
+        if (file.isFile() && file.getName().endsWith(".json")) return new String(
+                Files.readAllBytes(file.toPath()), java.nio.charset.StandardCharsets.UTF_8).contains(text);
         File[] children = file.listFiles();
         if (children != null) for (File child : children) if (hasText(child, text)) return true;
         return false;

@@ -109,6 +109,41 @@ public class CloudClientTest {
     }
 
     @Test
+    public void supportedWhisperModelsRequestVerboseJsonButMiniAndCustomModelsDoNot() throws Exception {
+        assertMultipartResponseFormat(Provider.OPENAI, Provider.OPENAI.transcriptionEndpoint(),
+                "whisper-1", "verbose_json");
+        assertMultipartResponseFormat(Provider.GROQ, Provider.GROQ.transcriptionEndpoint(),
+                "whisper-large-v3", "verbose_json");
+        assertMultipartResponseFormat(Provider.GROQ, Provider.GROQ.transcriptionEndpoint(),
+                "whisper-large-v3-turbo", "verbose_json");
+        assertMultipartResponseFormat(Provider.OPENAI, Provider.OPENAI.transcriptionEndpoint(),
+                "gpt-4o-mini-transcribe", null);
+        assertMultipartResponseFormat(Provider.CUSTOM,
+                "https://custom.example/v1/audio/transcriptions", "whisper-1", null);
+    }
+
+    @Test
+    public void detectedEnglishLanguageNamesAreNormalizedToLanguageCodes() throws Exception {
+        assertDetectedLanguage("english", "en");
+        assertDetectedLanguage("Spanish", "es");
+        assertDetectedLanguage("HEBREW", "he");
+    }
+
+    @Test
+    public void detectedLegacyAndThreeLetterLanguageCodesAreCanonicalized() throws Exception {
+        assertDetectedLanguage("IW", "he");
+        assertDetectedLanguage("IN", "id");
+        assertDetectedLanguage("JI", "yi");
+        assertDetectedLanguage("YUE", "yue");
+        assertDetectedLanguage("HAW", "haw");
+    }
+
+    @Test
+    public void unrecognizedDetectedLanguageMetadataIsDiscarded() throws Exception {
+        assertDetectedLanguage("not-a-real-language", "");
+    }
+
+    @Test
     public void openRouterTranscriptionUsesJsonAndRequestsBothPrivacyFilters() throws Exception {
         server.enqueue(new MockResponse().setBody("{\"text\":\"fixture transcript\"}"));
         CloudClient client = client();
@@ -572,5 +607,34 @@ public class CloudClientTest {
         } else {
             assertTrue(body.contains("name=\"language\"\r\n\r\n" + expectedLanguage + "\r\n"));
         }
+    }
+
+    private void assertMultipartResponseFormat(Provider provider, String endpoint,
+                                               String model, String expectedResponseFormat) throws Exception {
+        server.enqueue(new MockResponse().setBody("{\"text\":\"spoken words\"}"));
+        ProviderConfig config = new ProviderConfig(provider, endpoint, model, "fixture-key", false);
+
+        client().transcribe(new byte[] {1, 2}, config, "auto", false);
+
+        RecordedRequest request = server.takeRequest(1, TimeUnit.SECONDS);
+        assertNotNull(request);
+        String body = request.getBody().readUtf8();
+        if (expectedResponseFormat == null) {
+            assertFalse(body.contains("name=\"response_format\""));
+        } else {
+            assertTrue(body.contains("name=\"response_format\"\r\n\r\n"
+                    + expectedResponseFormat + "\r\n"));
+        }
+    }
+
+    private void assertDetectedLanguage(String providerLanguage, String expectedLanguage) throws Exception {
+        server.enqueue(new MockResponse().setBody("{\"text\":\"spoken words\",\"language\":\""
+                + providerLanguage + "\"}"));
+        ProviderConfig config = new ProviderConfig(Provider.OPENAI,
+                Provider.OPENAI.transcriptionEndpoint(), "whisper-1", "fixture-key", false);
+
+        CloudClient.Transcript transcript = client().transcribe(new byte[] {1, 2}, config, "auto", false);
+
+        assertEquals(expectedLanguage, transcript.language);
     }
 }
