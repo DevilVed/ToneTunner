@@ -148,7 +148,7 @@ public class WhisperRecognizeActivity extends AppCompatActivity {
             processingBar.setIndeterminate(true);
             return true;
         } catch (RuntimeException e) {
-            failCurrentSession(token, R.string.entrypoint_processing_error);
+            showFailure(token, getString(R.string.entrypoint_processing_error));
             return false;
         }
     }
