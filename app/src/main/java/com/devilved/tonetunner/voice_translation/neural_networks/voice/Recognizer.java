@@ -161,6 +161,14 @@ public class Recognizer extends NeuralNetworkApi {
             // position (50358) is the TRANSLATE token, so selecting it made Whisper translate instead of transcribe.
     };
 
+    // Precomputed map for O(1) language code to array index lookup
+    private static final Map<String, Integer> LANGUAGE_INDEX_MAP = new HashMap<>();
+    static {
+        for (int i = 0; i < LANGUAGES.length; i++) {
+            LANGUAGE_INDEX_MAP.put(LANGUAGES[i], i);
+        }
+    }
+
     private final int START_TOKEN_ID = 50258;
     private final int TRANSLATE_TOKEN_ID = 50358;
     private final int TRANSCRIBE_TOKEN_ID = 50359;
@@ -661,10 +669,9 @@ public class Recognizer extends NeuralNetworkApi {
     }
 
     public int getLanguageID(String language){
-        for (int i = 0; i < LANGUAGES.length; i++) {
-            if (LANGUAGES[i].equals(language)) {
-                return START_TOKEN_ID + i + 1;
-            }
+        Integer index = LANGUAGE_INDEX_MAP.get(language);
+        if (index != null) {
+            return START_TOKEN_ID + index + 1;
         }
         if (!language.equals("auto")) Log.e("error", "Error Converting Language code " + language + " to Whisper code");
         return -1;
