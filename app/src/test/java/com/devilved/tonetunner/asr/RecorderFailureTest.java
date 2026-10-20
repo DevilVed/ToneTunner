@@ -4,11 +4,6 @@ import android.Manifest;
 import android.content.Context;
 import android.media.AudioRecord;
 
-import com.konovalov.vad.webrtc.VadWebRTC;
-import com.konovalov.vad.webrtc.config.FrameSize;
-import com.konovalov.vad.webrtc.config.Mode;
-import com.konovalov.vad.webrtc.config.SampleRate;
-
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -17,12 +12,11 @@ import org.robolectric.RobolectricTestRunner;
 import org.robolectric.RuntimeEnvironment;
 import org.robolectric.Shadows;
 import org.robolectric.annotation.Config;
-import org.robolectric.annotation.Implementation;
-import org.robolectric.annotation.Implements;
 import org.robolectric.shadows.ShadowAudioRecord;
 import org.robolectric.shadows.ShadowSystemClock;
 
 import java.io.IOException;
+import java.lang.reflect.Field;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.concurrent.ArrayBlockingQueue;
@@ -41,9 +35,10 @@ import static org.junit.Assert.assertTrue;
 
 /** Regression coverage for recorder timeouts and microphone read failures without hardware. */
 @RunWith(RobolectricTestRunner.class)
-@Config(sdk = 28, shadows = RecorderFailureTest.ShadowVadWebRTC.class)
+@Config(sdk = 28)
 public class RecorderFailureTest {
     private static final int READS_FOR_36_SECONDS = 1_200; // 480 samples at 16 kHz per read = 30 ms.
+    private static final int PARTIAL_READS_FOR_36_SECONDS = 2_400; // 240 samples per read = 15 ms.
     private static final long SOURCE_WAIT_SECONDS = 5;
 
     @Before public void grantRecordingPermission() {
@@ -58,13 +53,13 @@ public class RecorderFailureTest {
     @Test public void autoStopEndsAfterThirtySecondsOfInitialSilence() throws Exception {
         BlockingQueue<String> messages = new ArrayBlockingQueue<>(8);
         AtomicReference<AudioRecord> audioRecord = new AtomicReference<>();
-        SilenceSource source = new SilenceSource(READS_FOR_36_SECONDS);
+        SilenceSource source = new SilenceSource(PARTIAL_READS_FOR_36_SECONDS, 480);
         installSource(source, audioRecord);
 
         Recorder recorder = new Recorder(application());
         recorder.setListener(messages::offer);
         try {
-            recorder.initVad();
+            setVadEnabledWithoutNativeClassifier(recorder);
             recorder.start();
 
             assertEquals(Recorder.MSG_RECORDING, messages.poll(SOURCE_WAIT_SECONDS, TimeUnit.SECONDS));
@@ -72,6 +67,8 @@ public class RecorderFailureTest {
             assertNotNull("VAD mode must terminate a capture with no initial speech", terminalMessage);
             assertTrue("the no-speech deadline must represent at least 30 seconds of captured silence",
                     source.capturedDurationMs() >= 30_000L);
+            assertTrue("auto mode must terminate before the 36-second runaway guard",
+                    source.capturedDurationMs() < 36_000L);
             assertFalse("initial silence must not be reported as a completed dictation",
                     Recorder.MSG_RECORDING_DONE.equals(terminalMessage));
             assertTrue("the recorder must stop after its initial-speech deadline", awaitStopped(recorder));
@@ -176,6 +173,12 @@ public class RecorderFailureTest {
         return RuntimeEnvironment.getApplication();
     }
 
+    private static void setVadEnabledWithoutNativeClassifier(Recorder recorder) throws Exception {
+        Field field = Recorder.class.getDeclaredField("useVAD");
+        field.setAccessible(true);
+        field.setBoolean(recorder, true);
+    }
+
     private static void installSource(ShadowAudioRecord.AudioRecordSource source,
                                       AtomicReference<AudioRecord> audioRecord) {
         ShadowAudioRecord.setSourceProvider(record -> {
@@ -191,8 +194,9 @@ public class RecorderFailureTest {
     }
 
     private static boolean awaitStopped(Recorder recorder) throws InterruptedException {
-        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(SOURCE_WAIT_SECONDS);
-        while (recorder.isInProgress() && System.nanoTime() < deadline) Thread.sleep(1);
+        for (int i = 0; recorder.isInProgress() && i < SOURCE_WAIT_SECONDS * 1_000; i++) {
+            Thread.sleep(1);
+        }
         return !recorder.isInProgress();
     }
 
@@ -202,13 +206,19 @@ public class RecorderFailureTest {
 
     private static class SilenceSource implements ShadowAudioRecord.AudioRecordSource {
         private final int maxFullReads;
+        private final int bytesPerRead;
         private final AtomicInteger reads = new AtomicInteger();
         private final AtomicInteger capturedDurationMs = new AtomicInteger();
         final CountDownLatch limitReached = new CountDownLatch(1);
         private final CountDownLatch resume = new CountDownLatch(1);
 
         SilenceSource(int maxFullReads) {
+            this(maxFullReads, Integer.MAX_VALUE);
+        }
+
+        SilenceSource(int maxFullReads, int bytesPerRead) {
             this.maxFullReads = maxFullReads;
+            this.bytesPerRead = bytesPerRead;
         }
 
         @Override public int readInByteArray(byte[] data, int offset, int size, boolean isBlocking) {
@@ -222,13 +232,14 @@ public class RecorderFailureTest {
                     return AudioRecord.ERROR_INVALID_OPERATION;
                 }
             }
-            Arrays.fill(data, offset, offset + size, (byte) 0);
+            int returnedBytes = Math.min(size, bytesPerRead);
+            Arrays.fill(data, offset, offset + returnedBytes, (byte) 0);
             // Advance by the duration represented by this read. Recorder deadlines are based on
             // captured samples, so CI can cover a 30-second silence window without sleeping.
-            int durationMs = (int) (size * 1_000L / (2L * 16_000L));
+            int durationMs = (int) (returnedBytes * 1_000L / (2L * 16_000L));
             capturedDurationMs.addAndGet(durationMs);
             ShadowSystemClock.advanceBy(Duration.ofMillis(durationMs));
-            return size;
+            return returnedBytes;
         }
 
         long capturedDurationMs() {
@@ -270,19 +281,4 @@ public class RecorderFailureTest {
         }
     }
 
-    /** Keeps Robolectric tests independent of the WebRTC JNI library while preserving VAD timing. */
-    @Implements(value = VadWebRTC.class, isInAndroidSdk = false)
-    public static class ShadowVadWebRTC {
-        @Implementation protected static void __staticInitializer__() { }
-
-        @Implementation protected void __constructor__(SampleRate sampleRate, FrameSize frameSize,
-                                                        Mode mode, int speechDurationMs,
-                                                        int silenceDurationMs) { }
-
-        @Implementation protected boolean isSpeech(byte[] audioData) {
-            return false;
-        }
-
-        @Implementation protected void close() { }
-    }
 }
