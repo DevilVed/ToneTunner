@@ -20,7 +20,7 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
-import java.security.KeyGenerator;
+import javax.crypto.KeyGenerator;
 import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.List;
