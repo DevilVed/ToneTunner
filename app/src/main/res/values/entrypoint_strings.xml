@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="entrypoint_title">ToneTunner</string>
+    <string name="entrypoint_ai_settings">AI settings</string>
+    <string name="entrypoint_enable_keyboard">Enable voice keyboard</string>
+    <string name="entrypoint_keyboard_enabled">Voice keyboard enabled</string>
+    <string name="entrypoint_provider_summary_unknown">Choose a transcription provider in AI settings.</string>
+    <string name="entrypoint_cloud_key_missing">A cloud API key is missing. Add it in AI settings before recording.</string>
+    <string name="entrypoint_cloud_consent_missing">Review the cloud audio disclosure in AI settings before recording.</string>
+    <string name="entrypoint_cloud_consent_toast">Open AI settings to review and accept cloud audio processing before recording.</string>
+    <string name="entrypoint_settings_unavailable">AI settings are unavailable. Review the provider configuration and try again.</string>
+    <string name="entrypoint_ready">Ready to record</string>
+    <string name="entrypoint_recording">Recording…</string>
+    <string name="entrypoint_stop_recording">Stop recording</string>
+    <string name="entrypoint_transcribing">Transcribing audio…</string>
+    <string name="entrypoint_enhancing">Enhancing transcript…</string>
+    <string name="entrypoint_processing_error">Could not process this recording. Review AI settings and try again.</string>
+    <string name="entrypoint_cancel_processing">Cancel</string>
+    <string name="entrypoint_cancelled">Processing cancelled</string>
+    <string name="entrypoint_permission_denied">Microphone permission is required to record.</string>
+    <string name="entrypoint_recognition_auto_stop">Stop recognition automatically after silence</string>
+    <string name="entrypoint_recognition_auto_stop_help">Turn this off to keep listening through thinking pauses until the calling app sends Stop listening. This applies only to apps using ToneTunner’s voice input service.</string>
+</resources>

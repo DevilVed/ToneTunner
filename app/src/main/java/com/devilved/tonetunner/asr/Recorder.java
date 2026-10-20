@@ -18,7 +18,8 @@ import com.konovalov.vad.webrtc.config.Mode;
 import com.konovalov.vad.webrtc.config.SampleRate;
 import com.devilved.tonetunner.R;
 
-import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.IOException;
 
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.Condition;
@@ -43,6 +44,7 @@ public class Recorder {
 
     private volatile RecorderListener mListener;
     private volatile boolean released = false;
+    private PcmRecording publishedRecording;
     private final Lock lock = new ReentrantLock();
     private final Condition hasTask = lock.newCondition();
     private final Object fileSavedLock = new Object(); // Lock object for wait/notify
@@ -70,6 +72,7 @@ public class Recorder {
 
 
     public void start() {
+        if (released) return;
         if (!mInProgress.compareAndSet(false, true)) {
             Log.d(TAG, "Recording is already in progress...");
             return;
@@ -126,11 +129,22 @@ public class Recorder {
     // Ends the worker thread; call when this Recorder is no longer used, otherwise the thread lives forever.
     // Also silences the recorder: a recording cut short by release() must not report "done" (or an error) to a
     // caller that is being torn down, e.g. MainActivity.onDestroy() after its model was unloaded.
-    public void release() {
+    public synchronized void release() {
         released = true;
         mListener = null;
         mInProgress.set(false);
         workerThread.interrupt();
+        if (publishedRecording != null) {
+            try { publishedRecording.close(); } catch (IOException ignored) {}
+        }
+        publishedRecording = null;
+    }
+
+    /** Transfers this recorder's completed file to its own request, never a global audio slot. */
+    public synchronized PcmRecording takeRecording() {
+        PcmRecording result = publishedRecording;
+        publishedRecording = null;
+        return result;
     }
 
     public boolean isInProgress() {
@@ -164,7 +178,7 @@ public class Recorder {
                 recordAudio();
             } catch (Exception e) {
                 Log.e(TAG, "Recording error...", e);
-                sendUpdate(e.getMessage());
+                sendUpdate(MSG_RECORDING_ERROR);
             } finally {
                 mInProgress.set(false);
                 // Notify that recording is finished, on every path including errors
@@ -176,107 +190,66 @@ public class Recorder {
         }
     }
 
-    private void recordAudio() {
-        if (ActivityCompat.checkSelfPermission(mContext, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-            Log.d(TAG, "AudioRecord permission is not granted");
-            sendUpdate(mContext.getString(R.string.need_record_audio_permission));
+    private void recordAudio() throws IOException {
+        if (ActivityCompat.checkSelfPermission(mContext, Manifest.permission.RECORD_AUDIO)
+                != PackageManager.PERMISSION_GRANTED) {
+            sendUpdate(MSG_RECORDING_ERROR);
             return;
         }
-
-        int channels = 1;
-        int bytesPerSample = 2;
-        int sampleRateInHz = 16000;
-        int channelConfig = AudioFormat.CHANNEL_IN_MONO;
-        int audioFormat = AudioFormat.ENCODING_PCM_16BIT;
-        int audioSource = MediaRecorder.AudioSource.VOICE_RECOGNITION;
-
-        int bufferSize = AudioRecord.getMinBufferSize(sampleRateInHz, channelConfig, audioFormat);
-        if (bufferSize < VAD_FRAME_SIZE * 2) bufferSize = VAD_FRAME_SIZE * 2;
-
-        AudioManager audioManager = (AudioManager) mContext.getSystemService(Context.AUDIO_SERVICE);
-        audioManager.startBluetoothSco();
-        audioManager.setBluetoothScoOn(true);
-
-        AudioRecord.Builder builder = new AudioRecord.Builder()
-                .setAudioSource(audioSource)
-                .setAudioFormat(new AudioFormat.Builder()
-                        .setChannelMask(channelConfig)
-                        .setEncoding(audioFormat)
-                        .setSampleRate(sampleRateInHz)
-                        .build())
-                .setBufferSizeInBytes(bufferSize);
-
-        AudioRecord audioRecord = builder.build();
-        audioRecord.startRecording();
-
-        // Calculate maximum byte counts for 30 seconds (for saving)
-        int bytesForThirtySeconds = sampleRateInHz * bytesPerSample * channels * 30;
-
-        ByteArrayOutputStream outputBuffer = new ByteArrayOutputStream(); // Buffer for saving data RecordBuffer
-
-        byte[] audioData = new byte[bufferSize];
-        int totalBytesRead = 0;
-
-        boolean isSpeech;
-        boolean isRecording = false;
-        byte[] vadAudioBuffer = new byte[VAD_FRAME_SIZE * 2];  //VAD needs 16 bit
-
-        while (mInProgress.get() && totalBytesRead < bytesForThirtySeconds) {
-            int bytesRead = audioRecord.read(audioData, 0, VAD_FRAME_SIZE * 2);
-            if (bytesRead > 0) {
-                outputBuffer.write(audioData, 0, bytesRead);  // Save all bytes read up to 30 seconds
-                totalBytesRead += bytesRead;
-            } else {
-                Log.d(TAG, "AudioRecord error, bytes read: " + bytesRead);
-                break;
-            }
-
-            if (useVAD){
-                byte[] outputBufferByteArray = outputBuffer.toByteArray();
-                if (outputBufferByteArray.length >= VAD_FRAME_SIZE * 2) {
-                    // Always use the last VAD_FRAME_SIZE * 2 bytes (16 bit) from outputBuffer for VAD
-                    System.arraycopy(outputBufferByteArray, outputBufferByteArray.length - VAD_FRAME_SIZE * 2, vadAudioBuffer, 0, VAD_FRAME_SIZE * 2);
-
-                    isSpeech = vad.isSpeech(vadAudioBuffer);
-                    if (isSpeech) {
-                        if (!isRecording) {
-                            Log.d(TAG, "VAD Speech detected: recording starts");
-                            sendUpdate(MSG_RECORDING);
-                        }
-                        isRecording = true;
-                    } else {
-                        if (isRecording) {
-                            isRecording = false;
-                            mInProgress.set(false);
-                        }
-                    }
+        int sampleRate = 16000;
+        int bufferSize = Math.max(AudioRecord.getMinBufferSize(sampleRate,
+                AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT), VAD_FRAME_SIZE * 2);
+        AudioManager manager = (AudioManager) mContext.getSystemService(Context.AUDIO_SERVICE);
+        AudioRecord audio = null;
+        PcmRecording recording = null;
+        boolean transferred = false;
+        try {
+            recording = PcmRecording.create(new File(mContext.getNoBackupFilesDir(), "dictation-audio"));
+            manager.startBluetoothSco();
+            manager.setBluetoothScoOn(true);
+            audio = new AudioRecord.Builder()
+                    .setAudioSource(MediaRecorder.AudioSource.VOICE_RECOGNITION)
+                    .setAudioFormat(new AudioFormat.Builder().setChannelMask(AudioFormat.CHANNEL_IN_MONO)
+                            .setEncoding(AudioFormat.ENCODING_PCM_16BIT).setSampleRate(sampleRate).build())
+                    .setBufferSizeInBytes(bufferSize).build();
+            if (audio.getState() != AudioRecord.STATE_INITIALIZED) throw new IOException("Microphone unavailable");
+            audio.startRecording();
+            byte[] frame = new byte[VAD_FRAME_SIZE * 2];
+            boolean heardSpeech = false;
+            sendUpdate(MSG_RECORDING);
+            // Fixed capture buffer; duration is bounded by available disk, never by a RAM array or timer.
+            while (mInProgress.get() && !released) {
+                int count = audio.read(frame, 0, frame.length);
+                if (count <= 0 || (count & 1) != 0) throw new IOException("Microphone read failed");
+                recording.write(frame, 0, count);
+                if (useVAD && count == frame.length) {
+                    boolean speech = vad.isSpeech(frame);
+                    if (speech) heardSpeech = true;
+                    else if (heardSpeech) mInProgress.set(false);
                 }
-            } else {
-                if (!isRecording) sendUpdate(MSG_RECORDING);
-                isRecording = true;
             }
+            recording.finish();
+            synchronized (this) {
+                if (!released && recording.lengthBytes() > 6400) {
+                    publishedRecording = recording;
+                    transferred = true;
+                    sendUpdate(MSG_RECORDING_DONE);
+                } else if (!released) {
+                    sendUpdate(MSG_RECORDING_ERROR);
+                }
+            }
+        } finally {
+            if (audio != null) {
+                try { audio.stop(); } catch (IllegalStateException ignored) {}
+                audio.release();
+            }
+            try { manager.stopBluetoothSco(); manager.setBluetoothScoOn(false); }
+            catch (RuntimeException ignored) {}
+            if (useVAD) {
+                useVAD = false;
+                if (vad != null) { vad.close(); vad = null; }
+            }
+            if (!transferred && recording != null) recording.close();
         }
-        Log.d(TAG, "Total bytes recorded: " + totalBytesRead);
-
-        if (useVAD){
-            useVAD = false;
-            vad.close();
-            vad = null;
-            Log.d(TAG, "Closing VAD");
-        }
-        audioRecord.stop();
-        audioRecord.release();
-        audioManager.stopBluetoothSco();
-        audioManager.setBluetoothScoOn(false);
-
-        // Save recorded audio data to BufferStore (up to 30 seconds)
-        RecordBuffer.setOutputBuffer(outputBuffer.toByteArray());
-        if (totalBytesRead > 6400){  //min 0.2s
-            sendUpdate(MSG_RECORDING_DONE);
-        } else {
-            sendUpdate(MSG_RECORDING_ERROR);
-        }
-
     }
-
 }

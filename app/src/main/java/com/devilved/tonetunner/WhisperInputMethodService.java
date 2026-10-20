@@ -6,11 +6,11 @@ import static com.devilved.tonetunner.voice_translation.neural_networks.voice.Re
 
 import android.annotation.SuppressLint;
 import android.content.Context;
+import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.inputmethodservice.InputMethodService;
 
-import android.os.CountDownTimer;
 import android.os.Handler;
 import android.os.Looper;
 import androidx.preference.PreferenceManager;
@@ -29,12 +29,14 @@ import androidx.core.content.ContextCompat;
 
 import com.github.houbb.opencc4j.util.ZhConverterUtil;
 import com.devilved.tonetunner.asr.Recorder;
+import com.devilved.tonetunner.asr.RecordingGesture;
+import com.devilved.tonetunner.asr.InputPolicy;
+import com.devilved.tonetunner.cloud.AiSettings;
 import com.devilved.tonetunner.asr.Whisper;
 import com.devilved.tonetunner.asr.WhisperResult;
 import com.devilved.tonetunner.utils.HapticFeedback;
 
 public class WhisperInputMethodService extends InputMethodService {
-    private static final String TAG = "WhisperInputMethodService";
     private ImageButton btnRecord;
     private ImageButton btnKeyboard;
     private ImageButton btnTranslate;
@@ -48,10 +50,21 @@ public class WhisperInputMethodService extends InputMethodService {
     private SharedPreferences sp = null;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private Context mContext;
-    private CountDownTimer countDownTimer;
     private static boolean translate = false;
     private boolean modeAuto = false;
     private LinearLayout layoutButtons;
+    private long editorGeneration;
+    private long requestEditorGeneration;
+    private boolean inputActive;
+    private boolean acceptRecording;
+    private final RecordingGesture recordingGesture = new RecordingGesture();
+    private final Runnable repeatDelete = new Runnable() {
+        @Override public void run() {
+            if (!inputActive) return;
+            sendKey(KeyEvent.KEYCODE_DEL);
+            handler.postDelayed(this, 100);
+        }
+    };
 
     @Override
     public void onCreate() {
@@ -61,32 +74,57 @@ public class WhisperInputMethodService extends InputMethodService {
 
     @Override
     public void onDestroy() {
-        deinitModel();
-        if (mRecorder != null) {
-            if (mRecorder.isInProgress()) mRecorder.stop();
-            mRecorder.release();
-        }
+        inputActive = false;
+        ++editorGeneration;
+        cancelDictation();
         super.onDestroy();
     }
 
     @Override
     public void onStartInput(EditorInfo attribute, boolean restarting) {
-        if (attribute.inputType ==  EditorInfo.TYPE_NULL) {
-            Log.d(TAG, "Cancelling: onStartInput: inputType=" + attribute.inputType + ", package=" + attribute.packageName + ", fieldId=" + attribute.fieldId);
-            deinitModel();
-            if (mRecorder != null && mRecorder.isInProgress()) {
-                mRecorder.stop();
-            }
-        }
+        super.onStartInput(attribute, restarting);
+        cancelDictation();
+        ++editorGeneration;
+        inputActive = attribute != null;
     }
 
     @Override
-    public void onStartInputView(EditorInfo attribute, boolean restarting){
-
-        if (mWhisper == null)  initModel();
-
+    public void onStartInputView(EditorInfo attribute, boolean restarting) {
+        super.onStartInputView(attribute, restarting);
+        inputActive = attribute != null;
+        if (tvStatus != null) {
+            showStatus(new AiSettings(this).getSummary());
+            layoutButtons.setVisibility(View.VISIBLE);
+        }
+        if (modeAuto && !restarting) startRecording();
     }
 
+    @Override
+    public void onFinishInput() {
+        inputActive = false;
+        ++editorGeneration;
+        cancelDictation();
+        super.onFinishInput();
+    }
+
+    @Override
+    public void onFinishInputView(boolean finishingInput) {
+        inputActive = false;
+        ++editorGeneration;
+        cancelDictation();
+        super.onFinishInputView(finishingInput);
+    }
+
+    @Override
+    public void onUpdateSelection(int oldSelStart, int oldSelEnd, int newSelStart, int newSelEnd,
+            int candidatesStart, int candidatesEnd) {
+        super.onUpdateSelection(oldSelStart, oldSelEnd, newSelStart, newSelEnd, candidatesStart, candidatesEnd);
+        if ((acceptRecording || (mWhisper != null && mWhisper.isInProgress()))
+                && (oldSelStart != newSelStart || oldSelEnd != newSelEnd)) {
+            cancelDictation();
+            showStatus(getString(R.string.dictation_cancelled));
+        }
+    }
 
     @SuppressLint("ClickableViewAccessibility")
     @Override
@@ -107,134 +145,50 @@ public class WhisperInputMethodService extends InputMethodService {
         layoutButtons = view.findViewById(R.id.layout_buttons);
         checkRecordPermission();
 
-        // Audio recording functionality
-        if (mRecorder != null) mRecorder.release();  // the input view can be recreated, e.g. on configuration changes
-        mRecorder = new Recorder(this);
-        mRecorder.setListener(new Recorder.RecorderListener() {
-            @Override
-            public void onUpdateReceived(String message) {
-                if (message.equals(Recorder.MSG_RECORDING)) {
-                    handler.post(() -> btnRecord.setBackgroundResource(R.drawable.rounded_button_background_pressed));
-                } else if (message.equals(Recorder.MSG_RECORDING_DONE)) {
-                    HapticFeedback.vibrate(mContext);
-                    handler.post(() -> btnRecord.setBackgroundResource(R.drawable.rounded_button_background));
-                    startTranscription();
-                } else if (message.equals(Recorder.MSG_RECORDING_ERROR)) {
-                    HapticFeedback.vibrate(mContext);
-                    if (countDownTimer!=null) { countDownTimer.cancel();}
-                    handler.post(() -> {
-                        btnRecord.setBackgroundResource(R.drawable.rounded_button_background);
-                        tvStatus.setText(getString(R.string.error_no_input));
-                        tvStatus.setVisibility(View.VISIBLE);
-                        processingBar.setProgress(0);
-                    });
-                }
-            }
-
+        view.findViewById(R.id.btnAiSettings).setOnClickListener(v -> {
+            cancelDictation();
+            Intent settings = new Intent(this, AiSettingsActivity.class);
+            settings.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(settings);
+        });
+        view.findViewById(R.id.btnCancelDictation).setOnClickListener(v -> {
+            cancelDictation();
+            showStatus(getString(R.string.dictation_cancelled));
         });
 
-        if (modeAuto) {
-            layoutButtons.setVisibility(View.GONE);
-            HapticFeedback.vibrate(this);
-            startRecording();
-            handler.post(() -> processingBar.setProgress(100));
-            countDownTimer = new CountDownTimer(30000, 1000) {
-                @Override
-                public void onTick(long l) {
-                    handler.post(() -> processingBar.setProgress((int) (l / 300)));
-                }
-                @Override
-                public void onFinish() {}
-            };
-            countDownTimer.start();
-            handler.post(() -> {
-                tvStatus.setText("");
-                tvStatus.setVisibility(View.GONE);
-            });
-        }
-
-        btnDel.setOnTouchListener(new View.OnTouchListener() {
-            private Runnable initialDeleteRunnable;
-            private Runnable repeatDeleteRunnable;
-
-            @Override
-            public boolean onTouch(View v, MotionEvent event) {
-                if (event.getAction() == MotionEvent.ACTION_DOWN) {
-                    sendKey(KeyEvent.KEYCODE_DEL);
-                    // Post the initial delay of 500ms
-                    initialDeleteRunnable = new Runnable() {
-                        @Override
-                        public void run() {
-                            sendKey(KeyEvent.KEYCODE_DEL);
-                            // Start repeating every 100ms
-                            repeatDeleteRunnable = new Runnable() {
-                                @Override
-                                public void run() {
-                                    sendKey(KeyEvent.KEYCODE_DEL);
-                                    handler.postDelayed(this, 100);
-                                }
-                            };
-                            handler.postDelayed(repeatDeleteRunnable, 100);
-                        }
-                    };
-                    handler.postDelayed(initialDeleteRunnable, 500);
-                } else if (event.getAction() == MotionEvent.ACTION_UP) {
-                    // Remove both callbacks
-                    if (initialDeleteRunnable != null) {
-                        handler.removeCallbacks(initialDeleteRunnable);
-                    }
-                    if (repeatDeleteRunnable != null) {
-                        handler.removeCallbacks(repeatDeleteRunnable);
-                    }
-                    initialDeleteRunnable = null;
-                    repeatDeleteRunnable = null;
-                }
-                return true;
+        btnDel.setOnClickListener(v -> sendKey(KeyEvent.KEYCODE_DEL));
+        btnDel.setOnTouchListener((v, event) -> {
+            if (event.getActionMasked() == MotionEvent.ACTION_DOWN) {
+                handler.removeCallbacks(repeatDelete);
+                sendKey(KeyEvent.KEYCODE_DEL);
+                handler.postDelayed(repeatDelete, 500);
+            } else if (event.getActionMasked() == MotionEvent.ACTION_UP
+                    || event.getActionMasked() == MotionEvent.ACTION_CANCEL) {
+                handler.removeCallbacks(repeatDelete);
             }
+            return true;
         });
 
+        btnRecord.setOnClickListener(v -> {
+            if (acceptRecording && mRecorder != null) mRecorder.stop();
+            else startRecording();
+        });
         btnRecord.setOnTouchListener((v, event) -> {
-            if (event.getAction() == MotionEvent.ACTION_DOWN) {
-                // Pressed
-                handler.post(() -> btnRecord.setBackgroundResource(R.drawable.rounded_button_background_pressed));
-                if (checkRecordPermission()){
-                    if (mWhisper == null) initModel();  // the model is unloaded when an input field without text input starts
-                    if (!mWhisper.isInProgress()) {
-                        HapticFeedback.vibrate(this);
-                        startRecording();
-                        handler.post(() -> processingBar.setProgress(100));
-                        countDownTimer = new CountDownTimer(30000, 1000) {
-                            @Override
-                            public void onTick(long l) {
-                                handler.post(() -> processingBar.setProgress((int) (l / 300)));
-                            }
-                            @Override
-                            public void onFinish() {}
-                        };
-                        countDownTimer.start();
-                        handler.post(() -> {
-                            tvStatus.setText("");
-                            tvStatus.setVisibility(View.GONE);
-                        });
-                    } else {
-                        handler.post(() -> {
-                            tvStatus.setText(getString(R.string.please_wait));
-                            tvStatus.setVisibility(View.VISIBLE);
-                        });
-                    }
-                }
-            } else if (event.getAction() == MotionEvent.ACTION_UP) {
-                // Released
-                handler.post(() -> btnRecord.setBackgroundResource(R.drawable.rounded_button_background));
-                if (mRecorder != null && mRecorder.isInProgress()) {
-                    mRecorder.stop();
-                }
+            if (event.getActionMasked() == MotionEvent.ACTION_DOWN) {
+                if (recordingGesture.down(acceptRecording, event.getEventTime()) == RecordingGesture.Action.STOP) {
+                    if (mRecorder != null) mRecorder.stop();
+                } else startRecording();
+            } else if (event.getActionMasked() == MotionEvent.ACTION_UP) {
+                if (recordingGesture.up(event.getEventTime()) == RecordingGesture.Action.STOP
+                        && mRecorder != null && mRecorder.isInProgress()) mRecorder.stop();
+            } else if (event.getActionMasked() == MotionEvent.ACTION_CANCEL) {
+                cancelDictation();
             }
             return true;
         });
 
         btnKeyboard.setOnClickListener(v -> {
-            if (mWhisper != null) stopTranscription();
+            cancelDictation();
             switchToPreviousInputMethod();
         });
 
@@ -260,13 +214,89 @@ public class WhisperInputMethodService extends InputMethodService {
     }
 
     private void sendKey(int keyCode) {
+        if (!inputActive) return;
         InputConnection inputConnection = getCurrentInputConnection();
-        if (inputConnection != null) inputConnection.sendKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, keyCode));
+        if (inputConnection != null) {
+            inputConnection.sendKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, keyCode));
+            inputConnection.sendKeyEvent(new KeyEvent(KeyEvent.ACTION_UP, keyCode));
+        }
     }
 
     private void startRecording() {
-        if (modeAuto) mRecorder.initVad();
-        mRecorder.start();
+        if (!inputActive || !checkRecordPermission()) return;
+        if (acceptRecording || (mWhisper != null && mWhisper.isInProgress())) {
+            showStatus(getString(R.string.please_wait));
+            return;
+        }
+        try {
+            AiSettings settings = new AiSettings(this);
+            boolean cloud = settings.isCloudTranscription() || settings.isEnhancementEnabled();
+            if (!eligibleEditor(cloud)) {
+                showStatus(getString(R.string.dictation_sensitive_field));
+                return;
+            }
+            if (cloud && !settings.isCloudConsentGranted()) {
+                showStatus(getString(R.string.dictation_setup_required));
+                return;
+            }
+            if ((settings.isCloudTranscription() && settings.getTranscriptionConfig().apiKey.isEmpty())
+                    || (settings.isEnhancementEnabled() && settings.getEnhancementConfig().apiKey.isEmpty())) {
+                showStatus(getString(R.string.dictation_setup_required));
+                return;
+            }
+        } catch (Exception e) {
+            showStatus(getString(R.string.dictation_setup_required));
+            return;
+        }
+        if (mWhisper == null) initModel();
+        if (mRecorder != null) mRecorder.release();
+        Recorder recorder = new Recorder(this);
+        mRecorder = recorder;
+        long generation = editorGeneration;
+        requestEditorGeneration = generation;
+        acceptRecording = true;
+        recorder.setListener(message -> handler.post(() -> {
+            if (mRecorder != recorder || !acceptRecording || !inputActive || generation != editorGeneration) return;
+            if (Recorder.MSG_RECORDING.equals(message)) {
+                btnRecord.setBackgroundResource(R.drawable.rounded_button_background_pressed);
+                showStatus(getString(R.string.dictation_recording));
+            } else if (Recorder.MSG_RECORDING_DONE.equals(message)) {
+                acceptRecording = false;
+                btnRecord.setBackgroundResource(R.drawable.rounded_button_background);
+                startTranscription();
+            } else {
+                acceptRecording = false;
+                processingBar.setProgress(0);
+                btnRecord.setBackgroundResource(R.drawable.rounded_button_background);
+                showStatus(getString(R.string.error_no_input));
+            }
+        }));
+        if (modeAuto) recorder.initVad();
+        HapticFeedback.vibrate(this);
+        recorder.start();
+        processingBar.setIndeterminate(true);
+
+    }
+
+    private boolean eligibleEditor(boolean sendsToCloud) {
+        EditorInfo editor = getCurrentInputEditorInfo();
+        return inputActive && editor != null && InputPolicy.allowsDictation(editor.inputType, editor.imeOptions, sendsToCloud);
+    }
+
+    private void showStatus(String message) {
+        if (tvStatus == null) return;
+        tvStatus.setText(message);
+        tvStatus.setVisibility(View.VISIBLE);
+    }
+
+    private void cancelDictation() {
+        handler.removeCallbacks(repeatDelete);
+        recordingGesture.cancel();
+        acceptRecording = false;
+        if (mRecorder != null) { mRecorder.release(); mRecorder = null; }
+        if (mWhisper != null) { mWhisper.unloadModel(); mWhisper = null; }
+        if (processingBar != null) { processingBar.setIndeterminate(false); processingBar.setProgress(0); }
+        if (btnRecord != null) btnRecord.setBackgroundResource(R.drawable.rounded_button_background);
     }
 
     // Model initialization
@@ -277,41 +307,47 @@ public class WhisperInputMethodService extends InputMethodService {
         mWhisper.setListener(new Whisper.WhisperListener() {
             @Override
             public void onUpdateReceived(String message) {
+                if (requestEditorGeneration != editorGeneration || !inputActive) return;
+                if (Whisper.MSG_ENHANCING.equals(message)) showStatus(getString(R.string.dictation_enhancing));
+                else if (Whisper.MSG_PROCESSING.equals(message)) showStatus(getString(R.string.dictation_transcribing));
             }
 
             @Override
             public void onError(String message) {
-                handler.post(() -> {
-                    processingBar.setIndeterminate(false);
-                    processingBar.setProgress(0);
-                    tvStatus.setText(message);
-                    tvStatus.setVisibility(View.VISIBLE);
-                });
+                if (requestEditorGeneration != editorGeneration || !inputActive) return;
+                processingBar.setIndeterminate(false);
+                processingBar.setProgress(0);
+                showStatus(message);
             }
 
             @Override
             public void onResultReceived(WhisperResult whisperResult) {
-                handler.post(() -> processingBar.setIndeterminate(false));
-                handler.post(() -> {
-                    tvStatus.setText("");
-                    tvStatus.setVisibility(View.GONE);
-                });
-
+                if (requestEditorGeneration != editorGeneration || !inputActive) return;
+                AiSettings settings = new AiSettings(WhisperInputMethodService.this);
+                if (!eligibleEditor(settings.isCloudTranscription() || settings.isEnhancementEnabled())) return;
+                processingBar.setIndeterminate(false);
+                processingBar.setProgress(0);
                 String result = whisperResult.getResult();
-                if (whisperResult.getLanguage().equals("zh")){
-                    boolean simpleChinese = sp.getBoolean("simpleChinese",false);
-                    result = simpleChinese ? ZhConverterUtil.toSimple(result) : ZhConverterUtil.toTraditional(result);
+                if ("zh".equals(whisperResult.getLanguage())) {
+                    result = sp.getBoolean("simpleChinese", false)
+                            ? ZhConverterUtil.toSimple(result) : ZhConverterUtil.toTraditional(result);
                 }
-                boolean commitSuccess = false;
-                InputConnection inputConnection = getCurrentInputConnection();  // null if the text field went away meanwhile
-                if (result.trim().length() > 0 && inputConnection != null) commitSuccess = inputConnection.commitText(result.trim() + " ",1);
-                if (modeAuto && commitSuccess) handler.postDelayed(() -> switchToPreviousInputMethod(), 100);  //slightly delayed, otherwise some apps, e.g. WhatsApp, do not accept the committed text (commitText on inactive InputConnection)
+                InputConnection connection = getCurrentInputConnection();
+                boolean committed = connection != null && !result.trim().isEmpty()
+                        && connection.commitText(result.trim() + " ", 1);
+                showStatus(getString(committed ? R.string.dictation_inserted : R.string.dictation_editor_closed));
+                if (modeAuto && committed) {
+                    long deliveredGeneration = editorGeneration;
+                    handler.postDelayed(() -> {
+                        if (inputActive && deliveredGeneration == editorGeneration) switchToPreviousInputMethod();
+                    }, 100);
+                }
             }
+
         });
     }
 
     private void startTranscription() {
-        if (countDownTimer!=null) { countDownTimer.cancel();}
         handler.post(() -> processingBar.setProgress(0));
         handler.post(() -> processingBar.setIndeterminate(true));
         if (mWhisper!=null){
@@ -321,13 +357,8 @@ public class WhisperInputMethodService extends InputMethodService {
             String langCode = sp.getString("language", "auto");
             Log.d("WhisperIME","default langCode " + langCode);
             mWhisper.setLanguage(langCode);
-            mWhisper.start();
+            mWhisper.start(mRecorder == null ? null : mRecorder.takeRecording());
         }
-    }
-
-    private void stopTranscription() {
-        handler.post(() -> processingBar.setIndeterminate(false));
-        mWhisper.stop();
     }
 
     private boolean checkRecordPermission() {
@@ -339,10 +370,4 @@ public class WhisperInputMethodService extends InputMethodService {
         return (permission == PackageManager.PERMISSION_GRANTED);
     }
 
-    private void deinitModel() {
-        if (mWhisper != null) {
-            mWhisper.unloadModel();
-            mWhisper = null;
-        }
-    }
 }

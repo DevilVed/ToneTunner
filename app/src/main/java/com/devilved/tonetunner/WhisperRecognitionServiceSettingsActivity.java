@@ -33,6 +33,7 @@ public class WhisperRecognitionServiceSettingsActivity extends AppCompatActivity
     private SharedPreferences sp = null;
     private Spinner spinnerLanguage;
     private CheckBox modeSimpleChinese;
+    private CheckBox modeAutoStopAfterSilence;
 
     @SuppressLint("ClickableViewAccessibility")
     @Override
@@ -75,6 +76,13 @@ public class WhisperRecognitionServiceSettingsActivity extends AppCompatActivity
             editor.putBoolean("RecognitionServiceSimpleChinese", isChecked);
             editor.apply();
         });
+
+        modeAutoStopAfterSilence = findViewById(R.id.mode_recognition_service_auto_stop);
+        modeAutoStopAfterSilence.setChecked(WhisperRecognitionService.isAutoStopAfterSilenceEnabled(sp));
+        modeAutoStopAfterSilence.setOnCheckedChangeListener((button, isChecked) ->
+                sp.edit()
+                        .putBoolean(WhisperRecognitionService.PREF_AUTO_STOP_AFTER_SILENCE, isChecked)
+                        .apply());
 
         checkPermissions();
 

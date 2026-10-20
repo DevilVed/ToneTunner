@@ -6,10 +6,14 @@ android {
     namespace 'com.devilved.tonetunner'
     compileSdk 35
 
+    testOptions {
+        unitTests.includeAndroidResources = true
+    }
+
     lint {
         disable 'MissingTranslation'
-        // Report everything without failing the build yet; CI uploads the SARIF report to code scanning.
-        abortOnError false
+        // Verification must reject lint errors before CI assembles an installable APK.
+        abortOnError true
         sarifReport true
         htmlReport true
     }
@@ -62,9 +66,15 @@ dependencies {
     implementation 'com.google.guava:guava:33.3.1-android'  // 31.1 had CVE-2020-8908 and CVE-2023-2976
     implementation 'com.github.gkonovalov.android-vad:webrtc:2.0.9'
     implementation 'com.github.houbb:opencc4j:1.8.1'
+    implementation 'com.squareup.okhttp3:okhttp:4.12.0'
 
     //ONNX Runtime
     implementation 'com.microsoft.onnxruntime:onnxruntime-android:1.19.0'  //latest.release
     implementation 'com.microsoft.onnxruntime:onnxruntime-extensions-android:0.12.4'   //latest.release
+
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'com.squareup.okhttp3:mockwebserver:4.12.0'
+    testImplementation 'org.json:json:20240303'
+    testImplementation 'org.robolectric:robolectric:4.14.1'
 
 }

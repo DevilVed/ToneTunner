@@ -405,6 +405,7 @@ public class Recognizer extends NeuralNetworkApi {
                     int[] decoderInitialInputIDs2 = {START_TOKEN_ID, languageID2, TRANSCRIBE_TOKEN_ID, NO_TIMESTAMPS_TOKEN_ID};
                     
                     while (!(max == eos && max2 == eos)) {
+                        if (destroyed) { recognizing = false; return; }
                         initialTime = System.currentTimeMillis();
                         time = System.currentTimeMillis();
                         if (j <= 4) {
@@ -637,12 +638,17 @@ public class Recognizer extends NeuralNetworkApi {
      * for a running recognition or model load to finish first.
      */
     public void destroy() {
+        destroy(null);
+    }
+
+    public void destroy(Runnable afterClose) {
         destroyed = true;
         new Thread(() -> {
             synchronized (lock) {
                 closeSessions();
                 dataToRecognize.clear();
             }
+            if (afterClose != null) afterClose.run();
         }, "recognizerDestroy").start();
     }
 

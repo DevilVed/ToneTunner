@@ -2,7 +2,7 @@ name: Android build
 
 # Builds the APK on GitHub's cloud runners (Android SDK is preinstalled on ubuntu-latest).
 # Run it manually from the Actions tab ("Run workflow") or with:
-#   gh workflow run android-build.yml -f ref=testing-phase-1
+#   gh workflow run android-build.yml -f ref=agents/voiceink4android
 # then download the APK with:
 #   gh run download --name <artifact-name>
 
@@ -22,7 +22,7 @@ on:
           - debug
           - release
   push:
-    branches: [master, testing-phase-1, "ci/**"]
+    branches: [master, beta-test-v1, "agents/**", "ci/**"]
   pull_request:
 
 concurrency:
@@ -67,6 +67,22 @@ jobs:
         run: |
           mkdir -p ~/.android
           echo "$DEBUG_KEYSTORE_B64" | base64 -d > ~/.android/debug.keystore
+
+      # Verification must pass before assembling an installable APK.
+      - name: Verify edge cases and Android lint
+        run: gradle testDebugUnitTest lintDebug --stacktrace
+
+      - name: Upload verification reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verification-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/lint-results*
+          if-no-files-found: warn
+          retention-days: 30
 
       - name: Build APK
         run: |

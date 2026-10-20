@@ -9,6 +9,50 @@
         android:layout_height="match_parent"
         android:orientation="vertical"
         android:padding="16dp">
+        <TextView
+            android:id="@+id/tvAppTitle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/entrypoint_title"
+            android:textColor="@color/accentText"
+            android:textSize="24sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/tvProviderSummary"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:layout_marginBottom="6dp"
+            android:accessibilityLiveRegion="polite"
+            android:text="@string/entrypoint_provider_summary_unknown"
+            android:textSize="14sp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="8dp"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/btnAiSettings"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="4dp"
+                android:layout_weight="1"
+                android:text="@string/entrypoint_ai_settings"
+                android:contentDescription="@string/entrypoint_ai_settings" />
+
+            <Button
+                android:id="@+id/btnEnableKeyboard"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="4dp"
+                android:layout_weight="1"
+                android:text="@string/entrypoint_enable_keyboard"
+                android:contentDescription="@string/entrypoint_enable_keyboard" />
+        </LinearLayout>
+
         <LinearLayout
             android:id="@+id/layout_language"
             android:layout_width="match_parent"
@@ -147,14 +191,6 @@
                 android:contentDescription="@string/simple_chinese"/>
 
         </LinearLayout>
-        <!-- Use ProgressBar as "Space" with same look -->
-        <ProgressBar
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:indeterminate="false"
-            android:indeterminateTint="@color/brandSky"
-            android:importantForAccessibility="no"
-            style="?android:attr/progressBarStyleHorizontal"/>
         <RelativeLayout
             android:layout_width="match_parent"
             android:layout_height="0dp"
@@ -198,20 +234,36 @@
             style="?android:attr/progressBarStyleHorizontal"/>
 
         <RelativeLayout
-            android:layout_width="wrap_content"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_gravity="center_horizontal">
 
-            <ImageButton
-                android:id="@+id/btnRecord"
-                android:layout_width="96dp"
+            <LinearLayout
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_margin="3dp"
-                android:layout_centerHorizontal="true"
-                android:background="@drawable/rounded_button_background"
-                android:contentDescription="@string/record_button"
-                android:tooltipText="@string/record_button"
-                android:src="@drawable/ic_mic_48dp" />
+                android:layout_centerInParent="true"
+                android:gravity="center"
+                android:orientation="horizontal">
+
+                <ImageButton
+                    android:id="@+id/btnRecord"
+                    android:layout_width="96dp"
+                    android:layout_height="wrap_content"
+                    android:layout_margin="3dp"
+                    android:background="@drawable/rounded_button_background"
+                    android:contentDescription="@string/record_button"
+                    android:tooltipText="@string/record_button"
+                    android:src="@drawable/ic_mic_48dp" />
+
+                <Button
+                    android:id="@+id/btnCancelProcessing"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:text="@string/entrypoint_cancel_processing"
+                    android:contentDescription="@string/entrypoint_cancel_processing"
+                    android:visibility="gone" />
+            </LinearLayout>
 
             <ImageButton
                 android:id="@+id/btnInfo"
