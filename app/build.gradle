@@ -16,6 +16,7 @@ android {
         abortOnError true
         sarifReport true
         htmlReport true
+        fatal 'Aligned16KB'
     }
     
     defaultConfig {
@@ -24,6 +25,7 @@ android {
         targetSdk 35
         versionCode 14
         versionName "1.4"
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
 
     }
 
@@ -76,5 +78,10 @@ dependencies {
     testImplementation 'com.squareup.okhttp3:mockwebserver:4.12.0'
     testImplementation 'org.json:json:20240303'
     testImplementation 'org.robolectric:robolectric:4.14.1'
+
+    androidTestImplementation 'androidx.test:core:1.6.1'
+    androidTestImplementation 'androidx.test:runner:1.6.2'
+    androidTestImplementation 'androidx.test:rules:1.6.1'
+    androidTestImplementation 'androidx.test.ext:junit:1.2.1'
 
 }

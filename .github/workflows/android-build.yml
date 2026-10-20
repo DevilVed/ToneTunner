@@ -30,14 +30,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build:
+  verify:
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    env:
-      BUILD_TYPE: ${{ github.event.inputs.build_type || 'debug' }}
-      DEBUG_KEYSTORE_B64: ${{ secrets.DEBUG_KEYSTORE_B64 }}
-      # Passed through env (not inlined into scripts) so branch names cannot inject shell code.
-      BUILD_REF: ${{ github.event.inputs.ref || github.head_ref || github.ref_name }}
     steps:
       - name: Check out code
         uses: actions/checkout@v4
@@ -60,17 +55,9 @@ jobs:
         # The committed local.properties contains another machine's sdk.dir, which would break the build.
         run: echo "sdk.dir=$ANDROID_HOME" > local.properties
 
-      - name: Install a stable debug keystore
-        # Without this every run signs with a fresh random key, so a new APK cannot be installed
-        # over the previous one (and uninstalling deletes the downloaded model).
-        if: env.DEBUG_KEYSTORE_B64 != ''
-        run: |
-          mkdir -p ~/.android
-          echo "$DEBUG_KEYSTORE_B64" | base64 -d > ~/.android/debug.keystore
-
       # Verification must pass before assembling an installable APK.
       - name: Verify edge cases and Android lint
-        run: gradle testDebugUnitTest lintDebug --stacktrace
+        run: gradle testDebugUnitTest lintDebug --continue --stacktrace
 
       - name: Upload verification reports
         if: always()
@@ -84,10 +71,97 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
 
-      - name: Build APK
+  android-runtime:
+    name: Android API ${{ matrix.api }} (${{ matrix.page_size }} byte pages)
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - api: 28
+            target: google_apis
+            page_size: 4096
+          - api: 35
+            target: google_apis_ps16k
+            page_size: 16384
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.ref || github.sha }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.14.5"
+      - name: Point the build at the runner's Android SDK
+        run: echo "sdk.dir=$ANDROID_HOME" > local.properties
+      - name: Enable hardware accelerated Android emulators
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Verify Android framework, native inference and long capture
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api }}
+          target: ${{ matrix.target }}
+          arch: x86_64
+          profile: pixel_6
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -no-boot-anim -camera-back none -camera-front none
+          disable-animations: true
+          script: gradle connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.expectedPageSize=${{ matrix.page_size }} --stacktrace
+      - name: Upload Android runtime reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-runtime-api${{ matrix.api }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            app/build/reports/androidTests/
+            app/build/outputs/androidTest-results/
+          if-no-files-found: warn
+          retention-days: 30
+
+  build:
+    name: Package verified APK
+    needs: [verify, android-runtime]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      BUILD_TYPE: ${{ github.event.inputs.build_type || 'debug' }}
+      DEBUG_KEYSTORE_B64: ${{ secrets.DEBUG_KEYSTORE_B64 }}
+      BUILD_REF: ${{ github.event.inputs.ref || github.head_ref || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.ref || github.sha }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.14.5"
+      - name: Point the build at the runner's Android SDK
+        run: echo "sdk.dir=$ANDROID_HOME" > local.properties
+      - name: Install a stable debug keystore
+        if: env.DEBUG_KEYSTORE_B64 != ''
+        run: |
+          mkdir -p ~/.android
+          echo "$DEBUG_KEYSTORE_B64" | base64 -d > ~/.android/debug.keystore
+      - name: Build APK after all verification gates pass
         run: |
           if [ "$BUILD_TYPE" = "release" ]; then task=assembleRelease; else task=assembleDebug; fi
           gradle "$task" --stacktrace
+
+      - name: Verify APK alignment for modern Android devices
+        run: |
+          for apk in app/build/outputs/apk/*/*.apk; do
+            "$ANDROID_HOME/build-tools/35.0.0/zipalign" -c -P 16 4 "$apk"
+          done
 
       - name: Name the artifact
         id: meta
