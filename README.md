@@ -60,4 +60,4 @@ ToneTunner began as a fork of [whisperIMEplus](https://github.com/woheller69/whi
 - It uses [ONNX Runtime and ONNX Runtime Extensions](https://github.com/microsoft/onnxruntime-extensions), published under MIT license; the upstream Extensions license is also included in the APK's license assets
 - It uses [Opencc4j](https://github.com/houbb/opencc4j), for Chinese conversions, published under Apache-2.0 license
 - It uses [FreeDroidWarn](https://github.com/DevilVed/FreeDroidWarn), DevilVed's fork of woheller69's library, published under Apache-2.0 license
-- At first start you need to download the Whisper model from [HuggingFace](https://huggingface.co/DocWolle/whisperOnnx), which is published under MIT license
+- The optional local Whisper model is downloaded from [HuggingFace](https://huggingface.co/DocWolle/whisperOnnx) and is published under MIT license
