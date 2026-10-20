@@ -37,6 +37,8 @@ Remove the 30-second recording cap and countdown. Manual dictation continues unt
 
 This is a batch dictation pipeline: recording stays responsive even when a local model would transcribe slower than speech; no inference queue can grow during capture. Audio RAM is O(window size), disk is O(recording duration), model memory is constant per sequential inference, and transcript text grows with dictated words.
 
+Keep the display awake for the whole visible foreground dictation session, including transcription and enhancement after capture stops. Otherwise idle screen-off enters the existing Activity/IME cancellation paths and can discard a long request before processing finishes. Release the display policy on success, failure, cancellation, and foreground teardown; do not introduce background recording or wake locks.
+
 Primary reference implementations inspected on 2026-10-20:
 
 - [VoiceInk CoreAudioRecorder](https://github.com/Beingpax/VoiceInk/blob/main/VoiceInk/Infrastructure/Audio/CoreAudioRecorder.swift) uses preallocated input buffers and writes converted PCM to an audio file. Adapt the bounded-capture/file-spool principle, not Apple APIs.

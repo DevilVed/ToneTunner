@@ -2,11 +2,15 @@ package com.devilved.tonetunner;
 
 import android.app.Activity;
 import android.content.Context;
+import android.os.Looper;
 import android.view.WindowManager;
 
 import androidx.preference.PreferenceManager;
 
 import com.devilved.tonetunner.asr.Recorder;
+import com.devilved.tonetunner.asr.Whisper;
+import com.devilved.tonetunner.asr.WhisperResult;
+import com.devilved.tonetunner.voice_translation.neural_networks.voice.Recognizer;
 
 import org.junit.Before;
 import org.junit.Test;
@@ -14,6 +18,7 @@ import org.junit.runner.RunWith;
 import org.robolectric.Robolectric;
 import org.robolectric.RobolectricTestRunner;
 import org.robolectric.RuntimeEnvironment;
+import org.robolectric.Shadows;
 import org.robolectric.android.controller.ActivityController;
 import org.robolectric.annotation.Config;
 
@@ -21,8 +26,10 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertTrue;
 
-/** The capture UI keeps its display awake only while a recording session is active. */
+/** The capture screens keep the display awake for the whole active dictation session. */
 @RunWith(RobolectricTestRunner.class)
 @Config(sdk = 28)
 public class RecordingScreenAwakeTest {
@@ -36,7 +43,7 @@ public class RecordingScreenAwakeTest {
                 .edit().clear().commit();
     }
 
-    @Test public void mainActivityKeepsScreenOnOnlyDuringRecordingAndReleasesAfterStop()
+    @Test public void mainActivityKeepsScreenOnThroughProcessingAndReleasesAfterSuccess()
             throws Exception {
         ActivityController<MainActivity> controller =
                 Robolectric.buildActivity(MainActivity.class).setup();
@@ -45,12 +52,22 @@ public class RecordingScreenAwakeTest {
         try {
             assertKeepScreenOn(activity, false);
             activateMainRecording(activity, SESSION);
+            Whisper.WhisperListener listener = installMainWhisperListener(activity, SESSION);
             assertKeepScreenOn(activity, true);
 
             recorder = new InProgressRecorder(activity);
             field(MainActivity.class, "mRecorder").set(activity, recorder);
             invoke(activity, "stopRecordingForTranscription", new Class<?>[0]);
 
+            assertProcessing(activity, MainActivity.class);
+            assertKeepScreenOn(activity, true);
+            listener.onUpdateReceived(Whisper.MSG_PROCESSING);
+            assertKeepScreenOn(activity, true);
+            listener.onUpdateReceived(Whisper.MSG_ENHANCING);
+            assertKeepScreenOn(activity, true);
+
+            listener.onResultReceived(result("recognized text"));
+
             assertKeepScreenOn(activity, false);
         } finally {
             controller.destroy();
@@ -58,37 +75,78 @@ public class RecordingScreenAwakeTest {
         }
     }
 
-    @Test public void mainActivityReleasesScreenOnCancelPauseAndRecorderError() throws Exception {
+    @Test public void mainActivityReleasesScreenOnProcessingError() throws Exception {
         ActivityController<MainActivity> controller =
                 Robolectric.buildActivity(MainActivity.class).setup();
         MainActivity activity = controller.get();
         try {
             activateMainRecording(activity, SESSION);
-            invoke(activity, "cancelCurrentSession", new Class<?>[]{Integer.class},
-                    R.string.entrypoint_cancelled);
-            assertKeepScreenOn(activity, false);
+            Whisper.WhisperListener listener = installMainWhisperListener(activity, SESSION);
+            listener.onUpdateReceived(Whisper.MSG_PROCESSING);
 
-            activateMainRecording(activity, SESSION + 1);
-            controller.pause();
+            assertProcessing(activity, MainActivity.class);
+            assertKeepScreenOn(activity, true);
+            listener.onError("transcription failed");
+
             assertKeepScreenOn(activity, false);
         } finally {
             controller.destroy();
         }
+    }
 
-        ActivityController<MainActivity> errorController =
+    @Test public void mainActivityReleasesScreenWhenProcessingIsCancelled() throws Exception {
+        ActivityController<MainActivity> controller =
                 Robolectric.buildActivity(MainActivity.class).setup();
-        MainActivity errorActivity = errorController.get();
+        MainActivity activity = controller.get();
         try {
-            activateMainRecording(errorActivity, SESSION + 2);
-            invoke(errorActivity, "onRecorderMessage",
-                    new Class<?>[]{long.class, String.class}, SESSION + 2, Recorder.MSG_RECORDING_ERROR);
-            assertKeepScreenOn(errorActivity, false);
+            activateMainRecording(activity, SESSION);
+            Whisper.WhisperListener listener = installMainWhisperListener(activity, SESSION);
+            listener.onUpdateReceived(Whisper.MSG_PROCESSING);
+
+            assertProcessing(activity, MainActivity.class);
+            assertKeepScreenOn(activity, true);
+            invoke(activity, "cancelCurrentSession", new Class<?>[]{Integer.class},
+                    R.string.entrypoint_cancelled);
+
+            assertKeepScreenOn(activity, false);
         } finally {
-            errorController.destroy();
+            controller.destroy();
         }
     }
 
-    @Test public void recognizeActivityKeepsScreenOnForRecordingCallbackAndReleasesAfterStop()
+    @Test public void mainActivityReleasesScreenWhenPausedDuringProcessing() throws Exception {
+        ActivityController<MainActivity> controller =
+                Robolectric.buildActivity(MainActivity.class).setup();
+        MainActivity activity = controller.get();
+        try {
+            activateMainRecording(activity, SESSION);
+            installMainWhisperListener(activity, SESSION).onUpdateReceived(Whisper.MSG_PROCESSING);
+
+            assertProcessing(activity, MainActivity.class);
+            assertKeepScreenOn(activity, true);
+            controller.pause();
+
+            assertKeepScreenOn(activity, false);
+        } finally {
+            controller.destroy();
+        }
+    }
+
+    @Test public void mainActivityReleasesScreenOnRecorderError() throws Exception {
+        ActivityController<MainActivity> controller =
+                Robolectric.buildActivity(MainActivity.class).setup();
+        MainActivity activity = controller.get();
+        try {
+            activateMainRecording(activity, SESSION);
+            invoke(activity, "onRecorderMessage", new Class<?>[]{long.class, String.class},
+                    SESSION, Recorder.MSG_RECORDING_ERROR);
+            assertKeepScreenOn(activity, false);
+        } finally {
+            controller.destroy();
+        }
+    }
+
+    @Test public void recognizeActivityKeepsScreenOnThroughProcessingAndReleasesAfterSuccess()
             throws Exception {
         ActivityController<WhisperRecognizeActivity> controller =
                 Robolectric.buildActivity(WhisperRecognizeActivity.class).setup();
@@ -97,11 +155,21 @@ public class RecordingScreenAwakeTest {
         try {
             assertKeepScreenOn(activity, false);
             activateRecognizeRecording(activity, SESSION);
+            Whisper.WhisperListener listener = installRecognizeWhisperListener(activity, SESSION);
             assertKeepScreenOn(activity, true);
 
             recorder = new InProgressRecorder(activity);
             field(WhisperRecognizeActivity.class, "mRecorder").set(activity, recorder);
             invoke(activity, "stopRecordingForTranscription", new Class<?>[0]);
+
+            assertProcessing(activity, WhisperRecognizeActivity.class);
+            assertKeepScreenOn(activity, true);
+            listener.onUpdateReceived(Whisper.MSG_PROCESSING);
+            assertKeepScreenOn(activity, true);
+            listener.onUpdateReceived(Whisper.MSG_ENHANCING);
+            assertKeepScreenOn(activity, true);
+            listener.onResultReceived(result("recognized text"));
+            Shadows.shadowOf(Looper.getMainLooper()).idle();
 
             assertKeepScreenOn(activity, false);
         } finally {
@@ -110,33 +178,75 @@ public class RecordingScreenAwakeTest {
         }
     }
 
-    @Test public void recognizeActivityReleasesScreenOnCancelPauseAndRecorderError()
-            throws Exception {
+    @Test public void recognizeActivityReleasesScreenOnProcessingError() throws Exception {
         ActivityController<WhisperRecognizeActivity> controller =
                 Robolectric.buildActivity(WhisperRecognizeActivity.class).setup();
         WhisperRecognizeActivity activity = controller.get();
         try {
             activateRecognizeRecording(activity, SESSION);
-            invoke(activity, "cancelCurrentSession", new Class<?>[0]);
-            assertKeepScreenOn(activity, false);
+            Whisper.WhisperListener listener = installRecognizeWhisperListener(activity, SESSION);
+            listener.onUpdateReceived(Whisper.MSG_PROCESSING);
 
-            activateRecognizeRecording(activity, SESSION + 1);
-            controller.pause();
+            assertProcessing(activity, WhisperRecognizeActivity.class);
+            assertKeepScreenOn(activity, true);
+            listener.onError("transcription failed");
+            Shadows.shadowOf(Looper.getMainLooper()).idle();
+
             assertKeepScreenOn(activity, false);
         } finally {
             controller.destroy();
         }
+    }
 
-        ActivityController<WhisperRecognizeActivity> errorController =
+    @Test public void recognizeActivityReleasesScreenWhenProcessingIsCancelled() throws Exception {
+        ActivityController<WhisperRecognizeActivity> controller =
                 Robolectric.buildActivity(WhisperRecognizeActivity.class).setup();
-        WhisperRecognizeActivity errorActivity = errorController.get();
+        WhisperRecognizeActivity activity = controller.get();
         try {
-            activateRecognizeRecording(errorActivity, SESSION + 2);
-            invoke(errorActivity, "onRecorderMessage",
-                    new Class<?>[]{long.class, String.class}, SESSION + 2, Recorder.MSG_RECORDING_ERROR);
-            assertKeepScreenOn(errorActivity, false);
+            activateRecognizeRecording(activity, SESSION);
+            Whisper.WhisperListener listener = installRecognizeWhisperListener(activity, SESSION);
+            listener.onUpdateReceived(Whisper.MSG_PROCESSING);
+
+            assertProcessing(activity, WhisperRecognizeActivity.class);
+            assertKeepScreenOn(activity, true);
+            invoke(activity, "cancelCurrentSession", new Class<?>[0]);
+
+            assertKeepScreenOn(activity, false);
         } finally {
-            errorController.destroy();
+            controller.destroy();
+        }
+    }
+
+    @Test public void recognizeActivityReleasesScreenWhenPausedDuringProcessing() throws Exception {
+        ActivityController<WhisperRecognizeActivity> controller =
+                Robolectric.buildActivity(WhisperRecognizeActivity.class).setup();
+        WhisperRecognizeActivity activity = controller.get();
+        try {
+            activateRecognizeRecording(activity, SESSION);
+            installRecognizeWhisperListener(activity, SESSION)
+                    .onUpdateReceived(Whisper.MSG_PROCESSING);
+
+            assertProcessing(activity, WhisperRecognizeActivity.class);
+            assertKeepScreenOn(activity, true);
+            controller.pause();
+
+            assertKeepScreenOn(activity, false);
+        } finally {
+            controller.destroy();
+        }
+    }
+
+    @Test public void recognizeActivityReleasesScreenOnRecorderError() throws Exception {
+        ActivityController<WhisperRecognizeActivity> controller =
+                Robolectric.buildActivity(WhisperRecognizeActivity.class).setup();
+        WhisperRecognizeActivity activity = controller.get();
+        try {
+            activateRecognizeRecording(activity, SESSION);
+            invoke(activity, "onRecorderMessage", new Class<?>[]{long.class, String.class},
+                    SESSION, Recorder.MSG_RECORDING_ERROR);
+            assertKeepScreenOn(activity, false);
+        } finally {
+            controller.destroy();
         }
     }
 
@@ -156,10 +266,41 @@ public class RecordingScreenAwakeTest {
                 session, Recorder.MSG_RECORDING);
     }
 
+    private static Whisper.WhisperListener installMainWhisperListener(MainActivity activity,
+            long session) throws Exception {
+        invoke(activity, "ensureWhisper", new Class<?>[]{long.class}, session);
+        Whisper whisper = (Whisper) field(MainActivity.class, "mWhisper").get(activity);
+        assertNotNull(whisper);
+        Whisper.WhisperListener listener = (Whisper.WhisperListener)
+                field(Whisper.class, "listener").get(whisper);
+        assertNotNull(listener);
+        return listener;
+    }
+
+    private static Whisper.WhisperListener installRecognizeWhisperListener(
+            WhisperRecognizeActivity activity, long session) throws Exception {
+        invoke(activity, "ensureWhisper", new Class<?>[]{long.class}, session);
+        Whisper whisper = (Whisper) field(WhisperRecognizeActivity.class, "mWhisper").get(activity);
+        assertNotNull(whisper);
+        Whisper.WhisperListener listener = (Whisper.WhisperListener)
+                field(Whisper.class, "listener").get(whisper);
+        assertNotNull(listener);
+        return listener;
+    }
+
+    private static WhisperResult result(String text) {
+        return new WhisperResult(text, "en", Recognizer.ACTION_TRANSCRIBE);
+    }
+
+    private static void assertProcessing(Activity activity, Class<?> owner) throws Exception {
+        assertTrue("processing should remain active until a terminal callback",
+                field(owner, "processing").getBoolean(activity));
+    }
+
     private static void assertKeepScreenOn(Activity activity, boolean expected) {
         boolean actual = (activity.getWindow().getAttributes().flags
                 & WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) != 0;
-        assertEquals("FLAG_KEEP_SCREEN_ON should match active recording", expected, actual);
+        assertEquals("FLAG_KEEP_SCREEN_ON should match the active dictation session", expected, actual);
     }
 
     private static Field field(Class<?> owner, String name) throws NoSuchFieldException {

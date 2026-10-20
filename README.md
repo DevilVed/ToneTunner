@@ -23,6 +23,8 @@ Enable ToneTunner in Android's keyboard settings using **Enable voice keyboard**
 
 Manual recording has **no 30-second cutoff** and stays active through thinking pauses. Audio is written to a private temporary file with a fixed capture buffer. After you stop, it is read in pause-aligned windows of at most 28 seconds, transcribed sequentially, and optionally enhanced in bounded text windows. Local model memory does not grow with the complete audio recording. Available storage, system microphone access, and provider quotas still apply. Automatic stop-on-silence is optional in the app and voice keyboard. The Android recognition service preserves silence-stop by default for calling apps; disable it in voice recognition settings to allow thinking pauses there too.
 
+The display stays awake while foreground dictation records, transcribes, or enhances. Completion, errors, cancellation, or leaving the foreground release that policy. Leaving the app or hiding its voice keyboard cancels the pending dictation.
+
 The app also offers a standalone recorder, an Android `RecognitionService`, and a `RECOGNIZE_SPEECH` intent Activity. Integration with another keyboard's microphone depends on that keyboard; installing ToneTunner does not redirect every keyboard's voice service. A floating overlay is not included in this version.
 
 Cancel stops pending work. Changing the active text field or keyboard invalidates the pending insertion. Dictation is blocked in password fields; private fields requesting no personalized learning allow only fully local processing. There is no automatic fallback to another cloud provider or weaker privacy policy.

@@ -4,6 +4,7 @@ import android.Manifest;
 import android.content.Context;
 import android.text.InputType;
 import android.view.View;
+import android.widget.ProgressBar;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputConnection;
 
@@ -11,9 +12,12 @@ import androidx.preference.PreferenceManager;
 
 import com.devilved.tonetunner.asr.PcmRecording;
 import com.devilved.tonetunner.asr.Recorder;
+import com.devilved.tonetunner.asr.Whisper;
+import com.devilved.tonetunner.asr.WhisperResult;
 import com.devilved.tonetunner.cloud.AiSettings;
 import com.devilved.tonetunner.cloud.Provider;
 import com.devilved.tonetunner.cloud.ProviderConfig;
+import com.devilved.tonetunner.voice_translation.neural_networks.voice.Recognizer;
 
 import org.junit.Before;
 import org.junit.Test;
@@ -37,7 +41,10 @@ import static org.junit.Assert.assertTrue;
 
 /** Exercises the IME's real startRecording and recorder-listener paths without opening a microphone. */
 @RunWith(RobolectricTestRunner.class)
-@Config(sdk = 28, shadows = WhisperInputMethodServiceScreenAwakeTest.NoMicrophoneRecorderShadow.class)
+@Config(sdk = 28, shadows = {
+        WhisperInputMethodServiceScreenAwakeTest.NoMicrophoneRecorderShadow.class,
+        WhisperInputMethodServiceScreenAwakeTest.PendingWhisperStartShadow.class
+})
 @LooperMode(LooperMode.Mode.PAUSED)
 public class WhisperInputMethodServiceScreenAwakeTest {
     @Before public void resetPreferences() throws Exception {
@@ -53,7 +60,8 @@ public class WhisperInputMethodServiceScreenAwakeTest {
         new AiSettings(application).saveSettings(local, false, enhancement, "", "", false);
     }
 
-    @Test public void manualRecordingKeepsInputViewAwakeUntilRecorderReportsDone() throws Exception {
+    @Test public void manualRecordingKeepsInputViewAwakeThroughProcessingAndEnhancement()
+            throws Exception {
         ServiceFixture fixture = startService();
         try {
             assertFalse(fixture.inputView.getKeepScreenOn());
@@ -65,6 +73,28 @@ public class WhisperInputMethodServiceScreenAwakeTest {
 
             recorder.emit(Recorder.MSG_RECORDING_DONE);
             idleMainLooper();
+            assertTrue("the input view should stay awake while transcription starts",
+                    fixture.inputView.getKeepScreenOn());
+            Whisper.WhisperListener listener = installedWhisperListener(fixture.service);
+            listener.onUpdateReceived(Whisper.MSG_PROCESSING);
+            assertTrue("the input view should stay awake during transcription",
+                    fixture.inputView.getKeepScreenOn());
+            listener.onUpdateReceived(Whisper.MSG_ENHANCING);
+            assertTrue("the input view should stay awake during enhancement",
+                    fixture.inputView.getKeepScreenOn());
+        } finally {
+            fixture.controller.destroy();
+        }
+    }
+
+    @Test public void successfulTranscriptionReleasesInputViewAwakePolicy() throws Exception {
+        ServiceFixture fixture = startService();
+        try {
+            Whisper.WhisperListener listener = startProcessing(fixture);
+            assertTrue(fixture.inputView.getKeepScreenOn());
+
+            listener.onResultReceived(result("recognized text"));
+
             assertFalse(fixture.inputView.getKeepScreenOn());
         } finally {
             fixture.controller.destroy();
@@ -85,10 +115,25 @@ public class WhisperInputMethodServiceScreenAwakeTest {
         }
     }
 
-    @Test public void cancelButtonReleasesInputViewAwakePolicy() throws Exception {
+    @Test public void transcriptionErrorReleasesInputViewAwakePolicy() throws Exception {
         ServiceFixture fixture = startService();
         try {
-            startManualRecording(fixture);
+            Whisper.WhisperListener listener = startProcessing(fixture);
+            assertTrue(fixture.inputView.getKeepScreenOn());
+
+            listener.onError("transcription failed");
+
+            assertFalse(fixture.inputView.getKeepScreenOn());
+        } finally {
+            fixture.controller.destroy();
+        }
+    }
+
+    @Test public void cancelButtonReleasesInputViewAwakePolicyDuringProcessing() throws Exception {
+        ServiceFixture fixture = startService();
+        try {
+            startProcessing(fixture);
+            assertTrue(fixture.inputView.getKeepScreenOn());
 
             fixture.inputView.findViewById(R.id.btnCancelDictation).performClick();
 
@@ -98,10 +143,12 @@ public class WhisperInputMethodServiceScreenAwakeTest {
         }
     }
 
-    @Test public void finishingInputViewReleasesInputViewAwakePolicy() throws Exception {
+    @Test public void finishingInputViewReleasesInputViewAwakePolicyDuringProcessing()
+            throws Exception {
         ServiceFixture fixture = startService();
         try {
-            startManualRecording(fixture);
+            startProcessing(fixture);
+            assertTrue(fixture.inputView.getKeepScreenOn());
 
             fixture.service.onFinishInputView(true);
 
@@ -123,6 +170,37 @@ public class WhisperInputMethodServiceScreenAwakeTest {
         assertTrue("The input view should stay awake during manual recording",
                 fixture.inputView.getKeepScreenOn());
         return Shadow.extract(recorder);
+    }
+
+    private static Whisper.WhisperListener startProcessing(ServiceFixture fixture) throws Exception {
+        NoMicrophoneRecorderShadow recorder = startManualRecording(fixture);
+        recorder.emit(Recorder.MSG_RECORDING_DONE);
+        idleMainLooper();
+        assertTrue("the input view should stay awake while transcription starts",
+                fixture.inputView.getKeepScreenOn());
+
+        Whisper.WhisperListener listener = installedWhisperListener(fixture.service);
+        listener.onUpdateReceived(Whisper.MSG_PROCESSING);
+        assertTrue("the service should keep its processing indicator active",
+                ((ProgressBar) fixture.inputView.findViewById(R.id.processing_bar)).isIndeterminate());
+        listener.onUpdateReceived(Whisper.MSG_ENHANCING);
+        assertTrue("the service should keep its processing indicator active during enhancement",
+                ((ProgressBar) fixture.inputView.findViewById(R.id.processing_bar)).isIndeterminate());
+        return listener;
+    }
+
+    private static Whisper.WhisperListener installedWhisperListener(
+            WhisperInputMethodService service) throws Exception {
+        Whisper whisper = (Whisper) field(WhisperInputMethodService.class, "mWhisper").get(service);
+        assertNotNull("the service should retain its real Whisper instance", whisper);
+        Whisper.WhisperListener listener = (Whisper.WhisperListener)
+                field(Whisper.class, "listener").get(whisper);
+        assertNotNull("the service should retain the listener installed on Whisper", listener);
+        return listener;
+    }
+
+    private static WhisperResult result(String text) {
+        return new WhisperResult(text, "en", Recognizer.ACTION_TRANSCRIBE);
     }
 
     private static ServiceFixture startService() {
@@ -191,6 +269,12 @@ public class WhisperInputMethodServiceScreenAwakeTest {
             }
             listener.onUpdateReceived(message);
         }
+    }
+
+    /** Holds ASR pending so each real Whisper callback can be delivered deterministically. */
+    @Implements(value = Whisper.class, isInAndroidSdk = false)
+    public static final class PendingWhisperStartShadow {
+        @Implementation protected void start(PcmRecording recording) { }
     }
 
     private static final class ServiceFixture {
