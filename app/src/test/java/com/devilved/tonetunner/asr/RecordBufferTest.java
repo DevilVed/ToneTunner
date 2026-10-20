@@ -20,6 +20,11 @@ public class RecordBufferTest {
         assertArrayEquals(new float[]{-1f, .5f}, samples, .00001f);
     }
 
+    @Test public void lowAmplitudeSamplesKeepTheirPcm16Level() {
+        float[] samples = RecordBuffer.samples(new byte[]{0, 0x10, 0, 0x08});
+        assertArrayEquals(new float[]{.125f, .0625f}, samples, .00001f);
+    }
+
     @Test public void silenceDoesNotDivideByZero() {
         assertArrayEquals(new float[]{0f, 0f}, RecordBuffer.samples(new byte[4]), 0f);
     }

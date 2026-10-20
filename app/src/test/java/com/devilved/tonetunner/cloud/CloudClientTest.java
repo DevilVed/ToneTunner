@@ -70,6 +70,45 @@ public class CloudClientTest {
     }
 
     @Test
+    public void multipartTranscriptionMapsLegacyCodesAndRetainsThreeLetterLanguageTags() throws Exception {
+        CloudClient client = client();
+        ProviderConfig config = new ProviderConfig(Provider.OPENAI,
+                Provider.OPENAI.transcriptionEndpoint(), "whisper-1", "fixture-key", false);
+
+        assertMultipartLanguage(client, config, "iw", "he");
+        assertMultipartLanguage(client, config, "IN", "id");
+        assertMultipartLanguage(client, config, "Ji", "yi");
+        assertMultipartLanguage(client, config, "yue-Hant-TW", "yue");
+        assertMultipartLanguage(client, config, " haw ", "haw");
+    }
+
+    @Test
+    public void multipartTranscriptionOmitsMalformedLanguageTagsInsteadOfAcceptingTheirPrefix() throws Exception {
+        CloudClient client = client();
+        ProviderConfig config = new ProviderConfig(Provider.OPENAI,
+                Provider.OPENAI.transcriptionEndpoint(), "whisper-1", "fixture-key", false);
+
+        assertMultipartLanguage(client, config, "en-../../evil", null);
+        assertMultipartLanguage(client, config, "en_US", null);
+    }
+
+    @Test
+    public void openRouterTranscriptionRetainsThreeLetterLanguageTags() throws Exception {
+        server.enqueue(new MockResponse().setBody("{\"text\":\"你好\"}"));
+        CloudClient client = client();
+        ProviderConfig config = new ProviderConfig(Provider.OPENROUTER,
+                Provider.OPENROUTER.transcriptionEndpoint(), "openai/whisper-large-v3",
+                "fixture-key", false);
+
+        client.transcribe(new byte[] {1, 2}, config, "yue", false);
+
+        RecordedRequest request = server.takeRequest(1, TimeUnit.SECONDS);
+        assertNotNull(request);
+        JSONObject body = new JSONObject(request.getBody().readUtf8());
+        assertEquals("yue", body.optString("language"));
+    }
+
+    @Test
     public void openRouterTranscriptionUsesJsonAndRequestsBothPrivacyFilters() throws Exception {
         server.enqueue(new MockResponse().setBody("{\"text\":\"fixture transcript\"}"));
         CloudClient client = client();
@@ -515,5 +554,23 @@ public class CloudClientTest {
             }
         });
         return new CloudClient(builder);
+    }
+
+    private void assertMultipartLanguage(CloudClient client, ProviderConfig config,
+                                         String requestedLanguage, String expectedLanguage) throws Exception {
+        server.enqueue(new MockResponse().setBody("{\"text\":\"spoken words\"}"));
+
+        CloudClient.Transcript transcript = client.transcribe(
+                new byte[] {1, 2}, config, requestedLanguage, false);
+
+        assertEquals(expectedLanguage == null ? "" : expectedLanguage, transcript.language);
+        RecordedRequest request = server.takeRequest(1, TimeUnit.SECONDS);
+        assertNotNull(request);
+        String body = request.getBody().readUtf8();
+        if (expectedLanguage == null) {
+            assertFalse(body.contains("name=\"language\""));
+        } else {
+            assertTrue(body.contains("name=\"language\"\r\n\r\n" + expectedLanguage + "\r\n"));
+        }
     }
 }

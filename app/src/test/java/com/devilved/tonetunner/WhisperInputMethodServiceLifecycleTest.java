@@ -81,7 +81,7 @@ public class WhisperInputMethodServiceLifecycleTest {
         }
     }
 
-    @Test public void selectionChangeCancellationRejectsAResultAlreadyHoldingTheListener()
+    @Test public void hostSelectionUpdateWithinSameEditorPreservesDictation()
             throws Exception {
         ServiceFixture fixture = startService(InputType.TYPE_CLASS_TEXT, 0);
         try {
@@ -89,10 +89,10 @@ public class WhisperInputMethodServiceLifecycleTest {
             setBooleanField(fixture.service, "acceptRecording", true);
 
             fixture.service.onUpdateSelection(0, 0, 1, 1, -1, -1);
-            listener.onResultReceived(result("cancelled after selection moved"));
+            listener.onResultReceived(result("continued after selection moved"));
 
-            assertEquals(0, fixture.connection.commitCount);
-            assertEquals("", fixture.connection.text());
+            assertEquals(1, fixture.connection.commitCount);
+            assertEquals("continued after selection moved ", fixture.connection.text());
         } finally {
             fixture.controller.destroy();
         }
