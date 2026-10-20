@@ -97,7 +97,15 @@ public class WhisperRecognitionServiceDeliveryTest {
 
     private static RecognitionService.Callback callback(WhisperRecognitionService service,
             ListenerState state) throws Exception {
-        Constructor<?> constructor = RecognitionService.Callback.class.getDeclaredConstructors()[0];
+        // API 28 also exposes a synthetic access constructor with an unused trailing $1 marker.
+        // Reflection order is unspecified; select the actual private constructor, not that bridge.
+        Constructor<?> constructor = null;
+        for (Constructor<?> candidate : RecognitionService.Callback.class.getDeclaredConstructors()) {
+            if (constructor == null || candidate.getParameterCount() < constructor.getParameterCount()) {
+                constructor = candidate;
+            }
+        }
+        if (constructor == null) throw new IllegalStateException("Recognition callback constructor unavailable");
         constructor.setAccessible(true);
         Class<?>[] parameterTypes = constructor.getParameterTypes();
         Object[] arguments = new Object[parameterTypes.length];
