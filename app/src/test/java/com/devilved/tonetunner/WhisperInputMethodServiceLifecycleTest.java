@@ -111,6 +111,79 @@ public class WhisperInputMethodServiceLifecycleTest {
         }
     }
 
+    @Test public void restartingSameEditorWithSameConnectionPreservesPendingResult()
+            throws Exception {
+        ServiceFixture fixture = startService(InputType.TYPE_CLASS_TEXT, 0);
+        try {
+            Whisper.WhisperListener listener = installListener(fixture.service);
+            EditorInfo restartedEditor = editor(InputType.TYPE_CLASS_TEXT, 0);
+            fixture.service.focus(restartedEditor, fixture.connection);
+
+            fixture.service.onStartInput(restartedEditor, true);
+            listener.onResultReceived(result("same editor restart"));
+
+            assertEquals(1, fixture.connection.commitCount);
+            assertEquals("same editor restart ", fixture.connection.text());
+        } finally {
+            fixture.controller.destroy();
+        }
+    }
+
+    @Test public void restartingDifferentEditorInvalidatesPendingResult() throws Exception {
+        ServiceFixture fixture = startService(InputType.TYPE_CLASS_TEXT, 0);
+        try {
+            Whisper.WhisperListener listener = installListener(fixture.service);
+            EditorInfo replacementEditor = editor(InputType.TYPE_CLASS_TEXT, 0);
+            replacementEditor.packageName = "com.example.replacement";
+            fixture.service.focus(replacementEditor, fixture.connection);
+
+            fixture.service.onStartInput(replacementEditor, true);
+            listener.onResultReceived(result("stale after editor restart"));
+
+            assertEquals(0, fixture.connection.commitCount);
+            assertEquals("", fixture.connection.text());
+        } finally {
+            fixture.controller.destroy();
+        }
+    }
+
+    @Test public void sameEditorRestartThatBecomesPrivateInvalidatesPendingResult()
+            throws Exception {
+        ServiceFixture fixture = startService(InputType.TYPE_CLASS_TEXT, 0);
+        try {
+            Whisper.WhisperListener listener = installListener(fixture.service);
+            EditorInfo privateEditor = editor(InputType.TYPE_CLASS_TEXT,
+                    EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING);
+            fixture.service.focus(privateEditor, fixture.connection);
+
+            fixture.service.onStartInput(privateEditor, true);
+            listener.onResultReceived(result("must stay out of private editor"));
+
+            assertEquals(0, fixture.connection.commitCount);
+            assertEquals("", fixture.connection.text());
+        } finally {
+            fixture.controller.destroy();
+        }
+    }
+
+    @Test public void restartingFalseInvalidatesPendingResultEvenForSameEditor()
+            throws Exception {
+        ServiceFixture fixture = startService(InputType.TYPE_CLASS_TEXT, 0);
+        try {
+            Whisper.WhisperListener listener = installListener(fixture.service);
+            EditorInfo restartedEditor = editor(InputType.TYPE_CLASS_TEXT, 0);
+            fixture.service.focus(restartedEditor, fixture.connection);
+
+            fixture.service.onStartInput(restartedEditor, false);
+            listener.onResultReceived(result("new input session"));
+
+            assertEquals(0, fixture.connection.commitCount);
+            assertEquals("", fixture.connection.text());
+        } finally {
+            fixture.controller.destroy();
+        }
+    }
+
     @Test public void resultDeliveryRejectsEditorThatBecameStale() throws Exception {
         ServiceFixture fixture = startService(InputType.TYPE_CLASS_TEXT, 0);
         try {
@@ -249,6 +322,8 @@ public class WhisperInputMethodServiceLifecycleTest {
         EditorInfo editor = new EditorInfo();
         editor.inputType = inputType;
         editor.imeOptions = imeOptions;
+        editor.packageName = "com.example.editor";
+        editor.fieldId = 17;
         return editor;
     }
 

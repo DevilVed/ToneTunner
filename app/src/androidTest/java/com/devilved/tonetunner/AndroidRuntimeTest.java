@@ -4,8 +4,12 @@ import android.Manifest;
 import android.app.Activity;
 import android.app.Instrumentation;
 import android.content.Context;
+import android.content.ComponentName;
 import android.content.Intent;
+import android.os.Build;
 import android.speech.RecognizerIntent;
+import android.speech.RecognitionListener;
+import android.speech.SpeechRecognizer;
 import android.system.Os;
 import android.system.OsConstants;
 
@@ -117,6 +121,65 @@ public class AndroidRuntimeTest {
         finally { vad.close(); }
     }
 
+    @Test public void boundRecognitionServiceStartsMicrophoneAndWaitsForSpeechOnApi35() throws Exception {
+        org.junit.Assume.assumeTrue("API 35 bound-service microphone policy check", Build.VERSION.SDK_INT >= 35);
+
+        Context context = context();
+        SharedPreferencesSnapshot saved = SharedPreferencesSnapshot.capture(
+                PreferenceManager.getDefaultSharedPreferences(context),
+                WhisperRecognitionService.PREF_AUTO_STOP_AFTER_SILENCE);
+        context.getSharedPreferences("ai_settings", Context.MODE_PRIVATE).edit().clear()
+                .putString("transcription.provider", "LOCAL")
+                .putBoolean("enhancement.enabled", false)
+                .putBoolean("cloud.consent", false)
+                .commit();
+        PreferenceManager.getDefaultSharedPreferences(context).edit()
+                .putBoolean(WhisperRecognitionService.PREF_AUTO_STOP_AFTER_SILENCE, false).commit();
+
+        CountDownLatch ready = new CountDownLatch(1);
+        AtomicReference<Integer> beginningOfSpeechCalls = new AtomicReference<>(0);
+        AtomicReference<Integer> errorCode = new AtomicReference<>();
+        AtomicReference<SpeechRecognizer> recognizerReference = new AtomicReference<>();
+        try (ActivityScenario<MainActivity> scenario = ActivityScenario.launch(MainActivity.class)) {
+            scenario.onActivity(activity -> {
+                SpeechRecognizer recognizer = SpeechRecognizer.createSpeechRecognizer(activity,
+                        new ComponentName(activity, WhisperRecognitionService.class));
+                recognizerReference.set(recognizer);
+                recognizer.setRecognitionListener(new RecognitionListener() {
+                    @Override public void onReadyForSpeech(android.os.Bundle params) { ready.countDown(); }
+                    @Override public void onBeginningOfSpeech() {
+                        beginningOfSpeechCalls.updateAndGet(value -> value + 1);
+                    }
+                    @Override public void onRmsChanged(float rmsdB) { }
+                    @Override public void onBufferReceived(byte[] buffer) { }
+                    @Override public void onEndOfSpeech() { }
+                    @Override public void onError(int error) { errorCode.set(error); }
+                    @Override public void onResults(android.os.Bundle results) { }
+                    @Override public void onPartialResults(android.os.Bundle partialResults) { }
+                    @Override public void onEvent(int eventType, android.os.Bundle params) { }
+                });
+                recognizer.startListening(new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+                        .putExtra(RecognizerIntent.EXTRA_LANGUAGE, "en"));
+            });
+
+            assertTrue("The bound recognition service did not report microphone readiness; error="
+                            + errorCode.get(), ready.await(15, TimeUnit.SECONDS));
+            Thread.sleep(750);
+            assertEquals("Manual mode must not report speech before the microphone detects it",
+                    Integer.valueOf(0), beginningOfSpeechCalls.get());
+        } finally {
+            SpeechRecognizer recognizer = recognizerReference.get();
+            if (recognizer != null) {
+                InstrumentationRegistry.getInstrumentation().runOnMainSync(() -> {
+                    recognizer.cancel();
+                    recognizer.destroy();
+                });
+            }
+            saved.restore(PreferenceManager.getDefaultSharedPreferences(context));
+            context.getSharedPreferences("ai_settings", Context.MODE_PRIVATE).edit().clear().commit();
+        }
+    }
+
     @Test public void speechIntentReturnsItsTranscriptToTheActualCallingActivity() throws Exception {
         PreferenceManager.getDefaultSharedPreferences(context()).edit()
                 .putBoolean("imeModeAuto", false).commit();
@@ -152,8 +215,9 @@ public class AndroidRuntimeTest {
                     Whisper whisper = (Whisper) field(WhisperRecognizeActivity.class, "mWhisper").get(activity);
                     Whisper.WhisperListener listener = (Whisper.WhisperListener)
                             field(Whisper.class, "listener").get(whisper);
-                    listener.onResultReceived(new WhisperResult("recognition fixture", "en",
-                            Recognizer.ACTION_TRANSCRIBE));
+                    assertTrue("the recognition Activity must accept delivery through the production path",
+                            listener.onResultDelivery(new WhisperResult("recognition fixture", "en",
+                                    Recognizer.ACTION_TRANSCRIBE)));
                 } catch (ReflectiveOperationException e) { throw new AssertionError(e); }
             });
             assertTrue("The calling Activity never received a speech result", returned.await(10, TimeUnit.SECONDS));
@@ -226,6 +290,30 @@ public class AndroidRuntimeTest {
         Field field = owner.getDeclaredField(name);
         field.setAccessible(true);
         return field;
+    }
+
+    private static final class SharedPreferencesSnapshot {
+        final String key;
+        final boolean existed;
+        final boolean value;
+
+        private SharedPreferencesSnapshot(String key, boolean existed, boolean value) {
+            this.key = key;
+            this.existed = existed;
+            this.value = value;
+        }
+
+        static SharedPreferencesSnapshot capture(android.content.SharedPreferences preferences, String key) {
+            return new SharedPreferencesSnapshot(key, preferences.contains(key),
+                    preferences.getBoolean(key, true));
+        }
+
+        void restore(android.content.SharedPreferences preferences) {
+            android.content.SharedPreferences.Editor editor = preferences.edit();
+            if (existed) editor.putBoolean(key, value);
+            else editor.remove(key);
+            editor.commit();
+        }
     }
     private static byte[] text(int tag, String value) {
         return field(tag, value.getBytes(StandardCharsets.UTF_8));

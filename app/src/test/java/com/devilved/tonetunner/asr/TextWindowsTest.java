@@ -30,4 +30,16 @@ public class TextWindowsTest {
         assertEquals(text, String.join("", TextWindows.split(text, 7)));
         assertThrows(IllegalArgumentException.class, () -> TextWindows.split(text, 1));
     }
+
+    @Test public void fullwidthSentencePunctuationIsPreferredAsASplitBoundary() {
+        for (char punctuation : new char[]{'\uff01', '\uff1f', '\uff1b'}) {
+            String text = "これは前文" + punctuation + "次の文です";
+            List<String> pieces = TextWindows.split(text, 8);
+
+            assertEquals("split should include the fullwidth punctuation in the preceding piece",
+                    "これは前文" + punctuation, pieces.get(0));
+            assertEquals(text, String.join("", pieces));
+            for (String piece : pieces) assertTrue(piece.length() <= 8);
+        }
+    }
 }

@@ -4,9 +4,15 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
+import java.io.BufferedOutputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.OutputStream;
+import java.lang.reflect.Field;
+import java.nio.file.Files;
+import java.util.Arrays;
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
@@ -116,6 +122,68 @@ public class PcmRecordingTest {
             assertArrayEquals(new byte[]{1, 2, 3, 4}, recording.nextChunk());
             assertNull(recording.nextChunk());
         } finally {
+            recording.close();
+        }
+    }
+
+    @Test public void writeFailurePreservesThePhysicalPcmPrefixWrittenBeforeDiskFull() throws Exception {
+        File directory = temporaryFolder.newFolder("write-failure-recordings");
+        PcmRecording recording = PcmRecording.create(directory);
+        File spool = matchingSpoolFiles(directory)[0];
+        int persistedBytes = 12_344;
+        byte[] source = patternedPcm(128 * 1024);
+        DiskFailureFixture fixture = installDiskFullOutput(recording, spool, persistedBytes);
+
+        try {
+            try {
+                recording.write(source, 0, source.length);
+                fail("expected the synthetic disk-full write to fail");
+            } catch (IOException expected) {
+                // The file-output wrapper writes the available prefix before reporting ENOSPC.
+            }
+
+            assertTrue("a useful prefix must remain on disk after the write failure", spool.isFile());
+            assertEquals("reported length must match bytes physically written", persistedBytes,
+                    recording.lengthBytes());
+            assertArrayEquals(Arrays.copyOf(source, persistedBytes), Files.readAllBytes(spool.toPath()));
+            assertArrayEquals(Arrays.copyOf(source, persistedBytes), recording.nextChunk());
+            assertNull(recording.nextChunk());
+            assertEquals("the direct write must not be retried during cleanup", 1,
+                    fixture.diskOutput.writeAttempts);
+        } finally {
+            closeQuietly(fixture.output);
+            recording.close();
+        }
+    }
+
+    @Test public void flushFailurePreservesThePhysicalPcmPrefixWithoutReplayingBufferedBytes()
+            throws Exception {
+        File directory = temporaryFolder.newFolder("flush-failure-recordings");
+        PcmRecording recording = PcmRecording.create(directory);
+        File spool = matchingSpoolFiles(directory)[0];
+        int persistedBytes = 6_000;
+        byte[] source = patternedPcm(32 * 1024);
+        DiskFailureFixture fixture = installDiskFullOutput(recording, spool, persistedBytes);
+
+        try {
+            recording.write(source, 0, source.length); // Still buffered; the failure occurs at finish().
+            try {
+                recording.finish();
+                fail("expected the synthetic disk-full flush to fail");
+            } catch (IOException expected) {
+                // The sink accepted a prefix before reporting ENOSPC.
+            }
+
+            assertTrue("a useful prefix must remain on disk after the flush failure", spool.isFile());
+            assertEquals("length must be reconciled to the persisted prefix", persistedBytes,
+                    recording.lengthBytes());
+            assertArrayEquals(Arrays.copyOf(source, persistedBytes), Files.readAllBytes(spool.toPath()));
+            assertArrayEquals(Arrays.copyOf(source, persistedBytes), recording.nextChunk());
+            assertNull(recording.nextChunk());
+            assertEquals("failed buffered bytes must not be replayed during salvage", 1,
+                    fixture.diskOutput.writeAttempts);
+        } finally {
+            closeQuietly(fixture.output);
             recording.close();
         }
     }
@@ -347,6 +415,40 @@ public class PcmRecordingTest {
         }
     }
 
+    private static DiskFailureFixture installDiskFullOutput(PcmRecording recording, File spool,
+                                                            int availableBytes) throws Exception {
+        Field outputField = PcmRecording.class.getDeclaredField("output");
+        outputField.setAccessible(true);
+        OutputStream originalOutput = (OutputStream) outputField.get(recording);
+        originalOutput.close(); // The newly-created spool is empty; replace only its stream fixture.
+        PrefixThenDiskFullOutputStream diskOutput =
+                new PrefixThenDiskFullOutputStream(spool, availableBytes);
+        OutputStream injectedOutput = new BufferedOutputStream(diskOutput, 64 * 1024);
+        outputField.set(recording, injectedOutput);
+        return new DiskFailureFixture(injectedOutput, diskOutput);
+    }
+
+    private static byte[] patternedPcm(int length) {
+        byte[] bytes = new byte[length & ~1];
+        for (int i = 0; i < bytes.length; i++) bytes[i] = (byte) (i * 37 + 11);
+        return bytes;
+    }
+
+    private static void closeQuietly(OutputStream output) {
+        if (output == null) return;
+        try { output.close(); } catch (IOException ignored) {}
+    }
+
+    private static final class DiskFailureFixture {
+        final OutputStream output;
+        final PrefixThenDiskFullOutputStream diskOutput;
+
+        DiskFailureFixture(OutputStream output, PrefixThenDiskFullOutputStream diskOutput) {
+            this.output = output;
+            this.diskOutput = diskOutput;
+        }
+    }
+
     private static byte[] noisyPcm(int samples) {
         byte[] pcm = new byte[samples * PcmRecording.BYTES_PER_SAMPLE];
         for (int i = 0; i < samples; i++) {
@@ -380,5 +482,41 @@ public class PcmRecordingTest {
         File[] files = directory.listFiles((dir, name) -> new File(dir, name).isFile()
                 && name.startsWith("tonetunner-") && name.endsWith(".pcm"));
         return files == null ? new File[0] : files;
+    }
+
+    /** File-backed ENOSPC fixture: accepts a real prefix, then rejects every later byte. */
+    private static final class PrefixThenDiskFullOutputStream extends OutputStream {
+        private final FileOutputStream fileOutput;
+        private int remainingBytes;
+        private int writeAttempts;
+
+        PrefixThenDiskFullOutputStream(File file, int availableBytes) throws IOException {
+            fileOutput = new FileOutputStream(file);
+            remainingBytes = availableBytes;
+        }
+
+        @Override public void write(int value) throws IOException {
+            if (remainingBytes == 0) throw new IOException("No space left on device");
+            fileOutput.write(value);
+            remainingBytes--;
+        }
+
+        @Override public void write(byte[] data, int offset, int length) throws IOException {
+            writeAttempts++;
+            if (length == 0) return;
+            if (remainingBytes == 0) throw new IOException("No space left on device");
+            int accepted = Math.min(length, remainingBytes);
+            fileOutput.write(data, offset, accepted);
+            remainingBytes -= accepted;
+            if (accepted < length) throw new IOException("No space left on device");
+        }
+
+        @Override public void flush() throws IOException {
+            fileOutput.flush();
+        }
+
+        @Override public void close() throws IOException {
+            fileOutput.close();
+        }
     }
 }

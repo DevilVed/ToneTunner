@@ -1,8 +1,14 @@
 package com.devilved.tonetunner;
 
+import android.Manifest;
 import android.content.Context;
+import android.content.Intent;
+import android.os.Looper;
 import android.os.RemoteException;
 import android.speech.RecognitionService;
+import android.speech.RecognizerIntent;
+
+import androidx.preference.PreferenceManager;
 
 import com.devilved.tonetunner.asr.Recorder;
 import com.devilved.tonetunner.asr.WhisperResult;
@@ -12,6 +18,8 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.robolectric.Robolectric;
 import org.robolectric.RobolectricTestRunner;
+import org.robolectric.RuntimeEnvironment;
+import org.robolectric.Shadows;
 import org.robolectric.android.controller.ServiceController;
 import org.robolectric.annotation.Config;
 import org.robolectric.annotation.Implementation;
@@ -31,6 +39,44 @@ import static org.junit.Assert.assertTrue;
 @RunWith(RobolectricTestRunner.class)
 @Config(sdk = 28, shadows = WhisperRecognitionServiceDeliveryTest.RecorderShadow.class)
 public class WhisperRecognitionServiceDeliveryTest {
+
+    @Test public void readyForSpeechWaitsUntilRecorderConfirmsMicrophoneIsReady() throws Exception {
+        RecorderShadow.reset();
+        RecognitionFixture fixture = startListening(new ListenerState(false));
+        try {
+            assertEquals("No speech UI should start before AudioRecord reports it is ready",
+                    0, fixture.listener.readyForSpeechCalls);
+
+            RecorderShadow.emit(Recorder.MSG_RECORDING);
+            Shadows.shadowOf(Looper.getMainLooper()).idle();
+
+            assertEquals(1, fixture.listener.readyForSpeechCalls);
+            assertEquals("Microphone readiness must not be reported as detected speech",
+                    0, fixture.listener.beginningOfSpeechCalls);
+        } finally {
+            fixture.controller.destroy();
+        }
+    }
+
+    @Test public void beginningOfSpeechWaitsForRecorderSpeechDetection() throws Exception {
+        RecorderShadow.reset();
+        RecognitionFixture fixture = startListening(new ListenerState(false));
+        try {
+            assertEquals("Starting microphone capture is not speech detection",
+                    0, fixture.listener.beginningOfSpeechCalls);
+            RecorderShadow.emit(Recorder.MSG_RECORDING);
+            Shadows.shadowOf(Looper.getMainLooper()).idle();
+            assertEquals(0, fixture.listener.beginningOfSpeechCalls);
+
+            // The literal matches Recorder.MSG_SPEECH_STARTED, which lands with the recorder fix.
+            RecorderShadow.emit("Speech started...");
+            Shadows.shadowOf(Looper.getMainLooper()).idle();
+
+            assertEquals(1, fixture.listener.beginningOfSpeechCalls);
+        } finally {
+            fixture.controller.destroy();
+        }
+    }
 
     @Test public void disconnectedClientRejectsDeliveryAndStillReleasesTheRequest() throws Exception {
         RecorderShadow.reset();
@@ -95,6 +141,28 @@ public class WhisperRecognitionServiceDeliveryTest {
         return request;
     }
 
+    private static RecognitionFixture startListening(ListenerState state) throws Exception {
+        Context context = RuntimeEnvironment.getApplication();
+        context.getSharedPreferences("ai_settings", Context.MODE_PRIVATE).edit().clear()
+                .putString("transcription.provider", "LOCAL")
+                .putBoolean("enhancement.enabled", false)
+                .putBoolean("cloud.consent", false).commit();
+        PreferenceManager.getDefaultSharedPreferences(context).edit()
+                .putBoolean(WhisperRecognitionService.PREF_AUTO_STOP_AFTER_SILENCE, true).commit();
+
+        ServiceController<WhisperRecognitionService> controller =
+                Robolectric.buildService(WhisperRecognitionService.class).create();
+        WhisperRecognitionService service = controller.get();
+        Shadows.shadowOf(RuntimeEnvironment.getApplication())
+                .grantPermissions(Manifest.permission.RECORD_AUDIO);
+        RecognitionService.Callback callback = callback(service, state);
+        Method startListening = WhisperRecognitionService.class.getDeclaredMethod(
+                "onStartListening", Intent.class, RecognitionService.Callback.class);
+        startListening.setAccessible(true);
+        startListening.invoke(service, new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH), callback);
+        return new RecognitionFixture(controller, service, state);
+    }
+
     private static RecognitionService.Callback callback(WhisperRecognitionService service,
             ListenerState state) throws Exception {
         // Select the API 28 constructor by its AOSP signature. Reflection also exposes an access
@@ -142,6 +210,8 @@ public class WhisperRecognitionServiceDeliveryTest {
         int endOfSpeechCalls;
         int resultCalls;
         int errorCalls;
+        int readyForSpeechCalls;
+        int beginningOfSpeechCalls;
 
         ListenerState(boolean disconnectedOnResults) {
             this.disconnectedOnResults = disconnectedOnResults;
@@ -149,6 +219,8 @@ public class WhisperRecognitionServiceDeliveryTest {
 
         @Override public Object invoke(Object proxy, Method method, Object[] arguments)
                 throws Throwable {
+            if ("onReadyForSpeech".equals(method.getName())) readyForSpeechCalls++;
+            if ("onBeginningOfSpeech".equals(method.getName())) beginningOfSpeechCalls++;
             if ("onEndOfSpeech".equals(method.getName())) endOfSpeechCalls++;
             if ("onResults".equals(method.getName())) {
                 resultCalls++;
@@ -167,12 +239,39 @@ public class WhisperRecognitionServiceDeliveryTest {
     @Implements(value = Recorder.class, isInAndroidSdk = false)
     public static class RecorderShadow {
         static boolean released;
+        static boolean started;
+        static Recorder.RecorderListener listener;
 
-        static void reset() { released = false; }
+        static void reset() {
+            released = false;
+            started = false;
+            listener = null;
+        }
+
+        static void emit(String message) {
+            Recorder.RecorderListener current = listener;
+            if (current != null) current.onUpdateReceived(message);
+        }
 
         @Implementation protected void __constructor__(Context context) { }
-        @Implementation protected void setListener(Recorder.RecorderListener listener) { }
-        @Implementation protected boolean isInProgress() { return false; }
-        @Implementation protected void release() { released = true; }
+        @Implementation protected void setListener(Recorder.RecorderListener value) { listener = value; }
+        @Implementation protected void initVad() { }
+        @Implementation protected void start() { started = true; }
+        @Implementation protected boolean isInProgress() { return started; }
+        @Implementation protected void stop() { started = false; }
+        @Implementation protected void release() { released = true; started = false; }
+    }
+
+    private static final class RecognitionFixture {
+        final ServiceController<WhisperRecognitionService> controller;
+        final WhisperRecognitionService service;
+        final ListenerState listener;
+
+        RecognitionFixture(ServiceController<WhisperRecognitionService> controller,
+                WhisperRecognitionService service, ListenerState listener) {
+            this.controller = controller;
+            this.service = service;
+            this.listener = listener;
+        }
     }
 }

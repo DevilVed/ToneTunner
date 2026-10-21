@@ -2,11 +2,13 @@ package com.devilved.tonetunner;
 
 import android.content.Context;
 import android.content.Intent;
+import android.os.Bundle;
 import android.text.InputType;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
 import android.widget.EditText;
+import android.widget.TextView;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -16,6 +18,13 @@ import org.robolectric.RuntimeEnvironment;
 import org.robolectric.Shadows;
 import org.robolectric.android.controller.ActivityController;
 import org.robolectric.annotation.Config;
+import com.devilved.tonetunner.asr.Whisper;
+import com.devilved.tonetunner.asr.WhisperResult;
+import com.devilved.tonetunner.voice_translation.neural_networks.voice.Recognizer;
+
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
+import java.nio.charset.StandardCharsets;
 import static org.junit.Assert.*;
 
 /** Launch-only checks never start the microphone, local model or a paid API request. */
@@ -49,6 +58,88 @@ public class CloudOnboardingTest {
                     & WindowManager.LayoutParams.FLAG_SECURE) != 0);
             assertEquals(2, checkCredentialViews(activity.findViewById(android.R.id.content)));
         }
+    }
+
+    @Test public void mainScreenDoesNotDisplayAutoAsADetectedLanguage() throws Exception {
+        try (ActivityController<MainActivity> controller = Robolectric.buildActivity(MainActivity.class).setup()) {
+            MainActivity activity = controller.get();
+            field(MainActivity.class, "sessionGeneration").setLong(activity, 51L);
+            field(MainActivity.class, "sessionActive").setBoolean(activity, true);
+            Method ensureWhisper = MainActivity.class.getDeclaredMethod("ensureWhisper", long.class);
+            ensureWhisper.setAccessible(true);
+            ensureWhisper.invoke(activity, 51L);
+
+            Whisper whisper = (Whisper) field(MainActivity.class, "mWhisper").get(activity);
+            Whisper.WhisperListener listener = (Whisper.WhisperListener)
+                    field(Whisper.class, "listener").get(whisper);
+            listener.onResultReceived(new WhisperResult("recognized words", "auto",
+                    Recognizer.ACTION_TRANSCRIBE));
+
+            String status = ((TextView) activity.findViewById(R.id.tvStatus)).getText().toString();
+            assertFalse("Automatic language detection is a request mode, not a detected language",
+                    status.toLowerCase(java.util.Locale.ROOT).contains(" auto "));
+        }
+    }
+
+    @Test public void typedApiKeyIsNeverIncludedInSavedActivityState() {
+        final String marker = "memory-only-credential-fixture";
+        try (ActivityController<AiSettingsActivity> controller =
+                     Robolectric.buildActivity(AiSettingsActivity.class).setup()) {
+            AiSettingsActivity activity = controller.get();
+            typeIntoCredentialViews(activity.findViewById(android.R.id.content), marker);
+            Bundle state = new Bundle();
+
+            controller.saveInstanceState(state);
+
+            assertFalse("Credential text must stay out of saved Activity state",
+                    bundleContains(state, marker));
+        }
+    }
+
+    private static Field field(Class<?> owner, String name) throws NoSuchFieldException {
+        Field field = owner.getDeclaredField(name);
+        field.setAccessible(true);
+        return field;
+    }
+
+    private static void typeIntoCredentialViews(View view, String value) {
+        if (view instanceof EditText) {
+            EditText input = (EditText) view;
+            if ((input.getInputType() & InputType.TYPE_MASK_VARIATION)
+                    == InputType.TYPE_TEXT_VARIATION_PASSWORD) input.setText(value);
+        }
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            for (int index = 0; index < group.getChildCount(); ++index)
+                typeIntoCredentialViews(group.getChildAt(index), value);
+        }
+    }
+
+    private static boolean bundleContains(Bundle bundle, String value) {
+        android.os.Parcel parcel = android.os.Parcel.obtain();
+        try {
+            bundle.writeToParcel(parcel, 0);
+            byte[] data = parcel.marshall();
+            return contains(data, value.getBytes(StandardCharsets.UTF_8))
+                    || contains(data, value.getBytes(StandardCharsets.UTF_16LE))
+                    || contains(data, value.getBytes(StandardCharsets.UTF_16BE));
+        } finally {
+            parcel.recycle();
+        }
+    }
+
+    private static boolean contains(byte[] source, byte[] needle) {
+        for (int start = 0; start <= source.length - needle.length; ++start) {
+            boolean match = true;
+            for (int offset = 0; offset < needle.length; ++offset) {
+                if (source[start + offset] != needle[offset]) {
+                    match = false;
+                    break;
+                }
+            }
+            if (match) return true;
+        }
+        return false;
     }
 
     private static int checkCredentialViews(View view) {

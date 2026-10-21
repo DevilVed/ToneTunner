@@ -8,6 +8,9 @@ import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 import java.io.IOException;
+import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ExecutionException;
@@ -244,6 +247,50 @@ public class CloudClientTest {
     }
 
     @Test
+    public void acceptsModelCatalogsLargerThanTheInferenceResponseLimit() throws Exception {
+        String catalog = catalogWithPadding(1_100_000);
+        assertEquals(1_100_000, catalog.getBytes(StandardCharsets.UTF_8).length);
+        server.enqueue(new MockResponse().setBody(catalog));
+        CloudClient client = client();
+        ProviderConfig config = new ProviderConfig(Provider.OPENAI,
+                Provider.OPENAI.enhancementEndpoint(), "", "fixture-key", false);
+
+        List<CloudClient.Model> models = client.models(config, false);
+
+        assertEquals(1, models.size());
+        assertEquals("gpt-4o-mini", models.get(0).id);
+    }
+
+    @Test
+    public void rejectsModelCatalogsLargerThanEightMiBWithinTheCatalogBound() {
+        String catalog = catalogWithPadding(8 * 1024 * 1024 + 1);
+        server.enqueue(new MockResponse().setBody(catalog));
+        CloudClient client = client();
+        ProviderConfig config = new ProviderConfig(Provider.OPENAI,
+                Provider.OPENAI.enhancementEndpoint(), "", "fixture-key", false);
+
+        IOException error = assertThrows(IOException.class, () -> client.models(config, false));
+
+        assertEquals("Provider response exceeded the allowed size.", error.getMessage());
+        assertFalse(error.getMessage().contains("padding"));
+    }
+
+    @Test
+    public void translationCapabilityIsPublicStaticAndSafeForUiPreflight() throws Exception {
+        Method capability = CloudClient.class.getMethod("supportsTranslation", ProviderConfig.class);
+        assertTrue(Modifier.isPublic(capability.getModifiers()));
+        assertTrue(Modifier.isStatic(capability.getModifiers()));
+
+        assertTrue((Boolean) capability.invoke(null, config(Provider.OPENAI, "whisper-1")));
+        assertTrue((Boolean) capability.invoke(null, config(Provider.GROQ, "whisper-large-v3")));
+        assertTrue((Boolean) capability.invoke(null, config(Provider.LOCAL, "")));
+        assertFalse((Boolean) capability.invoke(null, config(Provider.OPENAI, "gpt-4o-mini-transcribe")));
+        assertFalse((Boolean) capability.invoke(null, config(Provider.GROQ, "whisper-large-v3-turbo")));
+        assertFalse((Boolean) capability.invoke(null, config(Provider.CUSTOM, "whisper-1")));
+        assertFalse((Boolean) capability.invoke(null, (Object) null));
+    }
+
+    @Test
     public void enhancementKeepsInvariantInstructionsAndOpenRouterPrivacyRouting() throws Exception {
         server.enqueue(new MockResponse().setBody("{\"choices\":[{\"finish_reason\":\"stop\","
                 + "\"message\":{\"role\":\"assistant\",\"content\":\"Hello, world.\"}}]}"));
@@ -299,6 +346,37 @@ public class CloudClientTest {
             assertFalse(body.has("max_tokens"));
             assertFalse(body.has("temperature"));
         }
+    }
+
+    @Test
+    public void rejectsSevereEnhancementShorteningForAtLeastEightyCodePoints() {
+        String source = repeatCodePoint('a', 80);
+        String shortened = repeatCodePoint(0x1F642, 39);
+        assertEquals(80, source.codePointCount(0, source.length()));
+        assertEquals(39, shortened.codePointCount(0, shortened.length()));
+        assertTrue("Fixture distinguishes code points from UTF-16 code units",
+                shortened.length() > source.length() / 2);
+        server.enqueue(enhancementResponse(shortened));
+        CloudClient client = client();
+        ProviderConfig config = new ProviderConfig(Provider.OPENAI,
+                Provider.OPENAI.enhancementEndpoint(), "gpt-4o-mini", "fixture-key", false);
+
+        IOException error = assertThrows(IOException.class,
+                () -> client.enhance(source, config, "", ""));
+
+        assertFalse(error.getMessage().contains(shortened));
+    }
+
+    @Test
+    public void doesNotApplySevereShorteningGuardBelowEightyCodePoints() throws Exception {
+        String source = repeatCodePoint('a', 79);
+        assertEquals(79, source.codePointCount(0, source.length()));
+        server.enqueue(enhancementResponse("Edited."));
+        CloudClient client = client();
+        ProviderConfig config = new ProviderConfig(Provider.OPENAI,
+                Provider.OPENAI.enhancementEndpoint(), "gpt-4o-mini", "fixture-key", false);
+
+        assertEquals("Edited.", client.enhance(source, config, "", ""));
     }
 
     @Test
@@ -361,6 +439,27 @@ public class CloudClientTest {
         assertEquals("Authentication failed. Check the API key.", error.getMessage());
         assertFalse(error.getMessage().contains("fixture-key"));
         assertFalse(error.getMessage().contains("invalid secret details"));
+    }
+
+    @Test
+    public void mapsBadRequestNotFoundAndUnprocessableEntityToActionableSafeErrors() {
+        int[] rejectedStatuses = {400, 404, 422};
+        for (int status : rejectedStatuses) {
+            server.enqueue(new MockResponse().setResponseCode(status)
+                    .setBody("fixture-key private provider body"));
+        }
+        CloudClient client = client();
+        ProviderConfig config = new ProviderConfig(Provider.OPENAI,
+                Provider.OPENAI.enhancementEndpoint(), "fixture-model", "fixture-key", false);
+
+        for (int status : rejectedStatuses) {
+            IOException error = assertThrows(IOException.class, () -> client.models(config, false));
+
+            assertEquals("Provider rejected the request. Check the model name, endpoint and account access.",
+                    error.getMessage());
+            assertFalse(error.getMessage().contains("fixture-key"));
+            assertFalse(error.getMessage().contains("private provider body"));
+        }
     }
 
     @Test
@@ -483,7 +582,7 @@ public class CloudClientTest {
 
     @Test
     public void rejectsAResponseThatExceedsTheReadLimit() {
-        char[] chars = new char[CloudClient.MAX_RESPONSE_BYTES + 1];
+        char[] chars = new char[1024 * 1024 + 1];
         java.util.Arrays.fill(chars, 'x');
         server.enqueue(new MockResponse().setBody(new String(chars)));
         CloudClient client = client();
@@ -513,7 +612,7 @@ public class CloudClientTest {
 
     @Test
     public void capsEnhancementResponseBeforeParsing() {
-        char[] chars = new char[CloudClient.MAX_RESPONSE_BYTES + 1];
+        char[] chars = new char[1024 * 1024 + 1];
         java.util.Arrays.fill(chars, 'x');
         server.enqueue(new MockResponse().setBody(new String(chars)));
         CloudClient client = client();
@@ -681,5 +780,32 @@ public class CloudClientTest {
         CloudClient.Transcript transcript = client().transcribe(new byte[] {1, 2}, config, "auto", false);
 
         assertEquals(expectedLanguage, transcript.language);
+    }
+
+    private String catalogWithPadding(int totalBytes) {
+        String prefix = "{\"data\":[{\"id\":\"gpt-4o-mini\",\"name\":\"Fixture model\",\"padding\":\"";
+        String suffix = "\"}]}";
+        int paddingLength = totalBytes - prefix.length() - suffix.length();
+        assertTrue("Catalog fixture must fit the requested size", paddingLength >= 0);
+        char[] padding = new char[paddingLength];
+        java.util.Arrays.fill(padding, 'x');
+        return prefix + new String(padding) + suffix;
+    }
+
+    private MockResponse enhancementResponse(String content) {
+        return new MockResponse().setBody("{\"choices\":[{\"finish_reason\":\"stop\","
+                + "\"message\":{\"content\":" + JSONObject.quote(content) + "}}]}");
+    }
+
+    private ProviderConfig config(Provider provider, String model) {
+        return new ProviderConfig(provider, provider.enhancementEndpoint(), model, "fixture-key", false);
+    }
+
+    private String repeatCodePoint(int codePoint, int count) {
+        StringBuilder repeated = new StringBuilder();
+        for (int i = 0; i < count; i++) {
+            repeated.appendCodePoint(codePoint);
+        }
+        return repeated.toString();
     }
 }

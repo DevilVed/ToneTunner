@@ -30,6 +30,10 @@ public class TranscriptJoinerTest {
         assertEquals("discount % off", join("discount", "% off"));
     }
 
+    @Test public void openingMarkdownAsteriskAtWindowEndJoinsEmphasisWithoutASpace() {
+        assertEquals("word *emphasis*", join("word *", "emphasis*"));
+    }
+
     @Test public void enhancementParagraphBoundariesSurviveWindowJoining() {
         StringBuilder result = new StringBuilder();
         TranscriptJoiner.append(result, "First paragraph.\n\n");
@@ -71,6 +75,22 @@ public class TranscriptJoinerTest {
         TranscriptJoiner.appendOverlapping(result, "at the boundary then more");
 
         assertEquals("First words at the boundary then more", result.toString());
+    }
+
+    @Test public void overlappingHardCutWindowsRemoveCjkCharacterOverlap() {
+        assertOverlappingHardCut("这是中文窗口重叠识别测试边界内容",
+                "重叠识别测试边界内容继续说话", "这是中文窗口重叠识别测试边界内容继续说话");
+    }
+
+    @Test public void overlappingHardCutWindowsRemoveJapaneseCharacterOverlap() {
+        assertOverlappingHardCut("ここから日本語音声の重複境界を確認します",
+                "重複境界を確認します次の文です",
+                "ここから日本語音声の重複境界を確認します次の文です");
+    }
+
+    @Test public void overlappingHardCutWindowsRemoveThaiCharacterOverlap() {
+        assertOverlappingHardCut("ข้อความไทยต่อเนื่องสำหรับทดสอบขอบเขตซ้ำ",
+                "ขอบเขตซ้ำและต่อไป", "ข้อความไทยต่อเนื่องสำหรับทดสอบขอบเขตซ้ำและต่อไป");
     }
 
     @Test public void overlappingAudioWindowsKeepShortTwoWordMatches() {
@@ -118,5 +138,11 @@ public class TranscriptJoinerTest {
         StringBuilder result = new StringBuilder(left);
         TranscriptJoiner.append(result, right);
         return result.toString();
+    }
+
+    private static void assertOverlappingHardCut(String first, String second, String expected) {
+        StringBuilder result = new StringBuilder(first);
+        TranscriptJoiner.appendOverlapping(result, second);
+        assertEquals(expected, result.toString());
     }
 }

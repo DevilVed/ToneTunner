@@ -1,6 +1,7 @@
 package com.devilved.tonetunner.asr;
 
 import android.content.Context;
+import android.content.ContextWrapper;
 import android.os.Looper;
 import com.devilved.tonetunner.cloud.CloudClient;
 import com.devilved.tonetunner.cloud.ProviderConfig;
@@ -47,6 +48,7 @@ public class WhisperFailureRecoveryTest {
     private int errors;
     private int errorCode;
     private boolean acceptDelivery = true;
+    private boolean throwingDestination;
     private int blockAt;
     private final CountDownLatch blocked = new CountDownLatch(1);
     private final CountDownLatch allowBlocked = new CountDownLatch(1);
@@ -79,7 +81,8 @@ public class WhisperFailureRecoveryTest {
         whisper.setListener(new Whisper.WhisperListener() {
             public void onUpdateReceived(String message) { }
             public void onResultReceived(WhisperResult value) { result = value; }
-            public boolean onResultDelivery(WhisperResult value) {
+            @Override public boolean onResultDelivery(WhisperResult value) {
+                if (throwingDestination) throw new IllegalStateException("Synthetic destination failure");
                 if (!acceptDelivery) return false;
                 onResultReceived(value);
                 return true;
@@ -226,6 +229,90 @@ public class WhisperFailureRecoveryTest {
         assertEquals("room noise must not become full-scale speech", 0, calls);
         assertNull(result);
         assertEquals(1, errors);
+    }
+
+    @Test public void shortSoftSpeechInsideALongPauseIsNotDilutedOutOfTheWindow() throws Exception {
+        PcmRecording capture = PcmRecording.create(new File(context.getNoBackupFilesDir(), "fixture-spools"));
+        byte[] audio = new byte[28 * 32_000];
+        for (int i = 5 * 32_000; i < 6 * 32_000; i += 2) {
+            audio[i] = (byte) 320;
+            audio[i + 1] = (byte) (320 >> 8);
+        }
+        capture.write(audio, 0, audio.length);
+        capture.finish();
+        startAndDrain(capture);
+        assertEquals("a short quiet utterance must reach inference despite surrounding silence", 1, calls);
+        assertNotNull(result);
+        assertEquals(rawText, result.getResult());
+    }
+
+    @Test public void localDecoderFailureMarkerIsRetainedAsAFailedWindowRatherThanDeliveredAsText()
+            throws Exception {
+        rawText = "[(und)]";
+        startAndDrain(recording(1, 2048));
+        assertNull("the engine failure sentinel is not dictated text", result);
+        assertEquals(1, errors);
+        RecoveryStore.Entry saved = new RecoveryStore(context).list().get(0);
+        assertEquals("", saved.transcript);
+        assertEquals(0, saved.offset);
+        assertEquals(32_000, saved.lengthBytes);
+    }
+
+    @Test public void throwingDestinationDoesNotCrashDeliveryOrDiscardCompletedText() throws Exception {
+        throwingDestination = true;
+        startAndDrain(recording(1, 2048));
+        assertNull(result);
+        RecoveryStore store = new RecoveryStore(context);
+        RecoveryStore.Entry saved = store.list().get(0);
+        assertEquals(rawText, saved.transcript);
+        assertEquals(32_000, saved.offset);
+        throwingDestination = false;
+        whisper.retrySaved(saved.id);
+        drainWorker();
+        assertNotNull("the delivery claim must be released after an exception", result);
+        assertTrue(store.list().isEmpty());
+    }
+
+    @Test public void startDoesNotOpenPrivateStorageOrAiSettingsOnTheMainThread() throws Exception {
+        java.util.concurrent.atomic.AtomicBoolean storageOnMain = new java.util.concurrent.atomic.AtomicBoolean();
+        java.util.concurrent.atomic.AtomicBoolean settingsOnMain = new java.util.concurrent.atomic.AtomicBoolean();
+        Context wrapper = new ContextWrapper(context) {
+            @Override public Context getApplicationContext() { return this; }
+            @Override public File getNoBackupFilesDir() {
+                if (Looper.myLooper() == Looper.getMainLooper()) storageOnMain.set(true);
+                return super.getNoBackupFilesDir();
+            }
+            @Override public android.content.SharedPreferences getSharedPreferences(String name, int mode) {
+                if ("ai_settings".equals(name) && Looper.myLooper() == Looper.getMainLooper()) {
+                    settingsOnMain.set(true);
+                }
+                return super.getSharedPreferences(name, mode);
+            }
+        };
+        whisper.unloadModel();
+        whisper = new Whisper(wrapper, ignored -> new Whisper.LocalTranscriber() {
+            public CloudClient.Transcript transcribe(byte[] pcm, String language, Recognizer.Action action) {
+                return new CloudClient.Transcript(rawText, "en");
+            }
+            public void close() { }
+        });
+        whisper.start(recording(1, 2048));
+        assertFalse("archive work must run off the UI thread", storageOnMain.get());
+        assertFalse("AI settings/Keystore work must run off the UI thread", settingsOnMain.get());
+        drainWorker();
+    }
+
+    @Test public void unloadingImmediatelyAfterSubmissionStillArchivesTheAcceptedRecording() throws Exception {
+        whisper.start(recording(1, 2048));
+        whisper.unloadModel();
+        Field field = Whisper.class.getDeclaredField("worker");
+        field.setAccessible(true);
+        assertTrue(((ExecutorService) field.get(whisper)).awaitTermination(10, TimeUnit.SECONDS));
+        Shadows.shadowOf(Looper.getMainLooper()).idle();
+        RecoveryStore store = new RecoveryStore(context);
+        assertEquals(1, store.list().size());
+        assertEquals(32_000, store.list().get(0).lengthBytes);
+        assertNull(result);
     }
 
     @Test public void rejectedResultDeliveryKeepsCompletedAudioAndTextForRetry() throws Exception {

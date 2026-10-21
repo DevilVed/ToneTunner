@@ -31,6 +31,7 @@ import java.util.ArrayList;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertTrue;
 
 /**
  * Checks that each speech request has its own result-capable Activity and its own language/session.
@@ -53,6 +54,8 @@ public class WhisperRecognizeActivityRequestContractTest {
                 new ComponentName(RuntimeEnvironment.getApplication(), WhisperRecognizeActivity.class), 0);
 
         assertEquals(ActivityInfo.LAUNCH_MULTIPLE, info.launchMode);
+        assertTrue("Speech-intent callers must be able to launch with NEW_TASK without the task being cleared",
+                (info.flags & ActivityInfo.FLAG_CLEAR_TASK_ON_LAUNCH) == 0);
     }
 
     @Test public void externalLanguageTagsMapAliasesAndRejectMalformedSuffixes() {

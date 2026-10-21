@@ -26,6 +26,7 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
@@ -127,6 +128,11 @@ public class RecordingScreenAwakeTest {
             controller.pause();
 
             assertKeepScreenOn(activity, false);
+            String status = ((android.widget.TextView) activity.findViewById(R.id.tvStatus))
+                    .getText().toString();
+            assertFalse("A cancelled foreground session must not keep showing an active status",
+                    activity.getString(R.string.entrypoint_transcribing).equals(status)
+                            || activity.getString(R.string.entrypoint_recording).equals(status));
         } finally {
             controller.destroy();
         }

@@ -106,6 +106,28 @@ public class RecoveryStoreTest {
         assertEquals(1, filesWithSuffix(new File(noBackupDirectory, "dictation-recovery"), ".pcm").size());
     }
 
+    @Test public void savedDictationsAreListedByCreationTimeRatherThanRandomId() throws Exception {
+        RecoveryStore store = new RecoveryStore(context);
+        try (PcmRecording first = recording("chronology-one", new byte[]{1, 0});
+             PcmRecording second = recording("chronology-two", new byte[]{2, 0})) {
+            store.save(first, 0, "one", "auto", "en", false, null);
+            store.save(second, 0, "two", "auto", "en", false, null);
+        }
+        List<RecoveryStore.Entry> randomIdOrder = store.list();
+        String olderId = randomIdOrder.get(0).id;
+        String newerId = randomIdOrder.get(1).id;
+        for (int index = 0; index < 2; index++) {
+            String id = randomIdOrder.get(index).id;
+            File metadata = new File(noBackupDirectory, "dictation-recovery/" + id + "/entry.json");
+            org.json.JSONObject json = new org.json.JSONObject(
+                    new String(Files.readAllBytes(metadata.toPath()), StandardCharsets.UTF_8));
+            json.put("createdAtEpochMillis", index == 0 ? 1_000L : 2_000L);
+            Files.write(metadata.toPath(), json.toString().getBytes(StandardCharsets.UTF_8));
+        }
+        assertEquals("most recent saved capture should be first", newerId, store.list().get(0).id);
+        assertEquals(olderId, store.list().get(1).id);
+    }
+
     @Test public void separateStoresCannotRetryOrDiscardTheSameOpenDictation() throws Exception {
         RecoveryStore first = new RecoveryStore(context);
         RecoveryStore second = new RecoveryStore(context);
