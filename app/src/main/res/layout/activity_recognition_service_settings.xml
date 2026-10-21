@@ -51,5 +51,19 @@
                 android:contentDescription="@string/simple_chinese"/>
 
         </LinearLayout>
+
+        <CheckBox
+            android:id="@+id/mode_recognition_service_auto_stop"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/entrypoint_recognition_auto_stop" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="48dp"
+            android:layout_marginBottom="8dp"
+            android:text="@string/entrypoint_recognition_auto_stop_help"
+            android:textSize="14sp" />
     </LinearLayout>
 </androidx.coordinatorlayout.widget.CoordinatorLayout>

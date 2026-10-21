@@ -19,7 +19,7 @@ jobs:
   lint:
     name: Android Lint
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     permissions:
       contents: read
       security-events: write
@@ -33,7 +33,11 @@ jobs:
         with:
           gradle-version: "8.14.5"
       - name: Point the build at the runner's Android SDK
-        run: echo "sdk.dir=$ANDROID_HOME" > local.properties
+        run: |
+          echo "sdk.dir=$ANDROID_HOME" > local.properties
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;27.2.12479018"
+      - name: Prepare aligned native extensions
+        uses: ./.github/actions/setup-native
       - name: Run lint
         run: gradle lintDebug --stacktrace
       - name: Upload lint reports
@@ -53,7 +57,7 @@ jobs:
   codeql:
     name: CodeQL (Java)
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     permissions:
       contents: read
       security-events: write
@@ -67,12 +71,16 @@ jobs:
         with:
           gradle-version: "8.14.5"
       - name: Point the build at the runner's Android SDK
-        run: echo "sdk.dir=$ANDROID_HOME" > local.properties
+        run: |
+          echo "sdk.dir=$ANDROID_HOME" > local.properties
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;27.2.12479018"
       - uses: github/codeql-action/init@v4
         with:
           languages: java-kotlin
           build-mode: manual
           queries: security-and-quality
+      - name: Prepare aligned native extensions
+        uses: ./.github/actions/setup-native
       - name: Build for analysis
         run: gradle assembleDebug --no-build-cache --stacktrace
       - uses: github/codeql-action/analyze@v4
@@ -84,7 +92,7 @@ jobs:
     # Submitting the graph needs write access, which fork pull requests do not get.
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 60
     permissions:
       contents: write
     steps:
@@ -94,7 +102,11 @@ jobs:
           distribution: temurin
           java-version: "17"
       - name: Point the build at the runner's Android SDK
-        run: echo "sdk.dir=$ANDROID_HOME" > local.properties
+        run: |
+          echo "sdk.dir=$ANDROID_HOME" > local.properties
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;27.2.12479018"
+      - name: Prepare aligned native extensions
+        uses: ./.github/actions/setup-native
       - name: Submit dependencies to GitHub
         uses: gradle/actions/dependency-submission@v4
         with:

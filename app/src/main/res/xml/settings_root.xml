@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PreferenceScreen xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <PreferenceCategory
+        app:iconSpaceReserved="false"
+        app:title="@string/settings_category_dictation">
+
+        <Preference
+            app:iconSpaceReserved="false"
+            app:key="ai_settings"
+            app:summary="@string/settings_ai_loading"
+            app:title="@string/settings_ai_title" />
+
+        <Preference
+            app:iconSpaceReserved="false"
+            app:key="local_model"
+            app:title="@string/settings_local_model_title" />
+
+        <SwitchPreferenceCompat
+            app:defaultValue="false"
+            app:iconSpaceReserved="false"
+            app:key="imeModeAuto"
+            app:summary="@string/settings_auto_mode_summary"
+            app:title="@string/settings_auto_mode_title" />
+    </PreferenceCategory>
+
+    <PreferenceCategory
+        app:iconSpaceReserved="false"
+        app:title="@string/settings_category_keyboard">
+
+        <Preference
+            app:iconSpaceReserved="false"
+            app:key="keyboard"
+            app:title="@string/settings_keyboard_title" />
+    </PreferenceCategory>
+
+    <PreferenceCategory
+        app:iconSpaceReserved="false"
+        app:title="@string/settings_category_other_apps">
+
+        <Preference
+            app:iconSpaceReserved="false"
+            app:key="voice_input"
+            app:summary="@string/settings_voice_input_summary"
+            app:title="@string/settings_voice_input_title" />
+    </PreferenceCategory>
+
+    <PreferenceCategory
+        app:iconSpaceReserved="false"
+        app:title="@string/settings_category_about">
+
+        <Preference
+            app:iconSpaceReserved="false"
+            app:key="source"
+            app:summary="@string/settings_source_summary"
+            app:title="@string/settings_source_title" />
+
+        <Preference
+            app:iconSpaceReserved="false"
+            app:key="version"
+            app:selectable="false"
+            app:title="@string/settings_version_title" />
+    </PreferenceCategory>
+</PreferenceScreen>

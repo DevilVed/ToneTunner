@@ -54,6 +54,23 @@
             android:tooltipText="@string/translate"/>
 
     </RelativeLayout>
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
+        <Button
+            android:id="@+id/btnAiSettings"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="@string/dictation_ai_settings" />
+        <Button
+            android:id="@+id/btnCancelDictation"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="@string/dictation_cancel" />
+    </LinearLayout>
     <TextView
         android:id="@+id/tv_status"
         android:visibility="gone"
@@ -63,6 +80,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:paddingHorizontal="10dp"
+        android:accessibilityLiveRegion="polite"
         android:textSize="20sp"
         android:textColor="@color/statusError" />
     <LinearLayout

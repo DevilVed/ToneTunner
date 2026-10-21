@@ -1,0 +1,39 @@
+name: Build aligned native extensions
+description: Rebuild and validate pinned ONNX Runtime Extensions Android JNI libraries in the cloud
+runs:
+  using: composite
+  steps:
+    - name: Test native artifact validation
+      shell: bash
+      run: python3 -m unittest discover -s tools/native -p 'test_*.py' -v
+    - name: Cache aligned extensions AAR
+      id: cache
+      uses: actions/cache@v4
+      with:
+        path: native-dependencies/onnxruntime-extensions-android.aar
+        # Test and source-preparation edits do not change the compiled JNI output.
+        # Keep the key scoped to the pinned native build implementation and NDK.
+        key: aligned-extensions-${{ runner.os }}-ndk-27.2.12479018-${{ hashFiles('tools/native/rebuild_extensions.py') }}
+    - name: Check out pinned upstream extensions sources
+      if: steps.cache.outputs.cache-hit != 'true'
+      uses: actions/checkout@v4
+      with:
+        repository: microsoft/onnxruntime-extensions
+        ref: 9d5638b0b1f28ed2ca9ef589d5ec3ea86f859432
+        path: native-source
+        submodules: recursive
+        persist-credentials: false
+    - name: Install pinned Android NDK
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;27.2.12479018"'
+    - name: Rebuild upstream JNI libraries for all supported ABIs
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        python3 tools/native/prepare_extensions.py --source native-source \
+          --sdk "$ANDROID_HOME" --ndk "$ANDROID_HOME/ndk/27.2.12479018" \
+          --output native-dependencies/onnxruntime-extensions-android.aar
+    - name: Validate rebuilt or cached native libraries
+      shell: bash
+      run: python3 tools/native/check_extensions_aar.py native-dependencies/onnxruntime-extensions-android.aar

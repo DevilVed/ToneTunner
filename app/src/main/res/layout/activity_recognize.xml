@@ -17,6 +17,15 @@
         android:indeterminateTint="@color/brandSky"
         style="?android:attr/progressBarStyleHorizontal"/>
 
+    <TextView
+        android:id="@+id/tv_status"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center"
+        android:accessibilityLiveRegion="polite"
+        android:visibility="gone"
+        android:textSize="16sp" />
+
     <RelativeLayout
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
