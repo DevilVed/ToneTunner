@@ -27,7 +27,7 @@ Removing them violates GPLv3/Apache-2.0 and risks a DMCA takedown of the reposit
 
 - Keep every engineering document, research note, design, implementation plan, verification record, and other documentation created for ToneTunner inside the ToneTunner project directory.
 - Use the repository `docs/` tree for canonical documents. Optional copies in `.superpower/` must also remain inside the ToneTunner project directory.
-- Do not place the only or canonical copy of documentation in global Codex directories, external temporary folders, or another project. An isolated ToneTunner worktree is a project checkout; keep documentation in its repository tree so it is included in the pull request and returns to the main project when merged.
+- Do not place the only or canonical copy of documentation in global Codex directories, external temporary folders, or another project. When using an isolated worktree, keep the PR copy in its repository tree and keep a synchronized copy under the main ToneTunner project directory's `docs/` tree throughout the work.
 - The `inspiration folder` contains the reference VoiceInk checkout. It is not the required location for ToneTunner documentation; do not vendor that checkout into ToneTunner commits.
 
 # Building
