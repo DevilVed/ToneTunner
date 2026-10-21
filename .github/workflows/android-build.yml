@@ -66,17 +66,17 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Set up Gradle 8.14.5
+      - name: Set up Gradle 9.7.1
         uses: gradle/actions/setup-gradle@v4
         with:
           # The repo has no gradlew script on master, so use the version from gradle-wrapper.properties directly.
-          gradle-version: "8.14.5"
+          gradle-version: "9.7.1"
 
       - name: Point the build at the runner's Android SDK
         # The committed local.properties contains another machine's sdk.dir, which would break the build.
         run: |
           echo "sdk.dir=$ANDROID_HOME" > local.properties
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;27.2.12479018"
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;27.2.12479018" "build-tools;36.0.0"
 
       - uses: actions/download-artifact@v4
         with:
@@ -85,7 +85,7 @@ jobs:
 
       # Verification must pass before assembling an installable APK.
       - name: Verify edge cases and Android lint
-        run: gradle testDebugUnitTest lintDebug --continue --stacktrace
+        run: gradle verifySecurityDependencies testDebugUnitTest lintDebug --continue --stacktrace
 
       - name: Upload verification reports
         if: always()
@@ -130,11 +130,11 @@ jobs:
           java-version: "17"
       - uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: "8.14.5"
+          gradle-version: "9.7.1"
       - name: Point the build at the runner's Android SDK
         run: |
           echo "sdk.dir=$ANDROID_HOME" > local.properties
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;27.2.12479018"
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;27.2.12479018" "build-tools;36.0.0"
       - name: Enable hardware accelerated Android emulators
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -184,14 +184,14 @@ jobs:
           java-version: "17"
       - uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: "8.14.5"
+          gradle-version: "9.7.1"
       - name: Point the build at the runner's Android SDK
         run: |
           echo "sdk.dir=$ANDROID_HOME" > local.properties
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;27.2.12479018"
       - name: Install pinned APK build-tools
         run: |
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "build-tools;35.0.0"
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "build-tools;36.0.0"
       - name: Install a stable debug keystore
         if: env.DEBUG_KEYSTORE_B64 != ''
         run: |
@@ -213,7 +213,7 @@ jobs:
       - name: Verify APK alignment for modern Android devices
         run: |
           for apk in app/build/outputs/apk/*/*.apk; do
-            "$ANDROID_HOME/build-tools/35.0.0/zipalign" -c -P 16 4 "$apk"
+            "$ANDROID_HOME/build-tools/36.0.0/zipalign" -c -P 16 4 "$apk"
             python3 tools/native/check_alignment.py --apk "$apk" \
               --require-abis armeabi-v7a arm64-v8a x86 x86_64
           done
