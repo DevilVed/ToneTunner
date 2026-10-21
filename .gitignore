@@ -3,7 +3,6 @@
 /.gradle/
 
 /local.properties
-/agents.md
 /native-source/
 /native-dependencies/
 /review/

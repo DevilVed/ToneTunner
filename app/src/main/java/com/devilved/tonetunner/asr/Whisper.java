@@ -209,7 +209,7 @@ public class Whisper {
             // History is text-only and outlives audio recovery. Each store method closes its own
             // database handles; I/O remains on this worker, outside the cancellation monitor.
             if (history != null && !session.transcript.trim().isEmpty()) {
-                history.saveRaw(session.id, session.transcript, detectedLanguage);
+                saveHistoryProgress(history, session.id, session.transcript, detectedLanguage);
             }
             PcmRecording opened = new RecoveryStore(context).open(session);
             synchronized (Whisper.this) {
@@ -274,7 +274,7 @@ public class Whisper {
                             requestedAction == Recognizer.ACTION_TRANSLATE, session.id, overlap);
                 }
                 if (history != null && transcript.length() > 0) {
-                    history.saveRaw(session.id, transcript.toString(), detectedLanguage);
+                    saveHistoryProgress(history, session.id, transcript.toString(), detectedLanguage);
                 }
             }
             if (!isCurrent(token)) return;
@@ -303,13 +303,21 @@ public class Whisper {
                 }
             }
             if (!isCurrent(token)) return;
-            // Reapply canonical casing only: running explicit mappings twice could expand a
-            // correction such as "Ann => Dr. Ann" into "Dr. Dr. Ann" or cascade chained rules.
-            text = DictionaryRules.apply(text, vocabulary, "");
-            if (history != null) history.saveResult(session.id, rawText, text, detectedLanguage, warning);
+            boolean historySaved = history == null; // An explicit history opt-out is not a failure.
+            if (history != null) {
+                try {
+                    // Retry final persistence even when a progress checkpoint failed transiently.
+                    history.saveResult(session.id, rawText, text, detectedLanguage, warning);
+                    historySaved = true;
+                } catch (IOException | RuntimeException ignored) {
+                    warning = joinWarning(warning,
+                            "Transcript history could not be saved. Audio and recognized text remain in Saved dictations for recovery.");
+                }
+            }
             if (!isCurrent(token)) return;
             WhisperResult result = new WhisperResult(text,
                     detectedLanguage == null ? requestedLanguage : detectedLanguage, requestedAction, warning);
+            final boolean canRemoveRecovery = historySaved;
             new RecoveryStore(context).prepareDelivery(session);
             closeRecording(input);
             input = null;
@@ -334,7 +342,7 @@ public class Whisper {
                         }
                     }
                 } finally {
-                    try { new RecoveryStore(context).finishDelivery(session, delivered); }
+                    try { new RecoveryStore(context).finishDelivery(session, delivered && canRemoveRecovery); }
                     catch (IOException | RuntimeException ignored) { /* Keep the recoverable copy. */ }
                 }
             });
@@ -358,6 +366,16 @@ public class Whisper {
             closeLocal(engine);
             closeRecording(input);
             synchronized (Whisper.this) { if (cloud == client) cloud = null; }
+        }
+    }
+
+    private static void saveHistoryProgress(TranscriptHistoryStore history, String id,
+                                            String text, String language) {
+        try {
+            history.saveRaw(id, text, language);
+        } catch (IOException | RuntimeException ignored) {
+            // Recovery is already checkpointed. The final history write gets another attempt;
+            // its failure adds a visible warning and retains recovery even after accepted delivery.
         }
     }
 

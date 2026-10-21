@@ -12,18 +12,15 @@ import java.util.Map;
 public final class DictionaryRules {
     private DictionaryRules() { }
 
-    /** Applies explicit corrections in one pass, then normalizes exact vocabulary terms to canonical case. */
+    /**
+     * Applies only explicit corrections in one pass. Vocabulary remains a contextual model hint and never
+     * rewrites transcript text; the parameter stays for compatibility with existing callers.
+     */
     public static String apply(String text, String vocabulary, String replacements) {
         if (text == null || text.isEmpty()) {
             return text;
         }
-
-        String corrected = applyRules(text, replacementRules(replacements));
-        List<Rule> canonicalSpellings = new ArrayList<>();
-        for (String term : vocabularyTerms(vocabulary)) {
-            canonicalSpellings.add(new Rule(term, term));
-        }
-        return applyRules(corrected, longestFirst(canonicalSpellings));
+        return applyRules(text, replacementRules(replacements));
     }
 
     /** Throws IllegalArgumentException when a correction is not one nonempty literal mapping per line. */
@@ -32,7 +29,7 @@ public final class DictionaryRules {
         replacementRules(replacements);
     }
 
-    /** Shared normalization for the system prompt and deterministic exact-name casing. */
+    /** Shared normalization for the prompt's vocabulary data and settings validation. */
     static List<String> vocabularyTerms(String vocabulary) {
         Map<String, String> unique = new LinkedHashMap<>();
         if (vocabulary == null || vocabulary.trim().isEmpty()) {

@@ -198,6 +198,10 @@ public final class AiSettings {
                 || enhancement.provider == null) {
             throw new IllegalArgumentException("Choose a provider for each stage.");
         }
+        if (transcription.provider == Provider.OPENROUTER && transcription.requireZdr) {
+            throw new IllegalArgumentException(
+                    appContext.getString(R.string.ai_openrouter_transcription_zdr_unsupported));
+        }
         if (enhancementEnabled && enhancement.provider == Provider.LOCAL) {
             throw new IllegalArgumentException("Choose a cloud provider for enhancement.");
         }

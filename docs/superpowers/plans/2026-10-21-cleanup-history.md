@@ -41,7 +41,7 @@
 - [x] Add store tests for reopening, raw/final separation, stable-ID retry, ordering/pagination, Unicode, deletion and safe errors.
 - [x] Implement SQLite storage in `noBackupFilesDir` and a paged, non-exported history Activity with explicit Copy result, Copy raw and confirmed Delete.
 - [x] Connect a Transcript history control from the main screen; keep Saved dictations as recovery.
-- [x] Root integrates saveRaw at each recognition checkpoint and saveResult before delivery. History failure reports an error while preserving recovery.
+- [x] Root integrates saveRaw at each recognition checkpoint and saveResult before delivery. A history failure delivers text with a warning while preserving recovery.
 
 ## Task 3: Cleanup instructions and exact dictionary corrections
 
@@ -51,8 +51,8 @@
 
 - [x] Record failing request assertions for clear task instructions, structured vocabulary and old-mode compatibility.
 - [x] Implement an original cleanup template, optional raw system mode, JSON-array vocabulary and transcript data isolation.
-- [x] Implement literal longest-first single-pass corrections, exact canonical vocabulary casing, Unicode word boundaries, malformed-rule validation and no cascades.
-- [x] Apply explicit corrections once before enhancement and canonical vocabulary casing to final output; retain original ASR text in history/recovery. Disable severe-shortening guard only for explicit raw-system mode.
+- [x] Implement literal longest-first single-pass corrections, contextual model vocabulary guidance, Unicode word boundaries, malformed-rule validation and no cascades.
+- [x] Apply explicit corrections once before enhancement without forcing vocabulary casing; retain original ASR text in history/recovery. Disable severe-shortening guard only for explicit raw-system mode.
 - [x] Settings expose wrapper choice and a separate replacement field usable without enhancement, preserve old preferences, reject empty advanced prompts and over-limit inputs on Save.
 
 ## Task 4: Focused settings/privacy repairs
@@ -83,4 +83,11 @@ Application/test revision `f7b408e` passed Android build 39579565565 (attempt 2)
 - [x] Inspect the reported insert-while-away flow and add idle-resume and in-flight-load regressions.
 - [x] Observe the idle-resume regression fail in Actions before pushing the production correction.
 - [x] Refresh from page zero on resume, coalesce refreshes during I/O, and discard stale page results.
-- [ ] Verify the complete JVM/lint/emulator/APK gates and record the tested revision before resolving the review thread.
+- [x] Verify the JVM/lint gates and both regressions before resolving the review thread; all four emulator jobs also passed on `96bac0c`.
+
+## Follow-up: later review findings
+
+- [x] Reproduce the history-delivery, ordinary-word vocabulary and unsupported-ZDR Save cases in focused regression tests.
+- [x] Make shared `AGENTS.md` tracking intentional and remove stale hard-coded toolchain versions.
+- [x] Observe the new failing assertions in Actions, then isolate history failures, leave vocabulary as model guidance, and validate unsupported privacy choices at Save.
+- [ ] Review the complete correction, verify cloud gates, and record the final tested revision and APK.
