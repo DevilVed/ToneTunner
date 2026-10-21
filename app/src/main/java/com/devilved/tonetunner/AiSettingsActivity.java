@@ -70,7 +70,6 @@ public final class AiSettingsActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         getWindow().setFlags(WindowManager.LayoutParams.FLAG_SECURE,
                 WindowManager.LayoutParams.FLAG_SECURE);
-        ThemeUtils.setStatusBarAppearance(this);
         settings = new AiSettings(this);
         secretStore = new SecretStore(this);
 
@@ -96,6 +95,8 @@ public final class AiSettingsActivity extends AppCompatActivity {
         int horizontal = dp(18);
         LinearLayout page = new LinearLayout(this);
         page.setOrientation(LinearLayout.VERTICAL);
+        // Android 15+ draws targetSdk 35 apps edge to edge; keep the toolbar and Save clear of the bars.
+        page.setFitsSystemWindows(true);
         page.setBackgroundColor(resolveColor(com.google.android.material.R.attr.colorSurface));
 
         LinearLayout toolbar = new LinearLayout(this);
@@ -197,6 +198,9 @@ public final class AiSettingsActivity extends AppCompatActivity {
         page.addView(saveContainer, matchWrap());
 
         setContentView(page);
+        // Only after setContentView: on Android 15+ the window has no decor before it, and
+        // PhoneWindow.getInsetsController() dereferences that decor.
+        ThemeUtils.setStatusBarAppearance(this);
     }
 
     @Override

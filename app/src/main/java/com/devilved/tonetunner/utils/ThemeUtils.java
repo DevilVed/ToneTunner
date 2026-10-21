@@ -11,6 +11,9 @@ public class ThemeUtils {
         if (Build.VERSION.SDK_INT > Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             int nightModeFlags = activity.getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK;
             boolean isDarkMode = (nightModeFlags == Configuration.UI_MODE_NIGHT_YES);
+            // PhoneWindow.getInsetsController() dereferences the decor view, which does not exist
+            // until setContentView(); calling it earlier crashes. peekDecorView() never creates one.
+            if (activity.getWindow().peekDecorView() == null) return;
             WindowInsetsController insetsController = activity.getWindow().getInsetsController();
             if (insetsController != null) {
                 if (isDarkMode) {

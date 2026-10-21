@@ -117,6 +117,9 @@ jobs:
           - api: 35
             target: google_apis_ps16k
             page_size: 16384
+          - api: 36
+            target: google_apis
+            page_size: 4096
     steps:
       - uses: actions/checkout@v4
         with:
