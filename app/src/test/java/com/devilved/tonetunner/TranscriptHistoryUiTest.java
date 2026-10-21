@@ -29,7 +29,9 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import static org.junit.Assert.*;
 
@@ -147,6 +149,61 @@ public class TranscriptHistoryUiTest {
         assertEquals(expectedIds, new HashSet<>(allVisibleIds));
     }
 
+    @Test public void resumeDuringLoadMoreIoCoalescesRefreshBeforeFurtherPagination() throws Exception {
+        Set<String> expectedIds = new HashSet<>();
+        for (int i = 0; i < 23; i++) {
+            String id = "entry-" + i;
+            expectedIds.add(id);
+            store.saveResult(id, "raw " + i, "final " + i, "en", null);
+        }
+        controller = Robolectric.buildActivity(TranscriptHistoryActivity.class).setup();
+        TranscriptHistoryActivity activity = controller.get();
+        drainTwice(activity);
+        ListView list = activity.findViewById(R.id.transcript_history_list);
+        assertEquals(20, list.getAdapter().getCount());
+
+        CountDownLatch ioEntered = new CountDownLatch(1);
+        CountDownLatch releaseIo = new CountDownLatch(1);
+        ExecutorService historyIo = historyIo(activity);
+        Future<?> gate = historyIo.submit(() -> {
+            ioEntered.countDown();
+            try {
+                if (!releaseIo.await(10, TimeUnit.SECONDS)) {
+                    throw new IllegalStateException("History I/O gate timed out.");
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("History I/O gate was interrupted.", e);
+            }
+        });
+
+        try {
+            assertTrue("the history worker must be held before the page request is queued",
+                    ioEntered.await(10, TimeUnit.SECONDS));
+            Button more = activity.findViewById(R.id.transcript_history_load_more);
+            more.performClick();
+            controller.pause();
+            store.saveResult("zz-new", "new raw", "new final", "en", null);
+            expectedIds.add("zz-new");
+            controller.resume();
+        } finally {
+            releaseIo.countDown();
+            gate.get(10, TimeUnit.SECONDS);
+        }
+
+        drainTwice(activity);
+        assertEquals("the resumed page must be a fresh first page", 20, list.getAdapter().getCount());
+        assertEquals("the newly inserted item must be visible first", "zz-new", visibleIds(list).get(0));
+        activity.findViewById(R.id.transcript_history_load_more).performClick();
+        drainTwice(activity);
+
+        List<String> allVisibleIds = visibleIds(list);
+        assertEquals(24, allVisibleIds.size());
+        assertEquals("loading more after a coalesced refresh must not repeat IDs",
+                allVisibleIds.size(), new HashSet<>(allVisibleIds).size());
+        assertEquals(expectedIds, new HashSet<>(allVisibleIds));
+    }
+
     @Test public void historyActivityIsNotExported() throws Exception {
         ActivityInfo info = context.getPackageManager().getActivityInfo(
                 new ComponentName(context, TranscriptHistoryActivity.class), 0);
@@ -186,10 +243,19 @@ public class TranscriptHistoryUiTest {
     }
 
     private static void drain(Object activity) throws Exception {
+        historyIo(activity).submit(() -> { }).get(10, TimeUnit.SECONDS);
+        idleMain();
+    }
+
+    private static void drainTwice(Object activity) throws Exception {
+        drain(activity);
+        drain(activity);
+    }
+
+    private static ExecutorService historyIo(Object activity) throws Exception {
         java.lang.reflect.Field field = activity.getClass().getDeclaredField("historyIo");
         field.setAccessible(true);
-        ((ExecutorService) field.get(activity)).submit(() -> { }).get(10, TimeUnit.SECONDS);
-        idleMain();
+        return (ExecutorService) field.get(activity);
     }
 
     private static void idleMain() { Shadows.shadowOf(Looper.getMainLooper()).idle(); }

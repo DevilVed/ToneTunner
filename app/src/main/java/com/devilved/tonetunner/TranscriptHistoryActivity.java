@@ -52,6 +52,7 @@ public final class TranscriptHistoryActivity extends AppCompatActivity {
     private SummaryAdapter adapter;
     private boolean loading;
     private boolean hasMore;
+    private boolean refreshPending;
 
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -69,6 +70,11 @@ public final class TranscriptHistoryActivity extends AppCompatActivity {
             if (!loading && position >= 0 && position < entries.size()) openEntry(entries.get(position));
         });
         loadMoreButton.setOnClickListener(view -> loadPage(false));
+    }
+
+    @Override protected void onResume() {
+        super.onResume();
+        // Dictation in another app can insert rows ahead of the cached page offsets.
         loadPage(true);
     }
 
@@ -78,8 +84,12 @@ public final class TranscriptHistoryActivity extends AppCompatActivity {
     }
 
     private void loadPage(boolean refresh) {
-        if (loading) return;
+        if (loading) {
+            if (refresh) refreshPending = true;
+            return;
+        }
         if (refresh) {
+            refreshPending = false;
             entries.clear();
             hasMore = false;
             adapter.notifyDataSetChanged();
@@ -107,6 +117,8 @@ public final class TranscriptHistoryActivity extends AppCompatActivity {
                 loading = false;
                 progress.setVisibility(View.GONE);
                 loadMoreButton.setEnabled(true);
+                // A resume invalidates even a page whose query completed while we were away.
+                if (restartPendingRefresh()) return;
                 if (error != null || result == null) {
                     errorView.setText(R.string.transcript_history_error);
                     errorView.setVisibility(View.VISIBLE);
@@ -142,6 +154,7 @@ public final class TranscriptHistoryActivity extends AppCompatActivity {
                 if (isFinishing() || isDestroyed()) return;
                 loading = false;
                 progress.setVisibility(View.GONE);
+                if (restartPendingRefresh()) return;
                 if (error != null || result == null) {
                     errorView.setText(R.string.transcript_history_error);
                     errorView.setVisibility(View.VISIBLE);
@@ -236,6 +249,11 @@ public final class TranscriptHistoryActivity extends AppCompatActivity {
                             loading = false;
                             progress.setVisibility(View.GONE);
                             if (error != null) {
+                                if (restartPendingRefresh()) {
+                                    Toast.makeText(this, R.string.transcript_history_error,
+                                            Toast.LENGTH_LONG).show();
+                                    return;
+                                }
                                 errorView.setText(R.string.transcript_history_error);
                                 errorView.setVisibility(View.VISIBLE);
                                 return;
@@ -251,6 +269,12 @@ public final class TranscriptHistoryActivity extends AppCompatActivity {
         TextView line = new TextView(this);
         line.setText(text);
         content.addView(line);
+    }
+
+    private boolean restartPendingRefresh() {
+        if (!refreshPending) return false;
+        loadPage(true);
+        return true;
     }
 
     private void copyText(String text, String label) {

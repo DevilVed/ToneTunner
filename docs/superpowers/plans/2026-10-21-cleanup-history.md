@@ -77,3 +77,10 @@
 The user authorized research, engineering documentation first, implementation, and a PR in this session. The document-first milestone is complete. Work uses scoped parallel agents with root-owned integration and no repeated approval gates for the authorized work.
 
 Application/test revision `f7b408e` passed Android build 39579565565 (attempt 2) and Code checks 39579565551. The engineering study records the 299 JVM tests, four runtime matrices, intentional API 28 skip, API 35 startup rerun, reviewed fixes and verified APK. The final documentation commit does not modify application or test sources.
+
+## Follow-up: pagination review comment
+
+- [x] Inspect the reported insert-while-away flow and add idle-resume and in-flight-load regressions.
+- [x] Observe the idle-resume regression fail in Actions before pushing the production correction.
+- [x] Refresh from page zero on resume, coalesce refreshes during I/O, and discard stale page results.
+- [ ] Verify the complete JVM/lint/emulator/APK gates and record the tested revision before resolving the review thread.
