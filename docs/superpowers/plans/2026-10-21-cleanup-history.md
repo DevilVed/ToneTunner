@@ -52,7 +52,7 @@
 - [ ] Record failing request assertions for clear task instructions, structured vocabulary and old-mode compatibility.
 - [ ] Implement an original cleanup template, optional raw system mode, JSON-array vocabulary and transcript data isolation.
 - [ ] Implement literal longest-first single-pass corrections, exact canonical vocabulary casing, Unicode word boundaries, malformed-rule validation and no cascades.
-- [ ] Apply corrections before enhancement and to final output; retain original ASR text in history/recovery. Disable severe-shortening guard only for explicit raw-system mode.
+- [ ] Apply explicit corrections once before enhancement and canonical vocabulary casing to final output; retain original ASR text in history/recovery. Disable severe-shortening guard only for explicit raw-system mode.
 - [ ] Settings expose wrapper choice and a separate replacement field usable without enhancement, preserve old preferences, reject empty advanced prompts and over-limit inputs on Save.
 
 ## Task 4: Focused settings/privacy repairs

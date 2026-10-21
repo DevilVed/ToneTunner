@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <dimen name="transcript_history_dialog_padding">16dp</dimen>
+    <dimen name="transcript_history_section_gap">8dp</dimen>
+    <dimen name="transcript_history_row_horizontal_padding">16dp</dimen>
+    <dimen name="transcript_history_row_vertical_padding">12dp</dimen>
+</resources>

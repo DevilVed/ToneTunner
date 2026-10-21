@@ -6,6 +6,7 @@ import android.os.Looper;
 
 import com.devilved.tonetunner.cloud.AiSettings;
 import com.devilved.tonetunner.cloud.CloudClient;
+import com.devilved.tonetunner.cloud.DictionaryRules;
 import com.devilved.tonetunner.cloud.Provider;
 import com.devilved.tonetunner.cloud.ProviderConfig;
 import com.devilved.tonetunner.voice_translation.neural_networks.NeuralNetworkApi;
@@ -66,6 +67,7 @@ public class Whisper {
     private volatile boolean destroyed;
     private Recognizer.Action action = Recognizer.ACTION_TRANSCRIBE;
     private String language = "auto";
+    private boolean historyEnabled = true;
     private Future<?> work;
     private boolean archiving;
     private CloudClient cloud;
@@ -92,6 +94,8 @@ public class Whisper {
     public synchronized void setLanguage(String language) {
         this.language = language == null || language.isEmpty() ? "auto" : language;
     }
+    /** Snapshotted at start; private editors can opt out of the separate permanent text history. */
+    public synchronized void setHistoryEnabled(boolean enabled) { historyEnabled = enabled; }
 
     public void start() { start(null); }
 
@@ -106,16 +110,18 @@ public class Whisper {
         if (token < 0) { closeRecording(recording); return; }
         Recognizer.Action requestedAction = action;
         String requestedLanguage = language;
+        boolean saveHistory = historyEnabled;
         // The task owns this finished capture until archival is complete. Cancellation must not
         // cancel a queued archive or close/delete its still-disposable source on the main thread.
         archiving = true;
         update(token, MSG_PREPARING);
         work = worker.submit(() -> prepareAndProcess(token, recording, savedId,
-                requestedAction, requestedLanguage));
+                requestedAction, requestedLanguage, saveHistory));
     }
 
     private void prepareAndProcess(long token, PcmRecording recording, String savedId,
-                                   Recognizer.Action initialAction, String initialLanguage) {
+                                   Recognizer.Action initialAction, String initialLanguage,
+                                   boolean saveHistory) {
         RecoveryStore.Entry retained = null;
         Recognizer.Action requestedAction = initialAction;
         String requestedLanguage = initialLanguage;
@@ -164,6 +170,8 @@ public class Whisper {
         final boolean enhance;
         final String prompt;
         final String vocabulary;
+        final String replacements;
+        final boolean builtInCleanupRules;
         try {
             AiSettings settings = new AiSettings(context);
             transcription = settings.getTranscriptionConfig();
@@ -171,6 +179,8 @@ public class Whisper {
             enhancement = enhance ? settings.getEnhancementConfig() : null;
             prompt = settings.getEnhancementPrompt();
             vocabulary = settings.getVocabulary();
+            replacements = settings.getReplacements();
+            builtInCleanupRules = settings.useBuiltInCleanupRules();
             if ((transcription.provider != Provider.LOCAL || enhance) && !settings.isCloudConsentGranted()) {
                 throw new IOException("Open AI settings and save your cloud processing choice before recording.");
             }
@@ -194,8 +204,13 @@ public class Whisper {
         String detectedLanguage = session.detectedLanguage;
         long resumeOffset = session.offset;
         boolean overlap = session.overlap;
-        try {
+        try (TranscriptHistoryStore history = saveHistory ? new TranscriptHistoryStore(context) : null) {
             if (!isCurrent(token)) return;
+            // History is text-only and outlives audio recovery. Each store method closes its own
+            // database handles; I/O remains on this worker, outside the cancellation monitor.
+            if (history != null && !session.transcript.trim().isEmpty()) {
+                history.saveRaw(session.id, session.transcript, detectedLanguage);
+            }
             PcmRecording opened = new RecoveryStore(context).open(session);
             synchronized (Whisper.this) {
                 if (!isCurrent(token)) { opened.close(); return; }
@@ -258,12 +273,16 @@ public class Whisper {
                             requestedLanguage, detectedLanguage,
                             requestedAction == Recognizer.ACTION_TRANSLATE, session.id, overlap);
                 }
+                if (history != null && transcript.length() > 0) {
+                    history.saveRaw(session.id, transcript.toString(), detectedLanguage);
+                }
             }
             if (!isCurrent(token)) return;
             closeLocal(engine);
             engine = null;
-            String text = transcript.toString();
-            if (text.trim().isEmpty()) throw new CloudClient.NoSpeechException();
+            String rawText = transcript.toString();
+            if (rawText.trim().isEmpty()) throw new CloudClient.NoSpeechException();
+            String text = DictionaryRules.apply(rawText, vocabulary, replacements);
             String warning = input.getCaptureWarning();
             if (enhance) {
                 update(token, MSG_ENHANCING);
@@ -272,14 +291,22 @@ public class Whisper {
                     for (String piece : TextWindows.split(text, 3000)) {
                         if (!isCurrent(token)) return;
                         TranscriptJoiner.appendEnhanced(enhanced, piece,
-                                client.enhance(piece, enhancement, prompt, vocabulary));
+                                builtInCleanupRules
+                                        ? client.enhance(piece, enhancement, prompt, vocabulary)
+                                        : client.enhance(piece, enhancement, prompt, vocabulary, false));
                     }
                     text = enhanced.toString();
                 } catch (IOException | RuntimeException e) {
                     if (!isCurrent(token)) return;
-                    warning = joinWarning(warning, "Enhancement failed. Returned the complete raw transcript.");
+                    warning = joinWarning(warning,
+                            "Enhancement failed. Returned the complete transcript without AI cleanup.");
                 }
             }
+            if (!isCurrent(token)) return;
+            // Reapply canonical casing only: running explicit mappings twice could expand a
+            // correction such as "Ann => Dr. Ann" into "Dr. Dr. Ann" or cascade chained rules.
+            text = DictionaryRules.apply(text, vocabulary, "");
+            if (history != null) history.saveResult(session.id, rawText, text, detectedLanguage, warning);
             if (!isCurrent(token)) return;
             WhisperResult result = new WhisperResult(text,
                     detectedLanguage == null ? requestedLanguage : detectedLanguage, requestedAction, warning);

@@ -107,7 +107,7 @@ The local VoiceInk inspection confirms that ordinary cleanup sends the entire tr
 
 Add a separate explicit replacement field, one `heard text => preferred text` rule per line. It must be available with enhancement disabled. Match literal Unicode text, case-insensitively, with boundaries for letters/digits/combining marks; do not replace `Ann` inside `Annette`. Prefer longer rules, perform a single pass over the original text, and do not recursively replace generated output. Treat `$` and backslashes as ordinary replacement characters. Preserve unrecognized names instead of guessing.
 
-Apply replacements before enhancement and again to final output, because a text model can reintroduce a known misrecognition. Canonical vocabulary casing can be normalized on exact whole-term matches; phonetic vocabulary matching remains model-guided. Keep raw ASR text independently for history and retry. This Java implementation need not reproduce every script heuristic in VoiceInk; its boundary behavior must be explicit and tested.
+Apply explicit replacements once before enhancement, as in the inspected source. Repeating a rule such as `Ann => Dr. Ann` after enhancement can incorrectly produce `Dr. Dr. Ann`, and chained mappings can cascade across passes even when each individual pass is nonrecursive. Final output receives canonical vocabulary casing only, not a second explicit replacement pass. A model can still undo an explicit spelling correction; the system prompt and vocabulary guide it, while the original ASR text remains independently available for history and retry. This Java implementation need not reproduce every script heuristic in VoiceInk; its boundary behavior must be explicit and tested.
 
 ### 4.3 Durable transcript history
 
@@ -179,4 +179,8 @@ Some older README/PR verification text attributes API 36 coverage to `0213369`, 
 
 ## 8. Implementation and verification record
 
-At document creation, implementation has not started. This section will record final interfaces, test results, review corrections, and any departures from the design once they are observed.
+At document creation, implementation had not started. The engineering design was committed first, then a tests-only checkpoint was pushed. [Actions run 39575842568](https://github.com/DevilVed/ToneTunner/actions/runs/39575842568) compiled and ran 272 JVM/Robolectric tests: 15 failed, with zero execution errors or skips. The assertions reproduced absent text history after accepted delivery, absent dictionary APIs, the weak system prompt and missing advanced mode, local users defaulting to Groq, missing explicit Content Capture exclusion, discovery error misclassification, and unenforced transcription ZDR. The Android/emulator/APK jobs were skipped because this gate failed, as intended. No Android executable tests ran on the development Mac.
+
+After the user requested a replacement PR, the early draft was closed and this unmerged work moved onto a generic branch. The regression evidence remains tied to its original tested revision; rewriting the new branch's descriptive commits does not constitute another test run. The implementation uses the same regression files, and final green evidence will identify the integrated revision.
+
+An integration review changed the initially proposed double replacement pass to a single pre-enhancement pass plus final vocabulary casing. The regression `literalCorrectionsRunOnceAndHistoryKeepsTheOriginalRecognition` covers the `Ann => Dr. Ann` case and separate raw/final values. This is a correctness repair to the design, not an untested promise that a model will always preserve names.

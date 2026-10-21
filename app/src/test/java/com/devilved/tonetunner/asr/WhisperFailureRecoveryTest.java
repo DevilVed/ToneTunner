@@ -445,6 +445,77 @@ public class WhisperFailureRecoveryTest {
         for (int length : windowSizes) assertTrue(length <= 896_000);
     }
 
+    @Test public void literalCorrectionsRunOnceAndHistoryKeepsTheOriginalRecognition() throws Exception {
+        rawText = "Ann met tonetunner.";
+        context.getSharedPreferences("ai_settings", Context.MODE_PRIVATE).edit()
+                .putString("enhancement.vocabulary", "ToneTunner")
+                .putString("dictation.replacements", "Ann => Dr. Ann").commit();
+        startAndDrain(recording(1, 2048));
+        assertNotNull(result);
+        assertEquals("Dr. Ann met ToneTunner.", result.getResult());
+        try (TranscriptHistoryStore history = new TranscriptHistoryStore(context)) {
+            assertEquals(1, history.list(10, 0).size());
+            TranscriptHistoryStore.Entry entry = history.get(history.list(10, 0).get(0).id);
+            assertEquals(rawText, entry.rawText);
+            assertEquals(result.getResult(), entry.text);
+            assertTrue(entry.isComplete);
+        }
+    }
+
+    @Test public void acceptedAndRejectedDeliveryBothKeepTheirTextHistory() throws Exception {
+        acceptDelivery = false;
+        startAndDrain(recording(1, 2048));
+        assertNull(result);
+        RecoveryStore.Entry retained = new RecoveryStore(context).list().get(0);
+        try (TranscriptHistoryStore history = new TranscriptHistoryStore(context)) {
+            assertEquals(rawText, history.get(retained.id).text);
+            acceptDelivery = true;
+            whisper.retrySaved(retained.id);
+            drainWorker();
+            assertNotNull(result);
+            assertTrue(new RecoveryStore(context).list().isEmpty());
+            assertEquals(1, history.list(10, 0).size());
+            assertEquals(rawText, history.get(retained.id).text);
+        }
+    }
+
+    @Test public void enhancementFailureHistoryContainsTextAndWarningInsteadOfAnErrorAsText() throws Exception {
+        context.getSharedPreferences("ai_settings", Context.MODE_PRIVATE).edit()
+                .putBoolean("enhancement.enabled", true).commit();
+        startAndDrain(recording(1, 2048));
+        assertNotNull(result);
+        try (TranscriptHistoryStore history = new TranscriptHistoryStore(context)) {
+            TranscriptHistoryStore.Entry entry = history.get(history.list(10, 0).get(0).id);
+            assertEquals(rawText, entry.rawText);
+            assertEquals(rawText, entry.text);
+            assertTrue(entry.warning.contains("Enhancement failed"));
+        }
+    }
+
+    @Test public void failedLaterWindowLeavesRecognizedProgressInHistory() throws Exception {
+        failAt = 2;
+        startAndDrain(recording(60, 2048));
+        assertNull(result);
+        try (TranscriptHistoryStore history = new TranscriptHistoryStore(context)) {
+            TranscriptHistoryStore.Entry entry = history.get(history.list(10, 0).get(0).id);
+            assertEquals("part-1", entry.rawText);
+            assertEquals(entry.rawText, entry.text);
+            assertFalse(entry.isComplete);
+        }
+    }
+
+    @Test public void privateEditorHistoryChoiceIsSnapshottedBeforeProcessing() throws Exception {
+        whisper.setHistoryEnabled(false);
+        whisper.start(recording(1, 2048));
+        // A later setting change must not enable history for this already-started operation.
+        whisper.setHistoryEnabled(true);
+        drainWorker();
+        assertNotNull(result);
+        try (TranscriptHistoryStore history = new TranscriptHistoryStore(context)) {
+            assertTrue(history.list(10, 0).isEmpty());
+        }
+    }
+
     private PcmRecording recording(int seconds, int amplitude) throws Exception {
         PcmRecording recording = PcmRecording.create(new File(context.getNoBackupFilesDir(), "fixture-spools"));
         byte[] frame = new byte[32_000];

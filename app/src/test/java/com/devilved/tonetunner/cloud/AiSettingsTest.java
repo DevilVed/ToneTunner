@@ -29,6 +29,11 @@ public class AiSettingsTest {
         assertFalse(settings.isCloudConsentGranted());
     }
 
+    @Test public void cleanupOptionsDefaultToBuiltInRulesAndNoReplacements() {
+        assertTrue(settings.useBuiltInCleanupRules());
+        assertEquals("", settings.getReplacements());
+    }
+
     @Test public void explicitlySavedCloudProviderChoiceRemainsCloud() {
         Context context = RuntimeEnvironment.getApplication();
         context.getSharedPreferences("ai_settings", Context.MODE_PRIVATE).edit()
@@ -52,6 +57,59 @@ public class AiSettingsTest {
         assertEquals("Faithful cleanup", reloaded.getEnhancementPrompt());
         assertEquals("ToneTunner", reloaded.getVocabulary());
         assertEquals("", reloaded.getTranscriptionConfig().apiKey);
+    }
+
+    @Test public void expandedSaveSettingsPersistsCleanupModeAndReplacements() throws Exception {
+        settings.saveSettings(local(), false, enhancement(), "Raw system instructions", "ToneTunner",
+                false, false, "Tunner => Toner");
+
+        AiSettings reloaded = new AiSettings(RuntimeEnvironment.getApplication());
+
+        assertFalse(reloaded.useBuiltInCleanupRules());
+        assertEquals("Tunner => Toner", reloaded.getReplacements());
+    }
+
+    @Test public void legacySaveSettingsOverloadRetainsBuiltInModeAndEmptyReplacements() throws Exception {
+        settings.saveSettings(local(), false, enhancement(), "Faithful cleanup", "ToneTunner", false);
+
+        AiSettings reloaded = new AiSettings(RuntimeEnvironment.getApplication());
+
+        assertTrue(reloaded.useBuiltInCleanupRules());
+        assertEquals("", reloaded.getReplacements());
+    }
+
+    @Test public void settingsRejectPromptVocabularyAndReplacementTextOver16000Characters() {
+        String tooLong = new String(new char[16001]).replace('\0', 'x');
+
+        assertThrows(IllegalArgumentException.class, () -> settings.saveSettings(
+                local(), false, enhancement(), tooLong, "", false, true, ""));
+        assertThrows(IllegalArgumentException.class, () -> settings.saveSettings(
+                local(), false, enhancement(), "", tooLong, false, true, ""));
+        assertThrows(IllegalArgumentException.class, () -> settings.saveSettings(
+                local(), false, enhancement(), "", "", false, true, tooLong));
+    }
+
+    @Test public void advancedSystemModeRequiresPromptWhenEnhancementIsEnabled() {
+        assertThrows(IllegalArgumentException.class, () -> settings.saveSettings(
+                local(), true, enhancement(), " \n ", "", true, false, ""));
+    }
+
+    @Test public void requiredZdrRejectsOpenRouterTranscriptionDuringCredentialPreflight() {
+        RuntimeEnvironment.getApplication().getSharedPreferences("ai_settings", Context.MODE_PRIVATE)
+                .edit().putString("transcription.provider", Provider.OPENROUTER.name())
+                .putBoolean("transcription.require_zdr", true).putBoolean("cloud.consent", true).commit();
+
+        assertEquals(com.devilved.tonetunner.R.string.ai_openrouter_transcription_zdr_unsupported,
+                settings.validateCloudCredentials());
+    }
+
+    @Test public void openRouterTranscriptionCanOptOutOfUnsupportedZdrRequirement() {
+        RuntimeEnvironment.getApplication().getSharedPreferences("ai_settings", Context.MODE_PRIVATE)
+                .edit().putString("transcription.provider", Provider.OPENROUTER.name())
+                .putBoolean("transcription.require_zdr", false).putBoolean("cloud.consent", true).commit();
+
+        assertNotEquals(com.devilved.tonetunner.R.string.ai_openrouter_transcription_zdr_unsupported,
+                settings.validateCloudCredentials());
     }
 
     @Test public void cloudCannotBeEnabledWithoutConsent() {

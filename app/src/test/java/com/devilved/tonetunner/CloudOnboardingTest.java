@@ -8,6 +8,7 @@ import android.text.InputType;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
+import android.widget.CompoundButton;
 import android.widget.EditText;
 import android.widget.TextView;
 import org.junit.Before;
@@ -138,6 +139,43 @@ public class CloudOnboardingTest {
                     marker, recreatedKey.getText().toString());
             assertEquals("An unsaved prompt should remain available after rotation",
                     draftPrompt, recreatedPrompt.getText().toString());
+        }
+    }
+
+    @Test public void replacementRulesRemainEditableWhenEnhancementIsDisabled() throws Exception {
+        try (ActivityController<AiSettingsActivity> controller =
+                     Robolectric.buildActivity(AiSettingsActivity.class).setup()) {
+            AiSettingsActivity activity = controller.get();
+            EditText replacements = (EditText) field(AiSettingsActivity.class, "replacementsInput")
+                    .get(activity);
+
+            assertTrue(replacements.isEnabled());
+            replacements.setText("heard => preferred");
+            assertEquals("heard => preferred", replacements.getText().toString());
+        }
+    }
+
+    @Test public void cleanupModeAndReplacementDraftSurviveConfigurationChange() throws Exception {
+        try (ActivityController<AiSettingsActivity> controller =
+                     Robolectric.buildActivity(AiSettingsActivity.class).setup()) {
+            AiSettingsActivity first = controller.get();
+            CompoundButton builtInRules = (CompoundButton) field(AiSettingsActivity.class, "useBuiltInRules")
+                    .get(first);
+            EditText replacements = (EditText) field(AiSettingsActivity.class, "replacementsInput")
+                    .get(first);
+            builtInRules.setChecked(false);
+            replacements.setText("heard => preferred");
+
+            controller.recreate();
+
+            AiSettingsActivity recreated = controller.get();
+            CompoundButton recreatedBuiltInRules = (CompoundButton) field(AiSettingsActivity.class, "useBuiltInRules")
+                    .get(recreated);
+            EditText recreatedReplacements = (EditText) field(AiSettingsActivity.class, "replacementsInput")
+                    .get(recreated);
+            assertFalse(recreatedBuiltInRules.isChecked());
+            assertEquals("heard => preferred", recreatedReplacements.getText().toString());
+            assertTrue(recreatedReplacements.isEnabled());
         }
     }
 

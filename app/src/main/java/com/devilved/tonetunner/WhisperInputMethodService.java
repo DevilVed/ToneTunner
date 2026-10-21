@@ -363,6 +363,9 @@ public class WhisperInputMethodService extends InputMethodService {
                               InputConnection inputConnection, boolean translateRequested) {
         if (!isCurrentStart(token, generation, editorIdentity, inputConnection)) return;
         if (mWhisper == null) initModel();
+        EditorInfo editor = getCurrentInputEditorInfo();
+        mWhisper.setHistoryEnabled(editor != null
+                && (editor.imeOptions & EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING) == 0);
         if (mRecorder != null) mRecorder.release();
         Recorder recorder = new Recorder(this);
         mRecorder = recorder;
