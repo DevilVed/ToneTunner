@@ -211,16 +211,21 @@ public final class RecoveryStore {
                 || entry.lengthBytes != audioLength) {
             throw new IOException("Retained recording position is invalid.");
         }
-        Entry current = readEntry(directory, entry.id);
-        if (current == null || !sameSnapshot(entry, current)) {
-            throw new IOException("Recovery entry changed; refresh it before retrying.");
-        }
         String path = audioFile.getCanonicalPath();
         synchronized (AUDIO_LOCK) {
             if (DELIVERY_AUDIO.contains(path)) {
                 throw new IOException("This saved dictation is being delivered.");
             }
-            if (!OPEN_AUDIO.add(path)) throw new IOException("This saved dictation is already being retried.");
+            if (OPEN_AUDIO.contains(path)) throw new IOException("This saved dictation is already being retried.");
+            // Always acquire audio before metadata when both locks are needed. Validate the
+            // policy and claim its snapshot together, excluding concurrent restriction.
+            synchronized (METADATA_LOCK) {
+                Entry current = readEntry(directory, entry.id);
+                if (current == null || !sameSnapshot(entry, current)) {
+                    throw new IOException("Recovery entry changed; refresh it before retrying.");
+                }
+                OPEN_AUDIO.add(path);
+            }
         }
         try {
             PcmRecording opened = PcmRecording.openExisting(audioFile, entry.offset, entry.captureWarning);
@@ -267,15 +272,21 @@ public final class RecoveryStore {
         if (!audioFile.isFile() || !isContained(directory, audioFile)) {
             throw new IOException("Retained recording audio is unavailable.");
         }
-        synchronized (METADATA_LOCK) {
-            Entry previous = readEntry(directory, id);
-            if (previous == null) throw new IOException("Recovery entry metadata is unavailable.");
-            if (!previous.historyEnabled) return previous;
-            Entry restricted = new Entry(previous.id, previous.transcript, previous.requestedLanguage,
-                    previous.detectedLanguage, previous.translate, previous.offset, previous.overlap,
-                    previous.lengthBytes, previous.captureWarning, false, previous.createdAtEpochMillis);
-            writeMetadataAtomically(directory, encodeMetadata(restricted));
-            return restricted;
+        String path = audioFile.getCanonicalPath();
+        synchronized (AUDIO_LOCK) {
+            if (OPEN_AUDIO.contains(path) || DELIVERY_AUDIO.contains(path)) {
+                throw new IOException("Stop retrying this dictation before changing its history policy.");
+            }
+            synchronized (METADATA_LOCK) {
+                Entry previous = readEntry(directory, id);
+                if (previous == null) throw new IOException("Recovery entry metadata is unavailable.");
+                if (!previous.historyEnabled) return previous;
+                Entry restricted = new Entry(previous.id, previous.transcript, previous.requestedLanguage,
+                        previous.detectedLanguage, previous.translate, previous.offset, previous.overlap,
+                        previous.lengthBytes, previous.captureWarning, false, previous.createdAtEpochMillis);
+                writeMetadataAtomically(directory, encodeMetadata(restricted));
+                return restricted;
+            }
         }
     }
 

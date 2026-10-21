@@ -96,5 +96,5 @@ Application/test revision `f7b408e` passed Android build 39579565565 (attempt 2)
 
 - [x] Add a regression for a private editor's failed delivery followed by retry from a fresh default-enabled caller; cover conservative recovery metadata defaults. Actions 39587513087 reproduced five failures.
 - [x] Persist history permission during archival/checkpoints and honor it on explicit retries.
-- [ ] Verify the two-store ownership regression and serialize policy restriction with audio claims.
+- [x] Reproduce the two-store ownership regression and serialize policy restriction with audio claims. Actions 39588803707 passed 310 tests with only that focused failure.
 - [ ] Remove the unused vocabulary argument, verify the cloud gates and resolve the remaining review threads.
