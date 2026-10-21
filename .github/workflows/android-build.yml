@@ -50,15 +50,20 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Set up Gradle 8.14.5
+      - name: Set up Gradle 9.7.1
         uses: gradle/actions/setup-gradle@v4
         with:
           # The repo has no gradlew script on master, so use the version from gradle-wrapper.properties directly.
-          gradle-version: "8.14.5"
+          gradle-version: "9.7.1"
 
       - name: Point the build at the runner's Android SDK
         # The committed local.properties contains another machine's sdk.dir, which would break the build.
-        run: echo "sdk.dir=$ANDROID_HOME" > local.properties
+        run: |
+          echo "sdk.dir=$ANDROID_HOME" > local.properties
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "build-tools;36.0.0"
+
+      - name: Verify build-tool dependency security baseline
+        run: gradle verifySecurityDependencies --stacktrace
 
       - name: Install a stable debug keystore
         # Without this every run signs with a fresh random key, so a new APK cannot be installed
