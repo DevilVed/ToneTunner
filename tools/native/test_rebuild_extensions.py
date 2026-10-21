@@ -57,7 +57,9 @@ class RebuildExtensionsTest(unittest.TestCase):
             ndk = sdk / "ndk" / "27.2.12479018"
 
             with patch.object(rebuild_extensions, "BASE_SHA256", expected_hash), \
-                    patch.object(rebuild_extensions.subprocess, "check_output", return_value=rebuild_extensions.REVISION), \
+                    patch.object(rebuild_extensions.subprocess, "check_output", side_effect=[
+                        rebuild_extensions.REVISION, "", "", "",
+                    ]), \
                     patch.object(rebuild_extensions.subprocess, "run", side_effect=write_fake_build_outputs) as native_build, \
                     patch.object(rebuild_extensions.urllib.request, "urlopen") as download:
                 rebuild_extensions.build(source, sdk, ndk, output, base_aar=base_aar)
@@ -99,7 +101,9 @@ class RebuildExtensionsTest(unittest.TestCase):
             base_aar = root / "base.aar"
             make_base_aar(base_aar)
             with patch.object(rebuild_extensions, "BASE_SHA256", "0" * 64), \
-                    patch.object(rebuild_extensions.subprocess, "check_output", return_value=rebuild_extensions.REVISION), \
+                    patch.object(rebuild_extensions.subprocess, "check_output", side_effect=[
+                        rebuild_extensions.REVISION, "", "", "",
+                    ]), \
                     patch.object(rebuild_extensions.subprocess, "run") as native_build, \
                     patch.object(rebuild_extensions.urllib.request, "urlopen") as download:
                 with self.assertRaisesRegex(ValueError, "checksum"):
@@ -119,6 +123,59 @@ class RebuildExtensionsTest(unittest.TestCase):
                     rebuild_extensions.build(source, root / "sdk", root / "ndk", root / "out.aar",
                                              base_aar=root / "unused.aar")
             native_build.assert_not_called()
+
+    def test_dirty_source_checkout_fails_before_native_compilation(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "source"
+            source.mkdir()
+            with patch.object(rebuild_extensions.subprocess, "check_output", side_effect=[
+                    rebuild_extensions.REVISION, " M tools/build.py\n"]), \
+                    patch.object(rebuild_extensions.subprocess, "run") as native_build:
+                with self.assertRaisesRegex(ValueError, "modified or untracked"):
+                    rebuild_extensions.build(source, root / "sdk", root / "ndk", root / "out.aar",
+                                             base_aar=root / "unused.aar")
+            native_build.assert_not_called()
+
+    def test_recursive_submodule_mismatch_fails_before_native_compilation(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "source"
+            source.mkdir()
+            with patch.object(rebuild_extensions.subprocess, "check_output", side_effect=[
+                    rebuild_extensions.REVISION, "", f"+{'a' * 40} third_party/dependency\n"]), \
+                    patch.object(rebuild_extensions.subprocess, "run") as native_build:
+                with self.assertRaisesRegex(ValueError, "recursive submodule"):
+                    rebuild_extensions.build(source, root / "sdk", root / "ndk", root / "out.aar",
+                                             base_aar=root / "unused.aar")
+            native_build.assert_not_called()
+
+    def test_dirty_recursive_submodule_fails_before_native_compilation(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "source"
+            source.mkdir()
+            with patch.object(rebuild_extensions.subprocess, "check_output", side_effect=[
+                    rebuild_extensions.REVISION, "", f" {'a' * 40} third_party/dependency\n",
+                    " M nested-source.cpp\n"]), \
+                    patch.object(rebuild_extensions.subprocess, "run") as native_build:
+                with self.assertRaisesRegex(ValueError, "modified or untracked files in a recursive submodule"):
+                    rebuild_extensions.build(source, root / "sdk", root / "ndk", root / "out.aar",
+                                             base_aar=root / "unused.aar")
+            native_build.assert_not_called()
+
+    def test_extensions_aar_gate_requires_both_libraries_for_every_abi(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            archive_path = Path(temporary) / "incomplete.aar"
+            missing = "jni/armeabi-v7a/libortextensions.so"
+            with zipfile.ZipFile(archive_path, "w") as archive:
+                for abi in ABIS:
+                    for library in LIBRARIES:
+                        name = f"jni/{abi}/{library}"
+                        if name != missing:
+                            archive.writestr(name, elf_64())
+            with self.assertRaisesRegex(ValueError, "armeabi-v7a/libortextensions.so"):
+                rebuild_extensions.verify_extensions_archive(archive_path)
 
     def test_missing_source_fetches_the_pinned_commit_and_recursive_submodules(self):
         with tempfile.TemporaryDirectory() as temporary:

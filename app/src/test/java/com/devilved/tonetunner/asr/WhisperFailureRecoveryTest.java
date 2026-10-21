@@ -361,6 +361,16 @@ public class WhisperFailureRecoveryTest {
         assertTrue(store.list().isEmpty());
     }
 
+    @Test public void absentRecordingReportsClientErrorWithoutOpeningAModel() throws Exception {
+        whisper.start();
+        drainWorker();
+        assertEquals(android.speech.SpeechRecognizer.ERROR_CLIENT, errorCode);
+        assertEquals(1, errors);
+        assertEquals(0, calls);
+        assertNull(result);
+        assertTrue(new RecoveryStore(context).list().isEmpty());
+    }
+
     @Test public void noSpeechHasANoMatchErrorInsteadOfAGenericServerError() throws Exception {
         startAndDrain(recording(1, 0));
         assertEquals(android.speech.SpeechRecognizer.ERROR_NO_MATCH, errorCode);

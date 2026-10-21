@@ -5,10 +5,10 @@ plugins {
 def alignedExtensionsAar = rootProject.file('native-dependencies/onnxruntime-extensions-android.aar')
 if (!alignedExtensionsAar.isFile()) {
     throw new GradleException("Missing aligned ONNX Runtime Extensions AAR at ${alignedExtensionsAar}. " +
-            "Run: python3 tools/native/prepare_extensions.py --sdk <ANDROID_HOME> " +
-            "--ndk <ANDROID_HOME>/ndk/27.2.12479018 " +
-            "--output native-dependencies/onnxruntime-extensions-android.aar. " +
-            "For offline preparation, also pass --source and --base-aar. See tools/native/README.md.")
+            'Run: python3 tools/native/prepare_extensions.py --sdk "$ANDROID_HOME" ' +
+            '--ndk "$ANDROID_HOME/ndk/27.2.12479018" ' +
+            '--output native-dependencies/onnxruntime-extensions-android.aar\n' +
+            'To supply inputs locally, also pass --source and --base-aar. See tools/native/README.md.')
 }
 
 android {

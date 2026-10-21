@@ -43,6 +43,9 @@ import java.util.concurrent.Executors;
 
 /** Secure, separate configuration screen for transcription and text enhancement providers. */
 public final class AiSettingsActivity extends AppCompatActivity {
+    // Accepted credential/settings mutations survive rotation and run in UI submission order.
+    // Activity-scoped discovery/status work can be cancelled without interrupting a saved choice.
+    private static final ExecutorService settingsWrites = Executors.newSingleThreadExecutor();
     private final ExecutorService modelExecutor = Executors.newSingleThreadExecutor();
 
     private AiSettings settings;
@@ -239,7 +242,7 @@ public final class AiSettingsActivity extends AppCompatActivity {
         saving = true;
         saveButton.setEnabled(false);
         try {
-            modelExecutor.execute(() -> {
+            settingsWrites.execute(() -> {
                 String errorMessage = null;
                 int fallback = R.string.ai_secure_storage_error;
                 boolean succeeded = true;
@@ -697,7 +700,7 @@ public final class AiSettingsActivity extends AppCompatActivity {
             new AlertDialog.Builder(AiSettingsActivity.this)
                     .setMessage(R.string.ai_key_removal_confirm)
                     .setNegativeButton(R.string.ai_cancel, null)
-                    .setPositiveButton(R.string.ai_confirm, (dialog, which) -> modelExecutor.execute(() -> {
+                    .setPositiveButton(R.string.ai_confirm, (dialog, which) -> settingsWrites.execute(() -> {
                         boolean failed = false;
                         try {
                             secretStore.removeKey(selectedProvider, selectedStage, endpointValue);

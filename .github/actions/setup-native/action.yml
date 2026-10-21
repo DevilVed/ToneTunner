@@ -36,4 +36,4 @@ runs:
           --output native-dependencies/onnxruntime-extensions-android.aar
     - name: Validate rebuilt or cached native libraries
       shell: bash
-      run: python3 tools/native/check_alignment.py native-dependencies/onnxruntime-extensions-android.aar
+      run: python3 tools/native/check_extensions_aar.py native-dependencies/onnxruntime-extensions-android.aar

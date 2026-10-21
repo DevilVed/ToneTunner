@@ -11,6 +11,9 @@ import android.speech.RecognizerIntent;
 import androidx.preference.PreferenceManager;
 
 import com.devilved.tonetunner.asr.Recorder;
+import com.devilved.tonetunner.asr.PcmRecording;
+import com.devilved.tonetunner.asr.RecoveryStore;
+import com.devilved.tonetunner.asr.Whisper;
 import com.devilved.tonetunner.asr.WhisperResult;
 import com.devilved.tonetunner.voice_translation.neural_networks.voice.Recognizer;
 
@@ -30,6 +33,12 @@ import java.lang.reflect.Field;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
+import java.io.File;
+import java.io.IOException;
+import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
@@ -125,6 +134,108 @@ public class WhisperRecognitionServiceDeliveryTest {
         }
     }
 
+    @Test public void completedCaptureIsArchivedWhenClientDisconnectsOnFinalRmsCallback()
+            throws Exception {
+        Context context = RuntimeEnvironment.getApplication();
+        context.getSharedPreferences("ai_settings", Context.MODE_PRIVATE).edit().clear()
+                .putString("transcription.provider", "LOCAL")
+                .putBoolean("enhancement.enabled", false)
+                .putBoolean("cloud.consent", true).commit();
+        deleteTree(new File(context.getNoBackupFilesDir(), "dictation-recovery"));
+        deleteTree(new File(context.getNoBackupFilesDir(), "dictation-recovery-fallback"));
+        deleteTree(new File(context.getNoBackupFilesDir(), "recognition-service-fixture"));
+        RecorderShadow.reset();
+        RecorderShadow.completedRecording = completedCapture(context);
+
+        ServiceController<WhisperRecognitionService> controller =
+                Robolectric.buildService(WhisperRecognitionService.class).create();
+        WhisperRecognitionService service = controller.get();
+        ListenerState listener = new ListenerState(false);
+        listener.disconnectOnFinalRms = true;
+        Object request = installRequest(service, listener);
+        Whisper requestWhisper = null;
+        CountDownLatch releaseWorker = new CountDownLatch(1);
+
+        try {
+            startRequest(service, request);
+            requestWhisper = (Whisper) field(request.getClass(), "whisper").get(request);
+            assertTrue("the request must start its recorder", RecorderShadow.started);
+
+            CountDownLatch workerBlocked = new CountDownLatch(1);
+            blockWhisperWorker(requestWhisper, workerBlocked, releaseWorker);
+            assertTrue("the Whisper worker must be held before the capture is accepted",
+                    workerBlocked.await(5, TimeUnit.SECONDS));
+
+            RecorderShadow.emit(Recorder.MSG_RECORDING);
+            Shadows.shadowOf(Looper.getMainLooper()).idle();
+            RecorderShadow.emit(Recorder.MSG_RECORDING_DONE);
+
+            assertEquals("the client disconnect is specifically on the final optional RMS event",
+                    1, listener.finalRmsCalls);
+            assertTrue("the completed recorder must be released after disconnect",
+                    RecorderShadow.released);
+            releaseWorker.countDown();
+            awaitWhisperWorker(requestWhisper);
+            List<RecoveryStore.Entry> entries = new RecoveryStore(context).list();
+            assertEquals("the stopped capture must remain available for an explicit retry", 1,
+                    entries.size());
+            assertEquals("the archived recording must contain the captured PCM sample", 2,
+                    entries.get(0).lengthBytes);
+            assertEquals("the untouched capture is ready for retry from its beginning", 0,
+                    entries.get(0).offset);
+        } finally {
+            releaseWorker.countDown();
+            controller.destroy();
+            if (requestWhisper != null) {
+                ExecutorService worker = (ExecutorService) field(Whisper.class, "worker").get(requestWhisper);
+                worker.awaitTermination(5, TimeUnit.SECONDS);
+            }
+            deleteTree(new File(context.getNoBackupFilesDir(), "dictation-recovery"));
+            deleteTree(new File(context.getNoBackupFilesDir(), "dictation-recovery-fallback"));
+            deleteTree(new File(context.getNoBackupFilesDir(), "recognition-service-fixture"));
+        }
+    }
+
+    private static void startRequest(WhisperRecognitionService service, Object request) throws Exception {
+        Method method = WhisperRecognitionService.class.getDeclaredMethod("startRequest",
+                request.getClass());
+        method.setAccessible(true);
+        method.invoke(service, request);
+    }
+
+    private static PcmRecording completedCapture(Context context) throws IOException {
+        PcmRecording recording = PcmRecording.create(
+                new File(context.getNoBackupFilesDir(), "recognition-service-fixture"));
+        byte[] pcm = {(byte) 0xe8, 0x03}; // One non-silent PCM16 sample (1000).
+        recording.write(pcm, 0, pcm.length);
+        recording.finish();
+        return recording;
+    }
+
+    private static void awaitWhisperWorker(Whisper whisper) throws Exception {
+        ExecutorService worker = (ExecutorService) field(Whisper.class, "worker").get(whisper);
+        assertTrue("The accepted recording must finish its archive before teardown",
+                worker.awaitTermination(5, TimeUnit.SECONDS));
+    }
+
+    private static void blockWhisperWorker(Whisper whisper, CountDownLatch entered,
+                                           CountDownLatch release) throws Exception {
+        ExecutorService worker = (ExecutorService) field(Whisper.class, "worker").get(whisper);
+        worker.execute(() -> {
+            entered.countDown();
+            try { release.await(); }
+            catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+        });
+    }
+
+    private static void deleteTree(File file) {
+        File[] children = file.listFiles();
+        if (children != null) {
+            for (File child : children) deleteTree(child);
+        }
+        if (file.exists()) file.delete();
+    }
+
     private static Object installRequest(WhisperRecognitionService service, ListenerState state)
             throws Exception {
         RecognitionService.Callback callback = callback(service, state);
@@ -207,11 +318,13 @@ public class WhisperRecognitionServiceDeliveryTest {
 
     private static final class ListenerState implements InvocationHandler {
         final boolean disconnectedOnResults;
+        boolean disconnectOnFinalRms;
         int endOfSpeechCalls;
         int resultCalls;
         int errorCalls;
         int readyForSpeechCalls;
         int beginningOfSpeechCalls;
+        int finalRmsCalls;
 
         ListenerState(boolean disconnectedOnResults) {
             this.disconnectedOnResults = disconnectedOnResults;
@@ -221,6 +334,12 @@ public class WhisperRecognitionServiceDeliveryTest {
                 throws Throwable {
             if ("onReadyForSpeech".equals(method.getName())) readyForSpeechCalls++;
             if ("onBeginningOfSpeech".equals(method.getName())) beginningOfSpeechCalls++;
+            if ("onRmsChanged".equals(method.getName()) && arguments != null
+                    && arguments.length > 0 && arguments[0] instanceof Float
+                    && ((Float) arguments[0]) < 0) {
+                finalRmsCalls++;
+                if (disconnectOnFinalRms) throw new RemoteException("client disconnected on final RMS");
+            }
             if ("onEndOfSpeech".equals(method.getName())) endOfSpeechCalls++;
             if ("onResults".equals(method.getName())) {
                 resultCalls++;
@@ -241,11 +360,13 @@ public class WhisperRecognitionServiceDeliveryTest {
         static boolean released;
         static boolean started;
         static Recorder.RecorderListener listener;
+        static PcmRecording completedRecording;
 
         static void reset() {
             released = false;
             started = false;
             listener = null;
+            completedRecording = null;
         }
 
         static void emit(String message) {
@@ -259,7 +380,19 @@ public class WhisperRecognitionServiceDeliveryTest {
         @Implementation protected void start() { started = true; }
         @Implementation protected boolean isInProgress() { return started; }
         @Implementation protected void stop() { started = false; }
-        @Implementation protected void release() { released = true; started = false; }
+        @Implementation protected PcmRecording takeRecording() {
+            PcmRecording result = completedRecording;
+            completedRecording = null;
+            return result;
+        }
+        @Implementation protected void release() {
+            released = true;
+            started = false;
+            if (completedRecording != null) {
+                try { completedRecording.close(); } catch (IOException ignored) { }
+                completedRecording = null;
+            }
+        }
     }
 
     private static final class RecognitionFixture {

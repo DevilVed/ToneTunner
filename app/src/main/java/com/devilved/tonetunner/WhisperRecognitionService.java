@@ -217,13 +217,16 @@ public class WhisperRecognitionService extends RecognitionService {
             }
         } else if (Recorder.MSG_RECORDING_DONE.equals(message)) {
             HapticFeedback.vibrate(this);
+            // Hand the completed capture to Whisper before an optional protocol update can fail.
+            // If the client disconnected, Whisper's worker still archives the accepted audio before
+            // cancellation/unload can release the request.
+            startTranscription(request);
+            if (!isCurrentRequest(request)) return;
             try {
                 request.callback.rmsChanged(-20.0f);
             } catch (RemoteException e) {
                 cancelRequest(request);
-                return;
             }
-            startTranscription(request);
         } else if (Recorder.MSG_RECORDING_ERROR.equals(message)) {
             reportError(request, SpeechRecognizer.ERROR_AUDIO);
         } else if (Recorder.MSG_SPEECH_TIMEOUT.equals(message)) {

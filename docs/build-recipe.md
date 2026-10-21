@@ -24,7 +24,7 @@ python3 tools/native/prepare_extensions.py \
   --output native-dependencies/onnxruntime-extensions-android.aar
 ```
 
-The command rejects any source revision or base-AAR checksum that differs from the values in `tools/native/rebuild_extensions.py`. It rebuilds the JNI libraries for `armeabi-v7a`, `arm64-v8a`, `x86`, and `x86_64`, preserves the original AAR's Java classes and resources, adds the Extensions MIT license and build provenance, and checks 64-bit ELF alignment before returning success.
+The command rejects any source revision or base-AAR checksum that differs from the values in `tools/native/rebuild_extensions.py`. A caller-supplied source checkout must also be clean: modified or untracked source files and recursive submodule changes are rejected, and each submodule must match the commit recorded by its parent. Git-ignored generated build outputs are allowed. It rebuilds the JNI libraries for `armeabi-v7a`, `arm64-v8a`, `x86`, and `x86_64`, preserves the original AAR's Java classes and resources, adds the Extensions MIT license and build provenance, and checks that both expected JNI libraries exist for all four ABIs. The 64-bit JNI libraries receive ELF alignment checks before the command returns success. Upstream CMake may still fetch dependencies; a fully network-isolated build has not been verified.
 
 ## Assemble and check APKs
 

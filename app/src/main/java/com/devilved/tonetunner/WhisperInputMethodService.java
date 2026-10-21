@@ -210,8 +210,14 @@ public class WhisperInputMethodService extends InputMethodService {
                     if (mRecorder != null) requestStopRecording();
                 } else startRecording();
             } else if (event.getActionMasked() == MotionEvent.ACTION_UP) {
-                if (recordingGesture.up(event.getEventTime()) == RecordingGesture.Action.STOP
-                        && mRecorder != null && mRecorder.isInProgress()) requestStopRecording();
+                if (recordingGesture.up(event.getEventTime()) == RecordingGesture.Action.STOP) {
+                    if (validating) {
+                        cancelDictation();
+                        showStatus(getString(R.string.dictation_cancelled));
+                    } else if (mRecorder != null && mRecorder.isInProgress()) {
+                        requestStopRecording();
+                    }
+                }
             } else if (event.getActionMasked() == MotionEvent.ACTION_CANCEL) {
                 cancelDictation();
             }

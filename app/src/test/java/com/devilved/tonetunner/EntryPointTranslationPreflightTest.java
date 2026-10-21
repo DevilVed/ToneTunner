@@ -1,9 +1,12 @@
 package com.devilved.tonetunner;
 
 import android.Manifest;
+import android.app.Activity;
 import android.content.Context;
+import android.content.pm.PackageManager;
 import android.os.Looper;
 import android.text.InputType;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputConnection;
@@ -27,12 +30,15 @@ import org.robolectric.android.controller.ServiceController;
 import org.robolectric.annotation.Config;
 import org.robolectric.annotation.Implementation;
 import org.robolectric.annotation.Implements;
+import org.robolectric.shadows.ShadowActivity;
 
 import java.lang.reflect.Method;
 import java.lang.reflect.Field;
 import java.util.Locale;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 /** Translation choices must be checked before recording, without needing to read a saved key. */
@@ -120,6 +126,255 @@ public class EntryPointTranslationPreflightTest {
         }
     }
 
+    @Test public void mainActivityResumesRecordingAfterMicrophonePermissionGrant() throws Exception {
+        setTranscription(Provider.LOCAL, "", false);
+        ActivityController<MainActivity> controller = Robolectric.buildActivity(MainActivity.class).setup();
+        MainActivity activity = controller.get();
+        try {
+            Shadows.shadowOf(RuntimeEnvironment.getApplication())
+                    .denyPermissions(Manifest.permission.RECORD_AUDIO);
+
+            View button = activity.findViewById(R.id.btnRecord);
+            dispatchTouch(button, MotionEvent.ACTION_DOWN, 1000L);
+            ShadowActivity.PermissionsRequest request = requestedPermission(activity);
+            assertNotNull("A microphone permission request should be submitted", request);
+            assertEquals("The request must be for microphone access", Manifest.permission.RECORD_AUDIO,
+                    request.requestedPermissions[0]);
+            assertEquals("Only microphone access should be requested", 1,
+                    request.requestedPermissions.length);
+            assertFalse("Capture must wait for the permission result", RecorderShadow.started);
+            dispatchTouch(button, MotionEvent.ACTION_UP, 1200L);
+            assertTrue("A short tap should preserve the intended permission-to-start action",
+                    field(MainActivity.class, "pendingStartAfterPermission").getBoolean(activity));
+
+            Shadows.shadowOf(RuntimeEnvironment.getApplication())
+                    .grantPermissions(Manifest.permission.RECORD_AUDIO);
+            activity.onRequestPermissionsResult(request.requestCode, request.requestedPermissions,
+                    new int[]{PackageManager.PERMISSION_GRANTED});
+
+            assertTrue("Granting the pending request should resume capture", RecorderShadow.started);
+            assertTrue(field(MainActivity.class, "sessionActive").getBoolean(activity));
+            assertTrue(field(MainActivity.class, "recording").getBoolean(activity));
+            assertFalse(field(MainActivity.class, "pendingStartAfterPermission").getBoolean(activity));
+        } finally {
+            controller.destroy();
+        }
+    }
+
+    @Test public void mainActivityDoesNotStartRecordingAfterMicrophonePermissionDenial()
+            throws Exception {
+        setTranscription(Provider.LOCAL, "", false);
+        ActivityController<MainActivity> controller = Robolectric.buildActivity(MainActivity.class).setup();
+        MainActivity activity = controller.get();
+        try {
+            Shadows.shadowOf(RuntimeEnvironment.getApplication())
+                    .denyPermissions(Manifest.permission.RECORD_AUDIO);
+
+            assertFalse(invokeStartRecording(activity));
+            ShadowActivity.PermissionsRequest request = requestedPermission(activity);
+            assertNotNull("A microphone permission request should be submitted", request);
+            activity.onRequestPermissionsResult(request.requestCode, request.requestedPermissions,
+                    new int[]{PackageManager.PERMISSION_DENIED});
+
+            assertFalse("Denied microphone permission must not start capture", RecorderShadow.started);
+            assertFalse(field(MainActivity.class, "sessionActive").getBoolean(activity));
+            assertFalse(field(MainActivity.class, "recording").getBoolean(activity));
+            assertFalse(field(MainActivity.class, "pendingStartAfterPermission").getBoolean(activity));
+            String status = ((TextView) activity.findViewById(R.id.tvStatus)).getText().toString();
+            assertEquals(activity.getString(R.string.entrypoint_permission_denied), status);
+        } finally {
+            controller.destroy();
+        }
+    }
+
+    @Test public void mainActivityDoesNotResumeHeldPermissionRequestAfterRelease()
+            throws Exception {
+        setTranscription(Provider.LOCAL, "", false);
+        ActivityController<MainActivity> controller = Robolectric.buildActivity(MainActivity.class).setup();
+        MainActivity activity = controller.get();
+        try {
+            Shadows.shadowOf(RuntimeEnvironment.getApplication())
+                    .denyPermissions(Manifest.permission.RECORD_AUDIO);
+            View button = activity.findViewById(R.id.btnRecord);
+            dispatchTouch(button, MotionEvent.ACTION_DOWN, 1000L);
+
+            ShadowActivity.PermissionsRequest request = requestedPermission(activity);
+            assertNotNull("A microphone permission request should be submitted", request);
+            assertTrue(field(MainActivity.class, "pendingStartAfterPermission").getBoolean(activity));
+            dispatchTouch(button, MotionEvent.ACTION_UP, 1400L);
+            assertFalse("Releasing a held request should clear its deferred start",
+                    field(MainActivity.class, "pendingStartAfterPermission").getBoolean(activity));
+
+            Shadows.shadowOf(RuntimeEnvironment.getApplication())
+                    .grantPermissions(Manifest.permission.RECORD_AUDIO);
+            activity.onRequestPermissionsResult(request.requestCode, request.requestedPermissions,
+                    new int[]{PackageManager.PERMISSION_GRANTED});
+
+            assertFalse("A permission grant after release must not open the microphone",
+                    RecorderShadow.started);
+            assertFalse(field(MainActivity.class, "recording").getBoolean(activity));
+            assertFalse(field(MainActivity.class, "sessionActive").getBoolean(activity));
+        } finally {
+            controller.destroy();
+        }
+    }
+
+    @Test public void mainActivityDoesNotResumePermissionRequestAfterTouchCancellation()
+            throws Exception {
+        setTranscription(Provider.LOCAL, "", false);
+        ActivityController<MainActivity> controller = Robolectric.buildActivity(MainActivity.class).setup();
+        MainActivity activity = controller.get();
+        try {
+            Shadows.shadowOf(RuntimeEnvironment.getApplication())
+                    .denyPermissions(Manifest.permission.RECORD_AUDIO);
+            View button = activity.findViewById(R.id.btnRecord);
+            dispatchTouch(button, MotionEvent.ACTION_DOWN, 1000L);
+            ShadowActivity.PermissionsRequest request = requestedPermission(activity);
+            assertNotNull("A microphone permission request should be submitted", request);
+            assertTrue(field(MainActivity.class, "pendingStartAfterPermission").getBoolean(activity));
+
+            dispatchTouch(button, MotionEvent.ACTION_CANCEL, 1200L);
+            assertFalse("A canceled touch must clear its deferred permission start",
+                    field(MainActivity.class, "pendingStartAfterPermission").getBoolean(activity));
+            Shadows.shadowOf(RuntimeEnvironment.getApplication())
+                    .grantPermissions(Manifest.permission.RECORD_AUDIO);
+            activity.onRequestPermissionsResult(request.requestCode, request.requestedPermissions,
+                    new int[]{PackageManager.PERMISSION_GRANTED});
+
+            assertFalse("A permission grant after touch cancellation must not open the microphone",
+                    RecorderShadow.started);
+            assertFalse(field(MainActivity.class, "recording").getBoolean(activity));
+            assertFalse(field(MainActivity.class, "sessionActive").getBoolean(activity));
+        } finally {
+            controller.destroy();
+        }
+    }
+
+    @Test public void recognizeActivityDoesNotStartAfterPermissionRequestIsHeldAndReleased()
+            throws Exception {
+        setTranscription(Provider.LOCAL, "", false);
+        ActivityController<WhisperRecognizeActivity> controller =
+                Robolectric.buildActivity(WhisperRecognizeActivity.class).setup();
+        WhisperRecognizeActivity activity = controller.get();
+        try {
+            Shadows.shadowOf(RuntimeEnvironment.getApplication())
+                    .denyPermissions(Manifest.permission.RECORD_AUDIO);
+            View button = activity.findViewById(R.id.btnRecord);
+            dispatchTouch(button, MotionEvent.ACTION_DOWN, 1000L);
+
+            ShadowActivity.PermissionsRequest request = requestedPermission(activity);
+            assertNotNull("A microphone permission request should be submitted", request);
+            assertTrue(field(WhisperRecognizeActivity.class, "pendingStartAfterPermission")
+                    .getBoolean(activity));
+            dispatchTouch(button, MotionEvent.ACTION_UP, 1400L);
+            assertFalse("Releasing a held request should clear its deferred start",
+                    field(WhisperRecognizeActivity.class, "pendingStartAfterPermission")
+                            .getBoolean(activity));
+
+            Shadows.shadowOf(RuntimeEnvironment.getApplication())
+                    .grantPermissions(Manifest.permission.RECORD_AUDIO);
+            activity.onRequestPermissionsResult(request.requestCode, request.requestedPermissions,
+                    new int[]{PackageManager.PERMISSION_GRANTED});
+
+            assertFalse("A grant after held release must not open the microphone", RecorderShadow.started);
+            assertFalse(field(WhisperRecognizeActivity.class, "sessionActive").getBoolean(activity));
+            assertFalse(field(WhisperRecognizeActivity.class, "recording").getBoolean(activity));
+        } finally {
+            controller.destroy();
+        }
+    }
+
+    @Test public void recognizeActivityDoesNotStartAfterPermissionRequestTouchCancellation()
+            throws Exception {
+        setTranscription(Provider.LOCAL, "", false);
+        ActivityController<WhisperRecognizeActivity> controller =
+                Robolectric.buildActivity(WhisperRecognizeActivity.class).setup();
+        WhisperRecognizeActivity activity = controller.get();
+        try {
+            Shadows.shadowOf(RuntimeEnvironment.getApplication())
+                    .denyPermissions(Manifest.permission.RECORD_AUDIO);
+            View button = activity.findViewById(R.id.btnRecord);
+            dispatchTouch(button, MotionEvent.ACTION_DOWN, 1000L);
+            ShadowActivity.PermissionsRequest request = requestedPermission(activity);
+            assertNotNull("A microphone permission request should be submitted", request);
+            assertTrue(field(WhisperRecognizeActivity.class, "pendingStartAfterPermission")
+                    .getBoolean(activity));
+
+            dispatchTouch(button, MotionEvent.ACTION_CANCEL, 1200L);
+            assertFalse("A canceled touch must clear its deferred permission start",
+                    field(WhisperRecognizeActivity.class, "pendingStartAfterPermission")
+                            .getBoolean(activity));
+            Shadows.shadowOf(RuntimeEnvironment.getApplication())
+                    .grantPermissions(Manifest.permission.RECORD_AUDIO);
+            activity.onRequestPermissionsResult(request.requestCode, request.requestedPermissions,
+                    new int[]{PackageManager.PERMISSION_GRANTED});
+
+            assertFalse("A grant after touch cancellation must not open the microphone",
+                    RecorderShadow.started);
+            assertFalse(field(WhisperRecognizeActivity.class, "sessionActive").getBoolean(activity));
+        } finally {
+            controller.destroy();
+        }
+    }
+
+    @Test public void recognizeActivityStartsAfterShortPermissionRequestIsGranted() throws Exception {
+        setTranscription(Provider.LOCAL, "", false);
+        ActivityController<WhisperRecognizeActivity> controller =
+                Robolectric.buildActivity(WhisperRecognizeActivity.class).setup();
+        WhisperRecognizeActivity activity = controller.get();
+        try {
+            Shadows.shadowOf(RuntimeEnvironment.getApplication())
+                    .denyPermissions(Manifest.permission.RECORD_AUDIO);
+            View button = activity.findViewById(R.id.btnRecord);
+            dispatchTouch(button, MotionEvent.ACTION_DOWN, 1000L);
+            ShadowActivity.PermissionsRequest request = requestedPermission(activity);
+            assertNotNull("A microphone permission request should be submitted", request);
+            dispatchTouch(button, MotionEvent.ACTION_UP, 1200L);
+            assertTrue("A short tap should preserve the deferred permission start",
+                    field(WhisperRecognizeActivity.class, "pendingStartAfterPermission")
+                            .getBoolean(activity));
+
+            Shadows.shadowOf(RuntimeEnvironment.getApplication())
+                    .grantPermissions(Manifest.permission.RECORD_AUDIO);
+            activity.onRequestPermissionsResult(request.requestCode, request.requestedPermissions,
+                    new int[]{PackageManager.PERMISSION_GRANTED});
+
+            assertTrue("A grant after a short tap should resume capture", RecorderShadow.started);
+            assertTrue(field(WhisperRecognizeActivity.class, "sessionActive").getBoolean(activity));
+            assertTrue(field(WhisperRecognizeActivity.class, "recording").getBoolean(activity));
+        } finally {
+            controller.destroy();
+        }
+    }
+
+    @Test public void recognizeActivityStillResumesAutomaticPermissionStart() throws Exception {
+        setTranscription(Provider.LOCAL, "", false);
+        PreferenceManager.getDefaultSharedPreferences(RuntimeEnvironment.getApplication()).edit()
+                .putBoolean("imeModeAuto", true).commit();
+        Shadows.shadowOf(RuntimeEnvironment.getApplication())
+                .denyPermissions(Manifest.permission.RECORD_AUDIO);
+        ActivityController<WhisperRecognizeActivity> controller =
+                Robolectric.buildActivity(WhisperRecognizeActivity.class).setup();
+        WhisperRecognizeActivity activity = controller.get();
+        try {
+            // Auto mode asks for permission as the activity starts, without a touch gesture.
+            ShadowActivity.PermissionsRequest request = requestedPermission(activity);
+            assertNotNull("Automatic startup should request microphone access", request);
+            assertTrue(field(WhisperRecognizeActivity.class, "pendingAutoStart").getBoolean(activity));
+
+            Shadows.shadowOf(RuntimeEnvironment.getApplication())
+                    .grantPermissions(Manifest.permission.RECORD_AUDIO);
+            activity.onRequestPermissionsResult(request.requestCode, request.requestedPermissions,
+                    new int[]{PackageManager.PERMISSION_GRANTED});
+
+            assertTrue("Automatic capture should still resume after permission grant",
+                    RecorderShadow.started);
+            assertTrue(field(WhisperRecognizeActivity.class, "sessionActive").getBoolean(activity));
+        } finally {
+            controller.destroy();
+        }
+    }
+
     @Test public void mainActivityIgnoresVADSpeechStartedNotification() throws Exception {
         setTranscription(Provider.LOCAL, "", false);
         ActivityController<MainActivity> controller = Robolectric.buildActivity(MainActivity.class).setup();
@@ -179,6 +434,19 @@ public class EntryPointTranslationPreflightTest {
         Method method = MainActivity.class.getDeclaredMethod("startRecording");
         method.setAccessible(true);
         return (Boolean) method.invoke(activity);
+    }
+
+    private static void dispatchTouch(View view, int action, long eventTime) {
+        MotionEvent event = MotionEvent.obtain(1000L, eventTime, action, 1f, 1f, 0);
+        try {
+            assertTrue(view.dispatchTouchEvent(event));
+        } finally {
+            event.recycle();
+        }
+    }
+
+    private static ShadowActivity.PermissionsRequest requestedPermission(Activity activity) {
+        return Shadows.shadowOf(activity).getLastRequestedPermission();
     }
 
     private static Field field(Class<?> owner, String name) throws Exception {

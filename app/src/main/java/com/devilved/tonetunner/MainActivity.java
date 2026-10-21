@@ -191,12 +191,21 @@ public class MainActivity extends AppCompatActivity {
                         }
                         return true;
                     case MotionEvent.ACTION_UP:
-                        if (recording && recordingGesture.up(event.getEventTime()) == RecordingGesture.Action.STOP)
-                            stopRecordingForTranscription();
+                        if (recordingGesture.up(event.getEventTime()) == RecordingGesture.Action.STOP) {
+                            if (recording) stopRecordingForTranscription();
+                            else if (validating) cancelCurrentSession(R.string.entrypoint_cancelled);
+                            else if (pendingStartAfterPermission) {
+                                pendingStartAfterPermission = false;
+                                tvStatus.setText(R.string.entrypoint_cancelled);
+                            }
+                        }
                         return true;
                     case MotionEvent.ACTION_CANCEL:
                         recordingGesture.cancel();
-                        if (recording) cancelCurrentSession(R.string.entrypoint_cancelled);
+                        if (recording || validating || pendingStartAfterPermission) {
+                            pendingStartAfterPermission = false;
+                            cancelCurrentSession(R.string.entrypoint_cancelled);
+                        }
                         else resetRecordButton();
                         return true;
                     default:
@@ -631,7 +640,9 @@ public class MainActivity extends AppCompatActivity {
         updateRecordingScreen();
         if (btnRecord == null) return;
         boolean busy = processing || recording || validating;
-        btnRecord.setEnabled(!processing && !validating);
+        // Keep the touch target enabled through validation so its long-hold release can cancel
+        // the pending start before the worker opens the microphone.
+        btnRecord.setEnabled(!processing);
         if (btnSavedDictations != null) btnSavedDictations.setEnabled(!busy);
         btnCancelProcessing.setVisibility(busy ? View.VISIBLE : View.GONE);
         btnCancelProcessing.setEnabled(busy);

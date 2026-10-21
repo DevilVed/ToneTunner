@@ -51,6 +51,7 @@ public class WhisperRecognizeActivity extends AppCompatActivity {
     private SharedPreferences sp;
     private boolean modeAuto;
     private boolean pendingAutoStart;
+    private boolean pendingStartAfterPermission;
     private boolean sessionActive;
     private boolean recording;
     private final RecordingGesture recordingGesture = new RecordingGesture();
@@ -106,12 +107,23 @@ public class WhisperRecognizeActivity extends AppCompatActivity {
                     }
                     return true;
                 case MotionEvent.ACTION_UP:
-                    if (recording && recordingGesture.up(event.getEventTime()) == RecordingGesture.Action.STOP)
-                        stopRecordingForTranscription();
+                    if (recordingGesture.up(event.getEventTime()) == RecordingGesture.Action.STOP) {
+                        if (recording) stopRecordingForTranscription();
+                        else if (validating) {
+                            cancelCurrentSession();
+                            setStatus(R.string.entrypoint_cancelled);
+                        } else if (pendingStartAfterPermission) {
+                            pendingStartAfterPermission = false;
+                            setStatus(R.string.entrypoint_cancelled);
+                        }
+                    }
                     return true;
                 case MotionEvent.ACTION_CANCEL:
-                        recordingGesture.cancel();
-                    if (sessionActive) cancelAndFinish();
+                    recordingGesture.cancel();
+                    if (pendingStartAfterPermission) {
+                        pendingStartAfterPermission = false;
+                        setStatus(R.string.entrypoint_cancelled);
+                    } else if (sessionActive) cancelAndFinish();
                     else resetRecordButton();
                     return true;
                 default:
@@ -136,6 +148,7 @@ public class WhisperRecognizeActivity extends AppCompatActivity {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
                 != PackageManager.PERMISSION_GRANTED) {
             pendingAutoStart = automatic;
+            pendingStartAfterPermission = !automatic;
             Toast.makeText(this, R.string.need_record_audio_permission, Toast.LENGTH_SHORT).show();
             requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, REQUEST_RECORD_AUDIO);
             return false;
@@ -160,7 +173,6 @@ public class WhisperRecognizeActivity extends AppCompatActivity {
             processingBar.setProgress(0);
             processingBar.setIndeterminate(true);
             updateRecordingScreen();
-            btnRecord.setEnabled(false);
             try {
                 entrypointTasks.execute(() -> {
                     int error;
@@ -491,11 +503,14 @@ public class WhisperRecognizeActivity extends AppCompatActivity {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode != REQUEST_RECORD_AUDIO) return;
         boolean granted = grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED;
-        if (granted && pendingAutoStart && !isFinishing()) {
+        if (granted && (pendingAutoStart || pendingStartAfterPermission) && !isFinishing()) {
+            boolean automaticStart = pendingAutoStart;
             pendingAutoStart = false;
-            beginRecording(true);
+            pendingStartAfterPermission = false;
+            beginRecording(automaticStart);
         } else if (!granted) {
             pendingAutoStart = false;
+            pendingStartAfterPermission = false;
             Toast.makeText(this, R.string.entrypoint_permission_denied, Toast.LENGTH_LONG).show();
             if (modeAuto) {
                 setResult(RESULT_CANCELED, null);
