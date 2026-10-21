@@ -75,6 +75,7 @@ public class TranscriptHistoryUiTest {
         openFirstEntry(activity, list);
         details = (AlertDialog) ShadowDialog.getLatestDialog();
         details.getButton(DialogInterface.BUTTON_NEGATIVE).performClick();
+        idleMain(); // AlertDialog dispatches the click listener before showing confirmation.
         AlertDialog confirmation = (AlertDialog) ShadowDialog.getLatestDialog();
         assertNotNull(store.get("entry-1"));
         confirmation.getButton(DialogInterface.BUTTON_NEGATIVE).performClick();
@@ -84,6 +85,7 @@ public class TranscriptHistoryUiTest {
         openFirstEntry(activity, list);
         details = (AlertDialog) ShadowDialog.getLatestDialog();
         details.getButton(DialogInterface.BUTTON_NEGATIVE).performClick();
+        idleMain();
         confirmation = (AlertDialog) ShadowDialog.getLatestDialog();
         confirmation.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
         drain(activity);
