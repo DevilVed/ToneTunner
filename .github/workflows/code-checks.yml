@@ -5,7 +5,7 @@ name: Code checks
 
 on:
   push:
-    branches: [master]
+    branches: [master, beta-test-v1]
   pull_request:
   schedule:
     - cron: "17 3 * * 1" # weekly, so newly published vulnerabilities are caught
@@ -31,15 +31,15 @@ jobs:
           java-version: "17"
       - uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: "8.14.5"
+          gradle-version: "9.7.1"
       - name: Point the build at the runner's Android SDK
         run: |
           echo "sdk.dir=$ANDROID_HOME" > local.properties
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;27.2.12479018"
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;27.2.12479018" "build-tools;36.0.0"
       - name: Prepare aligned native extensions
         uses: ./.github/actions/setup-native
-      - name: Run lint
-        run: gradle lintDebug --stacktrace
+      - name: Run lint and dependency baseline
+        run: gradle verifySecurityDependencies lintDebug --stacktrace
       - name: Upload lint reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -69,11 +69,11 @@ jobs:
           java-version: "17"
       - uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: "8.14.5"
+          gradle-version: "9.7.1"
       - name: Point the build at the runner's Android SDK
         run: |
           echo "sdk.dir=$ANDROID_HOME" > local.properties
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;27.2.12479018"
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;27.2.12479018" "build-tools;36.0.0"
       - uses: github/codeql-action/init@v4
         with:
           languages: java-kotlin
@@ -104,10 +104,10 @@ jobs:
       - name: Point the build at the runner's Android SDK
         run: |
           echo "sdk.dir=$ANDROID_HOME" > local.properties
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;27.2.12479018"
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;27.2.12479018" "build-tools;36.0.0"
       - name: Prepare aligned native extensions
         uses: ./.github/actions/setup-native
       - name: Submit dependencies to GitHub
         uses: gradle/actions/dependency-submission@v4
         with:
-          gradle-version: "8.14.5"
+          gradle-version: "9.7.1"

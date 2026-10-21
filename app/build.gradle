@@ -14,6 +14,7 @@ if (!alignedExtensionsAar.isFile()) {
 android {
     namespace 'com.devilved.tonetunner'
     compileSdk 35
+    buildToolsVersion '36.0.0'
     // Use the same toolchain as the native dependency build, including APK symbol stripping.
     ndkVersion '27.2.12479018'
 
