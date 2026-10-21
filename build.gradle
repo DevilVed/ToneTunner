@@ -1,13 +1,79 @@
 // Top-level build file where you can add configuration options common to all sub-projects/modules.
 
 buildscript {
-    dependencies {
-        classpath("com.android.tools.build:gradle:8.13.2")
-    }
-
     repositories {
         google()
         mavenCentral()
     }
+    dependencies {
+        classpath("com.android.tools.build:gradle:9.4.1")
+    }
+
+    // AGP 9.4.1 no longer pulls Netty and already uses patched protobuf and
+    // commons-compress versions. Pin the remaining transitive build-tool
+    // libraries to their first fixed releases so the build classpath stays
+    // free of the known Dependabot advisories. These are build-time tools,
+    // not classes packaged in the APK.
+    configurations.classpath {
+        resolutionStrategy {
+            force("org.bouncycastle:bcprov-jdk18on:1.86")
+            force("org.bouncycastle:bcpkix-jdk18on:1.86")
+            force("org.bitbucket.b_c:jose4j:0.9.7")
+            force("org.jdom:jdom2:2.0.6.1")
+        }
+    }
 }
 
+def securityDependencyMinimums = [
+        "com.google.protobuf:protobuf-java"     : "3.25.5",
+        "com.google.protobuf:protobuf-kotlin"   : "3.25.5",
+        "io.netty:netty-codec"                  : "4.1.136",
+        "io.netty:netty-codec-http"             : "4.1.137",
+        "io.netty:netty-codec-http2"            : "4.1.136",
+        "io.netty:netty-common"                 : "4.1.118",
+        "io.netty:netty-handler"                : "4.1.137",
+        "io.netty:netty-handler-proxy"          : "4.1.133",
+        "org.apache.commons:commons-compress"   : "1.26.0",
+        "org.bitbucket.b_c:jose4j"              : "0.9.6",
+        "org.bouncycastle:bcprov-jdk18on"       : "1.85",
+        "org.bouncycastle:bcpkix-jdk18on"       : "1.84",
+        "org.jdom:jdom2"                        : "2.0.6.1",
+]
+
+static List<Integer> numericVersionParts(String value) {
+    List<Integer> parts = []
+    for (String part : value.split("[^0-9]+")) {
+        if (!part.isEmpty()) parts.add(part.toInteger())
+    }
+    return parts
+}
+
+static boolean versionAtLeast(String actual, String minimum) {
+    List<Integer> left = numericVersionParts(actual)
+    List<Integer> right = numericVersionParts(minimum)
+    for (int i = 0; i < Math.max(left.size(), right.size()); i++) {
+        int leftPart = i < left.size() ? left[i] : 0
+        int rightPart = i < right.size() ? right[i] : 0
+        if (leftPart != rightPart) return leftPart > rightPart
+    }
+    return true
+}
+
+tasks.register("verifySecurityDependencies") {
+    group = "verification"
+    description = "Fails when a resolved build-tool dependency is older than its security baseline."
+    doLast {
+        List<String> failures = []
+        buildscript.configurations.classpath.resolvedConfiguration.resolvedArtifacts.each { artifact ->
+            String coordinate = "${artifact.moduleVersion.id.group}:${artifact.moduleVersion.id.name}"
+            String minimum = securityDependencyMinimums[coordinate]
+            if (minimum != null && !versionAtLeast(artifact.moduleVersion.id.version, minimum)) {
+                failures.add("${coordinate}:${artifact.moduleVersion.id.version} is older than ${minimum}")
+            }
+        }
+        if (!failures.isEmpty()) {
+            throw new GradleException("Vulnerable build-tool dependencies resolved:\n - " + failures.join("\n - "))
+        }
+        logger.lifecycle("Build-tool dependency security baseline passed.")
+    }
+}
