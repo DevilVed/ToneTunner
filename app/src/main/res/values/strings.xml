@@ -65,4 +65,7 @@
     <string name="transcript_history_language">Language: %1$s</string>
     <string name="transcript_history_warning">Note: %1$s</string>
     <string name="transcript_history_incomplete">Recognition was interrupted. The recognized text is still available.</string>
+    <string name="transcript_history_row_header">%1$s · %2$s</string>
+    <string name="transcript_history_row_header_no_language">%1$s</string>
+    <string name="transcript_history_row_content">%1$s\n%2$s</string>
 </resources>

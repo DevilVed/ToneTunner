@@ -40,7 +40,7 @@ public class WhisperInputMethodServiceLifecycleTest {
     @Before public void clearSettings() {
         RuntimeEnvironment.getApplication()
                 .getSharedPreferences("ai_settings", Context.MODE_PRIVATE)
-                .edit().clear().commit();
+                .edit().clear().putString("transcription.provider", "GROQ").commit();
     }
 
     @Test public void resultForCurrentEditorCommitsToItsInputConnection() throws Exception {

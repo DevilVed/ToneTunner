@@ -72,6 +72,16 @@ public class CloudOnboardingTest {
         }
     }
 
+    @Test
+    @Config(sdk = 29)
+    public void settingsOpensOnAndroid29WithoutApi30ContentCaptureCalls() {
+        try (ActivityController<AiSettingsActivity> controller =
+                     Robolectric.buildActivity(AiSettingsActivity.class).setup()) {
+            AiSettingsActivity activity = controller.get();
+            assertEquals(2, checkCredentialViews(activity.findViewById(android.R.id.content)));
+        }
+    }
+
     @Test public void mainScreenDoesNotDisplayAutoAsADetectedLanguage() throws Exception {
         try (ActivityController<MainActivity> controller = Robolectric.buildActivity(MainActivity.class).setup()) {
             MainActivity activity = controller.get();
@@ -233,7 +243,7 @@ public class CloudOnboardingTest {
                     == InputType.TYPE_TEXT_VARIATION_PASSWORD) {
                 assertFalse(input.isSaveEnabled());
                 assertEquals("", input.getText().toString());
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                     assertEquals(View.IMPORTANT_FOR_CONTENT_CAPTURE_NO_EXCLUDE_DESCENDANTS,
                             input.getImportantForContentCapture());
                 }

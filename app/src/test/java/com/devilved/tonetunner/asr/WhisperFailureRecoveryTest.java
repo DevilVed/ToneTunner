@@ -119,7 +119,8 @@ public class WhisperFailureRecoveryTest {
         assertEquals(rawText, result.getResult());
         assertEquals(0, errors);
         assertEquals(1, FailingEnhancement.calls);
-        assertTrue(result.getWarning().contains("raw transcript"));
+        assertTrue(result.getWarning().contains("Enhancement failed"));
+        assertTrue(result.getWarning().contains("without AI cleanup"));
     }
 
     @Test public void laterEnhancementFailureDoesNotDeliverAnEnhancedPrefix() throws Exception {
@@ -502,6 +503,26 @@ public class WhisperFailureRecoveryTest {
             assertEquals(entry.rawText, entry.text);
             assertFalse(entry.isComplete);
         }
+    }
+
+    @Test public void historyStorageFailureKeepsAudioAndCompletedTextRecoverable() throws Exception {
+        File historyDirectory = new File(context.getNoBackupFilesDir(), "transcript-history");
+        Files.write(historyDirectory.toPath(), new byte[]{1});
+        startAndDrain(recording(1, 2048));
+        assertEquals(1, errors);
+        assertNull("delivery must not claim a result was saved when history failed", result);
+        RecoveryStore store = new RecoveryStore(context);
+        assertEquals(1, store.list().size());
+        RecoveryStore.Entry saved = store.list().get(0);
+        assertEquals(rawText, saved.transcript);
+        // Removing the simulated obstruction permits an explicit retry without re-recognition.
+        assertTrue(historyDirectory.delete());
+        int recognizedCalls = calls;
+        whisper.retrySaved(saved.id);
+        drainWorker();
+        assertNotNull(result);
+        assertEquals(recognizedCalls, calls);
+        assertTrue(store.list().isEmpty());
     }
 
     @Test public void privateEditorHistoryChoiceIsSnapshottedBeforeProcessing() throws Exception {

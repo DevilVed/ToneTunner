@@ -111,6 +111,12 @@ public final class TranscriptHistoryStore implements AutoCloseable {
             db.beginTransaction();
             try {
                 Metadata previous = metadata(db, id);
+                if (previous != null && previous.isComplete) {
+                    // A same-id retry may be canceled after this checkpoint. Keep the last
+                    // delivered result and its warning until a new saveResult commits atomically.
+                    db.setTransactionSuccessful();
+                    return null;
+                }
                 long now = System.currentTimeMillis();
                 long createdAt = previous == null ? now : previous.createdAt;
                 long updatedAt = previous == null ? now : Math.max(now, previous.updatedAt + 1);
@@ -181,7 +187,7 @@ public final class TranscriptHistoryStore implements AutoCloseable {
                     COL_CREATED_AT, COL_UPDATED_AT, COL_HAS_DIFFERENT_RAW, COL_HAS_RESULT};
             String orderBy = COL_CREATED_AT + " DESC, " + COL_ID + " DESC";
             try (Cursor cursor = db.query(TABLE_TRANSCRIPTS, columns, null, null, null, null,
-                    orderBy, safeLimit + " OFFSET " + offset)) {
+                    orderBy, offset + "," + safeLimit)) {
                 while (cursor.moveToNext()) {
                     entries.add(new Summary(
                             cursor.getString(0),
@@ -238,26 +244,27 @@ public final class TranscriptHistoryStore implements AutoCloseable {
 
                     @Override public void onCreate(SQLiteDatabase db) {
                         db.execSQL("CREATE TABLE " + TABLE_TRANSCRIPTS + " ("
-                                + COL_ID + " TEXT NOT NULL PRIMARY KEY,"
-                                + COL_CREATED_AT + " INTEGER NOT NULL,"
-                                + COL_UPDATED_AT + " INTEGER NOT NULL,"
-                                + COL_LANGUAGE + " TEXT NOT NULL,"
-                                + COL_WARNING + " TEXT NOT NULL,"
-                                + COL_HAS_RESULT + " INTEGER NOT NULL,"
-                                + COL_HAS_DIFFERENT_RAW + " INTEGER NOT NULL,"
-                                + COL_RAW_PREVIEW + " TEXT NOT NULL,"
-                                + COL_TEXT_PREVIEW + " TEXT NOT NULL,"
-                                + COL_RAW_LENGTH + " INTEGER NOT NULL,"
+                                + COL_ID + " TEXT NOT NULL PRIMARY KEY, "
+                                + COL_CREATED_AT + " INTEGER NOT NULL, "
+                                + COL_UPDATED_AT + " INTEGER NOT NULL, "
+                                + COL_LANGUAGE + " TEXT NOT NULL, "
+                                + COL_WARNING + " TEXT NOT NULL, "
+                                + COL_HAS_RESULT + " INTEGER NOT NULL, "
+                                + COL_HAS_DIFFERENT_RAW + " INTEGER NOT NULL, "
+                                + COL_RAW_PREVIEW + " TEXT NOT NULL, "
+                                + COL_TEXT_PREVIEW + " TEXT NOT NULL, "
+                                + COL_RAW_LENGTH + " INTEGER NOT NULL, "
                                 + COL_TEXT_LENGTH + " INTEGER NOT NULL)");
                         db.execSQL("CREATE TABLE " + TABLE_CHUNKS + " ("
                                 + COL_ID + " TEXT NOT NULL REFERENCES " + TABLE_TRANSCRIPTS
-                                + "(" + COL_ID + ") ON DELETE CASCADE,"
-                                + COL_KIND + " INTEGER NOT NULL,"
-                                + COL_SEQUENCE + " INTEGER NOT NULL,"
-                                + COL_CONTENT + " TEXT NOT NULL,"
-                                + "PRIMARY KEY(" + COL_ID + "," + COL_KIND + "," + COL_SEQUENCE + "))");
+                                + " (" + COL_ID + ") ON DELETE CASCADE, "
+                                + COL_KIND + " INTEGER NOT NULL, "
+                                + COL_SEQUENCE + " INTEGER NOT NULL, "
+                                + COL_CONTENT + " TEXT NOT NULL, "
+                                + "PRIMARY KEY (" + COL_ID + ", " + COL_KIND + ", "
+                                + COL_SEQUENCE + "))");
                         db.execSQL("CREATE INDEX transcripts_created_id ON " + TABLE_TRANSCRIPTS
-                                + "(" + COL_CREATED_AT + " DESC," + COL_ID + " DESC)");
+                                + " (" + COL_CREATED_AT + " DESC, " + COL_ID + " DESC)");
                     }
 
                     @Override public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {

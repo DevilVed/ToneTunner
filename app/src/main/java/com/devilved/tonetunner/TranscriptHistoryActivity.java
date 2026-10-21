@@ -159,16 +159,16 @@ public final class TranscriptHistoryActivity extends AppCompatActivity {
         int side = getResources().getDimensionPixelSize(R.dimen.transcript_history_dialog_padding);
         content.setPadding(side, side, side, 0);
 
-        TextView metadata = new TextView(this);
         String date = DateFormat.getDateTimeInstance().format(new Date(entry.createdAt));
-        String language = TextUtils.isEmpty(entry.language)
-                ? getString(R.string.transcript_history_language, getString(R.string.auto_lang))
-                : getString(R.string.transcript_history_language, entry.language);
-        metadata.setText(date + "\n" + language
-                + (entry.isComplete ? "" : "\n" + getString(R.string.transcript_history_incomplete))
-                + (TextUtils.isEmpty(entry.warning) ? "" : "\n"
-                + getString(R.string.transcript_history_warning, entry.warning)));
-        content.addView(metadata);
+        addMetadataLine(content, date);
+        String language = TextUtils.isEmpty(entry.language) ? getString(R.string.auto_lang) : entry.language;
+        addMetadataLine(content, getString(R.string.transcript_history_language, language));
+        if (!entry.isComplete) {
+            addMetadataLine(content, getString(R.string.transcript_history_incomplete));
+        }
+        if (!TextUtils.isEmpty(entry.warning)) {
+            addMetadataLine(content, getString(R.string.transcript_history_warning, entry.warning));
+        }
         RadioGroup textChoice = new RadioGroup(this);
         textChoice.setOrientation(RadioGroup.HORIZONTAL);
         RadioButton resultChoice = new RadioButton(this);
@@ -247,6 +247,12 @@ public final class TranscriptHistoryActivity extends AppCompatActivity {
                 .show();
     }
 
+    private void addMetadataLine(LinearLayout content, CharSequence text) {
+        TextView line = new TextView(this);
+        line.setText(text);
+        content.addView(line);
+    }
+
     private void copyText(String text, String label) {
         ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
         if (clipboard != null) {
@@ -280,8 +286,10 @@ public final class TranscriptHistoryActivity extends AppCompatActivity {
             TranscriptHistoryStore.Summary item = entries.get(position);
             String date = DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT)
                     .format(new Date(item.createdAt));
-            row.setText(date + (TextUtils.isEmpty(item.language) ? "" : " · " + item.language)
-                    + "\n" + item.preview);
+            String header = TextUtils.isEmpty(item.language)
+                    ? getString(R.string.transcript_history_row_header_no_language, date)
+                    : getString(R.string.transcript_history_row_header, date, item.language);
+            row.setText(getString(R.string.transcript_history_row_content, header, item.preview));
             row.setTextSize(16);
             row.setMaxLines(3);
             row.setEllipsize(TextUtils.TruncateAt.END);

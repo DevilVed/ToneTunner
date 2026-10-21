@@ -505,7 +505,7 @@ public final class AiSettingsActivity extends AppCompatActivity {
             apiKey.setSaveEnabled(false);
             apiKey.setFreezesText(false);
             apiKey.setImportantForAutofill(View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS);
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 apiKey.setImportantForContentCapture(
                         View.IMPORTANT_FOR_CONTENT_CAPTURE_NO_EXCLUDE_DESCENDANTS);
             }
