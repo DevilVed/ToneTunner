@@ -37,6 +37,12 @@
     <color name="m3OnSurfaceVariant">#37506B</color>
     <color name="m3Outline">#7E9AB0</color>
 
+    <!-- Dashboard chart series, in fixed order: 1 input / single series, 2 cached input, 3 output and
+         highlights. Validated together on m3SurfaceContainer (CVD and normal-vision separation, 3:1). -->
+    <color name="chartSeries1">#0277BD</color>
+    <color name="chartSeries2">#159A6B</color>
+    <color name="chartSeries3">#E65100</color>
+
     <color name="black">#FF000000</color>
     <color name="ic_launcher_background">#000000</color>
 </resources>

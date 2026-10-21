@@ -3,10 +3,12 @@ package com.devilved.tonetunner.asr;
 import android.Manifest;
 import android.content.Context;
 import android.content.pm.PackageManager;
+import android.media.AudioDeviceInfo;
 import android.media.AudioFormat;
 import android.media.AudioManager;
 import android.media.AudioRecord;
 import android.media.MediaRecorder;
+import android.media.audiofx.NoiseSuppressor;
 import android.util.Log;
 
 import androidx.core.app.ActivityCompat;
@@ -21,6 +23,7 @@ import com.devilved.tonetunner.R;
 import java.io.File;
 import java.io.IOException;
 
+import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.Lock;
@@ -218,21 +221,43 @@ public class Recorder {
         int bufferSize = Math.max(AudioRecord.getMinBufferSize(sampleRate,
                 AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT), VAD_FRAME_SIZE * 2);
         AudioManager manager = (AudioManager) mContext.getSystemService(Context.AUDIO_SERVICE);
+        MicSettings mic = MicSettings.read(mContext);
+        List<AudioDeviceInfo> microphones = MicDevices.microphones(manager);
+        MicRouter.Resolution route = MicRouter.resolve(mic.input, MicDevices.inputs(microphones));
+        MicProcessor processor = new MicProcessor(sampleRate,
+                mic.noiseReduction != MicSettings.NoiseReduction.OFF, mic.boost);
         AudioRecord audio = null;
+        NoiseSuppressor suppressor = null;
+        boolean scoStarted = false;
         PcmRecording recording = null;
         boolean transferred = false;
         String terminalMessage = null;
         try {
             recording = PcmRecording.create(new File(mContext.getNoBackupFilesDir(), "dictation-audio"));
-            manager.startBluetoothSco();
-            manager.setBluetoothScoOn(true);
+            // Only the Bluetooth setting opens the headset's SCO link; otherwise a connected
+            // headset would take over the phone microphone.
+            if (route.useBluetoothSco) {
+                manager.startBluetoothSco();
+                manager.setBluetoothScoOn(true);
+                scoStarted = true;
+            }
             audio = new AudioRecord.Builder()
-                    .setAudioSource(MediaRecorder.AudioSource.VOICE_RECOGNITION)
+                    .setAudioSource(mic.noiseReduction == MicSettings.NoiseReduction.MAXIMUM
+                            ? MediaRecorder.AudioSource.VOICE_COMMUNICATION
+                            : MediaRecorder.AudioSource.VOICE_RECOGNITION)
                     .setAudioFormat(new AudioFormat.Builder().setChannelMask(AudioFormat.CHANNEL_IN_MONO)
                             .setEncoding(AudioFormat.ENCODING_PCM_16BIT).setSampleRate(sampleRate).build())
                     .setBufferSizeInBytes(bufferSize).build();
             if (audio.getState() != AudioRecord.STATE_INITIALIZED) throw new IOException("Microphone unavailable");
+            AudioDeviceInfo preferred = MicDevices.find(microphones, route.input);
+            if (preferred != null && !audio.setPreferredDevice(preferred)) {
+                Log.w(TAG, "The selected microphone was not accepted; Android chooses the input");
+            }
+            if (mic.noiseReduction != MicSettings.NoiseReduction.OFF) {
+                suppressor = createNoiseSuppressor(audio.getAudioSessionId());
+            }
             audio.startRecording();
+            String device = deviceName(audio, route);
             byte[] frame = new byte[VAD_FRAME_SIZE * 2];
             boolean heardSpeech = false;
             boolean microphoneReadFailed = false;
@@ -257,6 +282,10 @@ public class Recorder {
                     mInProgress.set(false);
                     break;
                 }
+                // The classifier hears the raw frame, so auto-stop does not depend on the boost.
+                boolean classified = useVAD && count == frame.length;
+                boolean speech = classified && vad.isSpeech(frame);
+                processor.process(frame, 0, count);
                 try {
                     recording.write(frame, 0, count);
                 } catch (IOException e) {
@@ -265,8 +294,7 @@ public class Recorder {
                     break;
                 }
                 capturedSamples += count / PcmRecording.BYTES_PER_SAMPLE;
-                if (useVAD && count == frame.length) {
-                    boolean speech = vad.isSpeech(frame);
+                if (classified) {
                     if (speech) {
                         if (!heardSpeech) {
                             heardSpeech = true;
@@ -288,6 +316,9 @@ public class Recorder {
             } catch (IOException e) {
                 storageWriteFailed = true;
             }
+            recording.setMicCapture(new MicCapture(device, route.fellBack, mic.noiseReduction.key,
+                    mic.boost.key, processor.getAverageSpeechLevelDb(), processor.getPeakLevelDb(),
+                    processor.getClippedRatio(), processor.getAverageGainDb()));
             String captureWarning = null;
             if (microphoneReadFailed) {
                 captureWarning = "Microphone interrupted. Returned the audio captured before interruption.";
@@ -312,12 +343,15 @@ public class Recorder {
                 }
             }
         } finally {
+            if (suppressor != null) suppressor.release();
             if (audio != null) {
                 try { audio.stop(); } catch (IllegalStateException ignored) {}
                 audio.release();
             }
-            try { manager.stopBluetoothSco(); manager.setBluetoothScoOn(false); }
-            catch (RuntimeException ignored) {}
+            if (scoStarted) {
+                try { manager.stopBluetoothSco(); manager.setBluetoothScoOn(false); }
+                catch (RuntimeException ignored) {}
+            }
             if (useVAD) {
                 useVAD = false;
                 if (vad != null) { vad.close(); vad = null; }
@@ -325,5 +359,29 @@ public class Recorder {
             if (!transferred && recording != null) recording.close();
         }
         return terminalMessage;
+    }
+
+    /** The platform noise suppressor, when this phone has one; recording continues without it. */
+    private static NoiseSuppressor createNoiseSuppressor(int sessionId) {
+        NoiseSuppressor suppressor = null;
+        try {
+            if (!NoiseSuppressor.isAvailable()) return null;
+            suppressor = NoiseSuppressor.create(sessionId);
+            if (suppressor != null) suppressor.setEnabled(true);
+            return suppressor;
+        } catch (RuntimeException | LinkageError e) {
+            Log.w(TAG, "Noise suppressor unavailable", e);
+            if (suppressor != null) suppressor.release();
+            return null;
+        }
+    }
+
+    /** The kind of microphone Android actually routed, else the one requested. */
+    private static String deviceName(AudioRecord audio, MicRouter.Resolution route) {
+        AudioDeviceInfo routed = null;
+        try { routed = audio.getRoutedDevice(); } catch (RuntimeException | LinkageError ignored) { }
+        MicRouter.Kind kind = routed == null ? null : MicDevices.kindOf(routed.getType());
+        if (kind == null && route.input != null) kind = route.input.kind;
+        return kind == null ? "automatic" : kind.name().toLowerCase(java.util.Locale.ROOT);
     }
 }

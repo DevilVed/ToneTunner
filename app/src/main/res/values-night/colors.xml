@@ -30,4 +30,9 @@
     <color name="m3OnSurface">#E3F2FD</color>
     <color name="m3OnSurfaceVariant">#B0C4DE</color>
     <color name="m3Outline">#6F8BA8</color>
+
+    <!-- Dashboard chart series stepped for the navy card surface; validated as a set. -->
+    <color name="chartSeries1">#3987E5</color>
+    <color name="chartSeries2">#199E70</color>
+    <color name="chartSeries3">#D95926</color>
 </resources>

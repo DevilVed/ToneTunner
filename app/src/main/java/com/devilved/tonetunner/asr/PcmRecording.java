@@ -48,6 +48,7 @@ public final class PcmRecording implements AutoCloseable {
     private boolean registeredLiveFile = true;
     private boolean lastChunkHardCut;
     private String captureWarning;
+    private MicCapture micCapture;
     private Runnable afterClose;
 
     /** Releases the recovery owner's read lease after the recording's handles close. */
@@ -244,6 +245,15 @@ public final class PcmRecording implements AutoCloseable {
     /** Returns the optional capture-quality warning. */
     public synchronized String getCaptureWarning() {
         return captureWarning;
+    }
+
+    /** Microphone details of a live capture; not kept in recovery metadata. */
+    public synchronized void setMicCapture(MicCapture capture) {
+        micCapture = capture;
+    }
+
+    public synchronized MicCapture getMicCapture() {
+        return micCapture;
     }
 
     /**

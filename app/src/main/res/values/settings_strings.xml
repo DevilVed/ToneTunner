@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="settings_title">Settings</string>
+    <string name="settings_category_usage">Usage</string>
+    <string name="settings_dashboard_title">Usage dashboard</string>
+    <string name="settings_dashboard_summary">Words, time saved, API cost, tokens, cache hits, speed and microphone, with graphs.</string>
     <string name="settings_category_dictation">Dictation</string>
     <string name="settings_ai_title">AI providers and models</string>
     <string name="settings_ai_loading">Loading your transcription and enhancement choices…</string>

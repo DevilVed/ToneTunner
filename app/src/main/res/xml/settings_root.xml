@@ -3,6 +3,17 @@
 
     <PreferenceCategory
         app:iconSpaceReserved="false"
+        app:title="@string/settings_category_usage">
+
+        <Preference
+            app:iconSpaceReserved="false"
+            app:key="dashboard"
+            app:summary="@string/settings_dashboard_summary"
+            app:title="@string/settings_dashboard_title" />
+    </PreferenceCategory>
+
+    <PreferenceCategory
+        app:iconSpaceReserved="false"
         app:title="@string/settings_category_dictation">
 
         <Preference
@@ -22,6 +33,44 @@
             app:key="imeModeAuto"
             app:summary="@string/settings_auto_mode_summary"
             app:title="@string/settings_auto_mode_title" />
+    </PreferenceCategory>
+
+    <PreferenceCategory
+        app:iconSpaceReserved="false"
+        app:title="@string/settings_category_microphone">
+
+        <ListPreference
+            app:defaultValue="builtin"
+            app:entries="@array/mic_input_entries"
+            app:entryValues="@array/mic_input_values"
+            app:iconSpaceReserved="false"
+            app:key="micInput"
+            app:title="@string/settings_mic_input_title"
+            app:useSimpleSummaryProvider="true" />
+
+        <ListPreference
+            app:defaultValue="maximum"
+            app:entries="@array/mic_noise_entries"
+            app:entryValues="@array/mic_noise_values"
+            app:iconSpaceReserved="false"
+            app:key="micNoiseReduction"
+            app:title="@string/settings_mic_noise_title"
+            app:useSimpleSummaryProvider="true" />
+
+        <ListPreference
+            app:defaultValue="maximum"
+            app:entries="@array/mic_boost_entries"
+            app:entryValues="@array/mic_boost_values"
+            app:iconSpaceReserved="false"
+            app:key="micBoost"
+            app:title="@string/settings_mic_boost_title"
+            app:useSimpleSummaryProvider="true" />
+
+        <Preference
+            app:iconSpaceReserved="false"
+            app:key="micNote"
+            app:selectable="false"
+            app:summary="@string/settings_mic_note" />
     </PreferenceCategory>
 
     <PreferenceCategory

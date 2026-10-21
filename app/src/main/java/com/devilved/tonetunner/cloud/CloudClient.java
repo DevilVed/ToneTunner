@@ -67,6 +67,7 @@ public final class CloudClient {
     private final OkHttpClient httpClient;
     private final AtomicBoolean cancelled = new AtomicBoolean(false);
     private final AtomicReference<Call> activeCall = new AtomicReference<>();
+    private volatile Usage.Listener usageListener;
 
     public CloudClient() {
         this(new OkHttpClient.Builder());
@@ -82,6 +83,11 @@ public final class CloudClient {
                 .readTimeout(READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
                 .callTimeout(CALL_TIMEOUT_SECONDS, TimeUnit.SECONDS)
                 .build();
+    }
+
+    /** Receives the usage of each successful request, including ones whose result is then rejected. */
+    public void setUsageListener(Usage.Listener listener) {
+        usageListener = listener;
     }
 
     public Transcript transcribe(byte[] pcm, ProviderConfig config, String language, boolean translate)
@@ -122,9 +128,15 @@ public final class CloudClient {
                 .post(requestBody)
                 .build();
 
+        long started = System.nanoTime();
         byte[] response = execute(request, false);
+        long elapsedMs = (System.nanoTime() - started) / 1_000_000L;
+        double audioSeconds = pcm.length / (double) (16_000 * 2);
+        boolean reported = false;
         try {
             JSONObject json = new JSONObject(new String(response, StandardCharsets.UTF_8));
+            reportTranscription(Usage.fromTranscription(json), elapsedMs, audioSeconds);
+            reported = true;
             String text = stringValue(json, "text");
             if (text == null) {
                 throw safe(INVALID_RESPONSE);
@@ -139,6 +151,7 @@ public final class CloudClient {
             checkNotCancelled();
             return new Transcript(text.trim(), detectedLanguage);
         } catch (JSONException e) {
+            if (!reported) reportTranscription(Usage.fromTranscription(null), elapsedMs, audioSeconds);
             throw safe(INVALID_RESPONSE);
         }
     }
@@ -185,8 +198,16 @@ public final class CloudClient {
                 .post(RequestBody.create(JSON_MEDIA_TYPE, payload.toString().getBytes(StandardCharsets.UTF_8)))
                 .build();
 
+        long started = System.nanoTime();
         byte[] response = execute(request, true);
-        String enhanced = parseEnhancementResponse(response);
+        long elapsedMs = (System.nanoTime() - started) / 1_000_000L;
+        String enhanced = null;
+        try {
+            enhanced = parseEnhancementResponse(response);
+        } finally {
+            int inputCharacters = payload.toString().length();
+            reportEnhancement(response, elapsedMs, inputCharacters, enhanced == null ? 0 : enhanced.length());
+        }
         checkNotCancelled();
         rejectSevereShortening(text, enhanced);
         return enhanced;
@@ -508,6 +529,32 @@ public final class CloudClient {
             }
         }
         return null;
+    }
+
+    private void reportTranscription(Usage usage, long elapsedMs, double audioSeconds) {
+        Usage.Listener listener = usageListener;
+        if (listener == null) return;
+        try {
+            listener.onTranscription(usage, elapsedMs, audioSeconds);
+        } catch (RuntimeException ignored) {
+            // Metrics must never fail a dictation.
+        }
+    }
+
+    private void reportEnhancement(byte[] response, long elapsedMs, int inputCharacters, int outputCharacters) {
+        Usage.Listener listener = usageListener;
+        if (listener == null) return;
+        try {
+            JSONObject json = null;
+            try {
+                json = new JSONObject(new String(response, StandardCharsets.UTF_8));
+            } catch (JSONException ignored) {
+                // Unparseable responses are still counted as one request with estimated tokens.
+            }
+            listener.onEnhancement(Usage.fromChat(json), elapsedMs, inputCharacters, outputCharacters);
+        } catch (RuntimeException ignored) {
+            // Metrics must never fail a dictation.
+        }
     }
 
     private byte[] execute(Request request, boolean enhancement) throws IOException {
