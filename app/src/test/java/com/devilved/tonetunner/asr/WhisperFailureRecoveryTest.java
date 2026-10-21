@@ -2,6 +2,8 @@ package com.devilved.tonetunner.asr;
 
 import android.content.Context;
 import android.content.ContextWrapper;
+import android.database.Cursor;
+import android.database.sqlite.SQLiteDatabase;
 import android.os.Looper;
 import com.devilved.tonetunner.cloud.CloudClient;
 import com.devilved.tonetunner.cloud.ProviderConfig;
@@ -61,6 +63,7 @@ public class WhisperFailureRecoveryTest {
                 .putString("transcription.provider", "LOCAL").putBoolean("cloud.consent", true).commit();
         FailingEnhancement.calls = 0;
         deleteTree(new File(context.getNoBackupFilesDir(), "dictation-recovery"));
+        deleteTree(new File(context.getNoBackupFilesDir(), "transcript-history"));
         whisper = new Whisper(context, ignored -> new Whisper.LocalTranscriber() {
             public CloudClient.Transcript transcribe(byte[] pcm, String language, Recognizer.Action action)
                     throws IOException, InterruptedException {
@@ -105,6 +108,7 @@ public class WhisperFailureRecoveryTest {
         whisper.unloadModel();
         Shadows.shadowOf(Looper.getMainLooper()).idle();
         deleteTree(new File(context.getNoBackupFilesDir(), "dictation-recovery"));
+        deleteTree(new File(context.getNoBackupFilesDir(), "transcript-history"));
     }
 
     @Test public void enhancementFailureDeliversTheWholeRawTranscript() throws Exception {
@@ -167,6 +171,32 @@ public class WhisperFailureRecoveryTest {
         assertEquals("part-1 part-2 part-4", result.getResult());
         assertTrue("successful delivery removes the retained recording", store.list().isEmpty());
         assertEquals(1, errors);
+    }
+
+    @Test public void acceptedDeliveryPersistsTranscriptInIndependentHistoryAfterRecoveryIsRemoved()
+            throws Exception {
+        startAndDrain(recording(1, 2048));
+
+        assertNotNull("the result must be accepted before checking retained history", result);
+        assertEquals(rawText, result.getResult());
+        assertTrue("successful delivery must still remove audio recovery", new RecoveryStore(context).list().isEmpty());
+
+        File historyDatabase = new File(context.getNoBackupFilesDir(), "transcript-history/history.db");
+        assertTrue("accepted delivery must leave an independent app-private history database", historyDatabase.isFile());
+        try (SQLiteDatabase database = SQLiteDatabase.openDatabase(
+                     historyDatabase.getPath(), null, SQLiteDatabase.OPEN_READONLY);
+             Cursor transcripts = database.rawQuery("SELECT * FROM transcripts", null)) {
+            assertTrue("accepted delivery must leave a saved history row", transcripts.moveToFirst());
+            boolean foundTranscript = false;
+            do {
+                for (int column = 0; column < transcripts.getColumnCount(); column++) {
+                    if (!transcripts.isNull(column) && rawText.equals(transcripts.getString(column))) {
+                        foundTranscript = true;
+                    }
+                }
+            } while (transcripts.moveToNext());
+            assertTrue("the independent history row must retain the delivered transcript", foundTranscript);
+        }
     }
 
     @Test public void failedRetryCheckpointsNewProgressWithoutReplacingTheOriginalAudio() throws Exception {

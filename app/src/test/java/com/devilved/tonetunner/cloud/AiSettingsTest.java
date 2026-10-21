@@ -21,12 +21,26 @@ public class AiSettingsTest {
         settings = new AiSettings(context);
     }
 
-    @Test public void newInstallDoesNotAuthorizeCloudUploadsOrEnhancement() {
-        assertTrue(settings.isCloudTranscription());
-        assertEquals(Provider.GROQ, settings.getTranscriptionConfig().provider);
+    @Test public void newInstallDefaultsToLocalAndDoesNotAuthorizeCloudUploadsOrEnhancement() {
+        assertFalse(settings.isCloudTranscription());
+        assertEquals(Provider.LOCAL, settings.getTranscriptionConfigWithoutKey().provider);
         assertEquals("", settings.getTranscriptionConfig().apiKey);
         assertFalse(settings.isEnhancementEnabled());
         assertFalse(settings.isCloudConsentGranted());
+    }
+
+    @Test public void explicitlySavedCloudProviderChoiceRemainsCloud() {
+        Context context = RuntimeEnvironment.getApplication();
+        context.getSharedPreferences("ai_settings", Context.MODE_PRIVATE).edit()
+                .putString("transcription.provider", Provider.GROQ.name())
+                .putBoolean("cloud.consent", true)
+                .commit();
+
+        AiSettings reloaded = new AiSettings(context);
+
+        assertTrue(reloaded.isCloudTranscription());
+        assertEquals(Provider.GROQ, reloaded.getTranscriptionConfigWithoutKey().provider);
+        assertTrue(reloaded.isCloudConsentGranted());
     }
 
     @Test public void localOnlyCanBeSavedWithoutKeyOrCloudConsent() throws Exception {
@@ -74,7 +88,7 @@ public class AiSettingsTest {
         RuntimeEnvironment.getApplication().getSharedPreferences("ai_settings", Context.MODE_PRIVATE)
                 .edit().putString("transcription.provider", "UNKNOWN")
                 .putString("enhancement.provider", "LOCAL").putBoolean("enhancement.enabled", true).commit();
-        assertEquals(Provider.GROQ, settings.getTranscriptionConfig().provider);
+        assertEquals(Provider.LOCAL, settings.getTranscriptionConfigWithoutKey().provider);
         assertFalse(settings.isEnhancementEnabled());
     }
 
