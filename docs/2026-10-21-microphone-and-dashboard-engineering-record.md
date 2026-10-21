@@ -132,10 +132,11 @@ Android builds and tests run only in GitHub Actions (`android-build.yml`); this 
 |---|---|---|
 | [39584979793](https://github.com/DevilVed/ToneTunner/actions/runs/39584979793) | `7a5e79d` | 336 unit tests, **7 failed**, all in `RecorderMicrophoneTest` (timed out at `done.await`). Lint: 0 errors. |
 | [39588021085](https://github.com/DevilVed/ToneTunner/actions/runs/39588021085) | `a587137` | **All 7 jobs passed.** 336 unit tests in 44 suites, 0 failures, 0 skipped. Lint: 0 errors, 25 warnings. Instrumented tests on emulators API 28, 34, 35 (16 KB pages) and 36: 0 failures. |
+| [39590466278](https://github.com/DevilVed/ToneTunner/actions/runs/39590466278) | `27fd603` | **All 7 jobs passed.** 336 unit tests, 0 failures. Lint: 0 errors, 20 warnings (none in new code). Instrumented tests on API 28, 34, 35 and 36: 0 failures. |
 
 **Run 1 failure.** Robolectric's `ShadowAudioRecord` asks the audio-source provider for a source on *every* read. The test's provider returned a new source each time, so the per-source read counter restarted, the scripted end of input never arrived and the recorder never stopped. The fix creates one source per test and has the provider return it. Production code was unchanged.
 
-**Lint follow-up.** Five of run 2's 25 warnings came from new code. Four were `PluralsCandidate` in `dashboard_strings.xml`: three strings became `<plurals>`, and the reliability line was reworded to `Completed: 2 · Failed: 1 · …`. The fifth was `StaticFieldLeak`: `UsageStore` kept its owner context in a field of the static instance, and it now holds it through a `WeakReference`. The other 20 warnings were already on `beta-test-v1` and are left alone.
+**Lint follow-up.** Five of run 2's 25 warnings came from new code. Four were `PluralsCandidate` in `dashboard_strings.xml`: three strings became `<plurals>`, and the reliability line was reworded to `Completed: 2 · Failed: 1 · …`. The fifth was `StaticFieldLeak`: `UsageStore` kept its owner context in a field of the static instance, and it now holds it through a `WeakReference`. The other 20 warnings were already on `beta-test-v1` and are left alone. Run 3 confirms that only those 20 remain.
 
 ## 8. Source map
 
