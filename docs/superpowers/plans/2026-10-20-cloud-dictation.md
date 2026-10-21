@@ -1,5 +1,7 @@
 # Cloud dictation implementation plan
 
+This is the original implementation checklist. Its completion described the first `bd0e80a` build, whose uncovered regressions were subsequently confirmed. The current contracts are in the [updated specification](../specs/2026-10-20-cloud-dictation.md), and the [review repair plan](2026-10-20-dictation-review-repairs.md) records the additional tests and repairs. The older evidence below is retained as history, not current acceptance of destructive cleanup or selection cancellation.
+
 > **For agentic workers:** Use focused implementation and independent review; respect the file ownership below.
 
 **Goal:** Deliver user-configurable cloud speech transcription and optional text enhancement in ToneTunner.

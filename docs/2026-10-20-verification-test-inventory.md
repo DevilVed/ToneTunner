@@ -1,6 +1,51 @@
 # Exact verification test inventory — 20 October 2026
 
-This inventory documents the final successful [Actions run 39444393039](https://github.com/DevilVed/ToneTunner/actions/runs/39444393039), application/build commit `bd0e80a393040ff19fb4fd3373830fbb4c94d1b2`. It was exported from downloaded report XML and statically read native test definitions. Generating this document does not execute or rerun any tests. Later documentation-only commits do not change that provenance.
+> **Current integrated verification (21 October 2026):** [Actions run 39533439912](https://github.com/DevilVed/ToneTunner/actions/runs/39533439912) on application commit `3a04b5f` passed every job: the native 16 KB extensions gate, **257 JVM/Robolectric tests in 32 suites with 0 failures, 0 errors and 0 skipped**, Android lint with 0 errors and 20 warnings, the API 28, API 34 and API 35 (16 KB page) emulator jobs, and verified APK packaging. Counts were exported from that run's downloaded JUnit XML. The per-suite table is below; the rest of this document is the historical `bd0e80a` inventory and is kept for provenance only.
+
+### Current JVM / Robolectric suites at `3a04b5f`
+
+| Suite | Tests | Failures | Errors | Skipped |
+|---|---:|---:|---:|---:|
+| `com.devilved.tonetunner.AiSettingsCredentialThreadTest` | 3 | 0 | 0 | 0 |
+| `com.devilved.tonetunner.AndroidManifestPermissionsTest` | 1 | 0 | 0 | 0 |
+| `com.devilved.tonetunner.CloudOnboardingTest` | 5 | 0 | 0 | 0 |
+| `com.devilved.tonetunner.EntryPointHoldReleaseValidationTest` | 3 | 0 | 0 | 0 |
+| `com.devilved.tonetunner.EntryPointTranslationPreflightTest` | 13 | 0 | 0 | 0 |
+| `com.devilved.tonetunner.RecordingScreenAwakeTest` | 10 | 0 | 0 | 0 |
+| `com.devilved.tonetunner.RecoveryUiTest` | 2 | 0 | 0 | 0 |
+| `com.devilved.tonetunner.WhisperInputMethodServiceLifecycleTest` | 15 | 0 | 0 | 0 |
+| `com.devilved.tonetunner.WhisperInputMethodServiceScreenAwakeTest` | 6 | 0 | 0 | 0 |
+| `com.devilved.tonetunner.WhisperRecognitionServiceContractTest` | 2 | 0 | 0 | 0 |
+| `com.devilved.tonetunner.WhisperRecognitionServiceDeliveryTest` | 5 | 0 | 0 | 0 |
+| `com.devilved.tonetunner.WhisperRecognizeActivityRequestContractTest` | 3 | 0 | 0 | 0 |
+| `com.devilved.tonetunner.asr.InputPolicyTest` | 5 | 0 | 0 | 0 |
+| `com.devilved.tonetunner.asr.LocalModelGateTest` | 2 | 0 | 0 | 0 |
+| `com.devilved.tonetunner.asr.OperationGateTest` | 4 | 0 | 0 | 0 |
+| `com.devilved.tonetunner.asr.PcmRecordingTest` | 17 | 0 | 0 | 0 |
+| `com.devilved.tonetunner.asr.RecordBufferTest` | 5 | 0 | 0 | 0 |
+| `com.devilved.tonetunner.asr.RecorderFailureTest` | 6 | 0 | 0 | 0 |
+| `com.devilved.tonetunner.asr.RecorderOwnershipTest` | 2 | 0 | 0 | 0 |
+| `com.devilved.tonetunner.asr.RecorderVadTest` | 1 | 0 | 0 | 0 |
+| `com.devilved.tonetunner.asr.RecordingGestureTest` | 4 | 0 | 0 | 0 |
+| `com.devilved.tonetunner.asr.RecoveryStoreTest` | 15 | 0 | 0 | 0 |
+| `com.devilved.tonetunner.asr.TextWindowsTest` | 5 | 0 | 0 | 0 |
+| `com.devilved.tonetunner.asr.TranscriptJoinerTest` | 27 | 0 | 0 | 0 |
+| `com.devilved.tonetunner.asr.WhisperCloudWindowTest` | 1 | 0 | 0 | 0 |
+| `com.devilved.tonetunner.asr.WhisperFailureRecoveryTest` | 23 | 0 | 0 | 0 |
+| `com.devilved.tonetunner.asr.WhisperOwnershipTest` | 8 | 0 | 0 | 0 |
+| `com.devilved.tonetunner.cloud.AiSettingsTest` | 9 | 0 | 0 | 0 |
+| `com.devilved.tonetunner.cloud.AudioWavTest` | 3 | 0 | 0 | 0 |
+| `com.devilved.tonetunner.cloud.CloudClientTest` | 42 | 0 | 0 | 0 |
+| `com.devilved.tonetunner.cloud.ProviderTest` | 1 | 0 | 0 | 0 |
+| `com.devilved.tonetunner.cloud.SecretStoreTest` | 9 | 0 | 0 | 0 |
+
+`ZipSlipSecurityTest.java` remains a standalone `main()` harness and is not counted.
+
+### Historical inventory
+
+The counts below cover only `bd0e80a`. The recovery checkpoint later passed 193 tests at `11eda74`, and the folder-review tests-first run reported 226 tests/26 expected failures at `01bd79c`.
+
+This inventory documents the historical successful [Actions run 39444393039](https://github.com/DevilVed/ToneTunner/actions/runs/39444393039), application/build commit `bd0e80a393040ff19fb4fd3373830fbb4c94d1b2`. It was exported from downloaded report XML and statically read native test definitions. Generating this document does not execute or rerun any tests. Later documentation-only commits do not change that provenance.
 
 See the [full engineering record](2026-10-20-voiceink-android-engineering-record.md) for decisions, fixtures, limitations, and interpretation of these results. Test method names describe intended checks; a passing fixture is not a live-provider or physical-device quality result.
 
