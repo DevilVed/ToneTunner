@@ -67,6 +67,11 @@ public class SetupActivity extends AppCompatActivity {
     }
 
     public void startMain(View v){
+        // Opened from Settings or AI settings: go back there instead of stacking another main screen.
+        if (!isTaskRoot()) {
+            finish();
+            return;
+        }
         Intent intent = new Intent(this, MainActivity.class);
         intent.addFlags(FLAG_ACTIVITY_NEW_TASK);
         startActivity(intent);
