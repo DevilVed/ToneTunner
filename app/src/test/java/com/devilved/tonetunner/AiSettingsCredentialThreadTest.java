@@ -25,6 +25,7 @@ import java.io.IOException;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
 
 /** Keystore-backed reads must not block the settings screen's main thread. */
 @RunWith(RobolectricTestRunner.class)
@@ -50,9 +51,11 @@ public class AiSettingsCredentialThreadTest {
             AiSettingsActivity activity = controller.get();
             CheckBox consent = findCheckBox(activity.findViewById(android.R.id.content),
                     activity.getString(R.string.ai_cloud_consent));
+            assertNotNull("The cloud-consent checkbox should be present", consent);
             consent.setChecked(true);
             TextView save = findText(activity.findViewById(android.R.id.content),
                     activity.getString(R.string.ai_save));
+            assertNotNull("The save button should be present", save);
 
             save.performClick();
 
@@ -72,7 +75,7 @@ public class AiSettingsCredentialThreadTest {
                 if (found != null) return found;
             }
         }
-        throw new AssertionError("Could not find the cloud-consent checkbox");
+        return null;
     }
 
     private static TextView findText(View view, String label) {
@@ -86,7 +89,7 @@ public class AiSettingsCredentialThreadTest {
                 if (found != null) return found;
             }
         }
-        throw new AssertionError("Could not find the save button");
+        return null;
     }
 
     @Implements(value = SecretStore.class, isInAndroidSdk = false)
@@ -105,6 +108,7 @@ public class AiSettingsCredentialThreadTest {
 
         @Implementation protected boolean hasKey(Provider provider, String stage, String endpoint)
                 throws IOException {
+            if (Looper.myLooper() == Looper.getMainLooper()) mainThreadKeyReads.incrementAndGet();
             return false;
         }
     }

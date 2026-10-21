@@ -53,7 +53,8 @@ public class EntryPointTranslationPreflightTest {
         ActivityController<MainActivity> controller = Robolectric.buildActivity(MainActivity.class).setup();
         MainActivity activity = controller.get();
         try {
-            Shadows.shadowOf(activity).grantPermissions(Manifest.permission.RECORD_AUDIO);
+            Shadows.shadowOf(RuntimeEnvironment.getApplication())
+                    .grantPermissions(Manifest.permission.RECORD_AUDIO);
             ((CheckBox) activity.findViewById(R.id.mode_translate)).setChecked(true);
 
             assertFalse(invokeStartRecording(activity));
@@ -102,7 +103,8 @@ public class EntryPointTranslationPreflightTest {
         ActivityController<MainActivity> controller = Robolectric.buildActivity(MainActivity.class).setup();
         MainActivity activity = controller.get();
         try {
-            Shadows.shadowOf(activity).grantPermissions(Manifest.permission.RECORD_AUDIO);
+            Shadows.shadowOf(RuntimeEnvironment.getApplication())
+                    .grantPermissions(Manifest.permission.RECORD_AUDIO);
             ((CheckBox) activity.findViewById(R.id.mode_translate)).setChecked(true);
 
             assertTrue(invokeStartRecording(activity));
