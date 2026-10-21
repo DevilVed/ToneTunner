@@ -37,12 +37,28 @@ public class DictionaryRulesTest {
     }
 
     @Test
-    public void vocabularyCorrectsOnlyWholeNamesAndUsesCanonicalCasing() throws Exception {
+    public void vocabularyDoesNotRewriteExistingTranscriptSpelling() throws Exception {
         String text = "Please ask DEVILVED and tonetunner, not tonetunnerish.";
         String vocabulary = " DevilVed, ToneTunner\nDEVILVED, ToneTunner ";
 
-        assertEquals("Please ask DevilVed and ToneTunner, not tonetunnerish.",
-                apply(text, vocabulary, ""));
+        assertEquals(text, apply(text, vocabulary, ""));
+    }
+
+    @Test
+    public void commonWordsInVocabularyStayLowercaseAndExplicitCorrectionsStillApply() throws Exception {
+        String text = "I will go if you may use tone tuner.";
+        String vocabulary = "Will, May, Go, ToneTunner";
+        String replacements = "tone tuner => ToneTunner";
+
+        assertEquals("I will go if you may use ToneTunner.", apply(text, vocabulary, replacements));
+    }
+
+    @Test
+    public void vocabularyForCommonWordsDoesNotChangeTheirCasing() throws Exception {
+        String text = "I will go if you may.";
+        String vocabulary = "Will, May, Go";
+
+        assertEquals(text, apply(text, vocabulary, ""));
     }
 
     @Test

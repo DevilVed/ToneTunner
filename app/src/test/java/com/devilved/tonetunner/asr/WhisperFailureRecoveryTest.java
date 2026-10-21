@@ -447,13 +447,13 @@ public class WhisperFailureRecoveryTest {
     }
 
     @Test public void literalCorrectionsRunOnceAndHistoryKeepsTheOriginalRecognition() throws Exception {
-        rawText = "Ann met tonetunner.";
+        rawText = "Ann will go if you may ask tone tuner.";
         context.getSharedPreferences("ai_settings", Context.MODE_PRIVATE).edit()
-                .putString("enhancement.vocabulary", "ToneTunner")
-                .putString("dictation.replacements", "Ann => Dr. Ann").commit();
+                .putString("enhancement.vocabulary", "Will, May, Go, ToneTunner")
+                .putString("dictation.replacements", "Ann => Dr. Ann\ntone tuner => ToneTunner").commit();
         startAndDrain(recording(1, 2048));
         assertNotNull(result);
-        assertEquals("Dr. Ann met ToneTunner.", result.getResult());
+        assertEquals("Dr. Ann will go if you may ask ToneTunner.", result.getResult());
         try (TranscriptHistoryStore history = new TranscriptHistoryStore(context)) {
             assertEquals(1, history.list(10, 0).size());
             TranscriptHistoryStore.Entry entry = history.get(history.list(10, 0).get(0).id);
@@ -509,8 +509,11 @@ public class WhisperFailureRecoveryTest {
         File historyDirectory = new File(context.getNoBackupFilesDir(), "transcript-history");
         Files.write(historyDirectory.toPath(), new byte[]{1});
         startAndDrain(recording(1, 2048));
-        assertEquals(1, errors);
-        assertNull("delivery must not claim a result was saved when history failed", result);
+        assertEquals("history storage failure must not block accepted delivery", 0, errors);
+        assertNotNull("recognized text must still be delivered", result);
+        assertEquals(rawText, result.getResult());
+        assertTrue(result.getWarning().contains(
+                "Transcript history could not be saved. Audio and recognized text remain in Saved dictations for recovery."));
         RecoveryStore store = new RecoveryStore(context);
         assertEquals(1, store.list().size());
         RecoveryStore.Entry saved = store.list().get(0);
@@ -522,6 +525,14 @@ public class WhisperFailureRecoveryTest {
         drainWorker();
         assertNotNull(result);
         assertEquals(recognizedCalls, calls);
+        assertFalse(result.getWarning().contains("Transcript history could not be saved."));
+        try (TranscriptHistoryStore history = new TranscriptHistoryStore(context)) {
+            TranscriptHistoryStore.Entry entry = history.get(saved.id);
+            assertNotNull("the retry must persist the completed transcript", entry);
+            assertEquals(rawText, entry.rawText);
+            assertEquals(rawText, entry.text);
+            assertTrue(entry.isComplete);
+        }
         assertTrue(store.list().isEmpty());
     }
 

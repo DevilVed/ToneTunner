@@ -1,24 +1,44 @@
 package com.devilved.tonetunner.cloud;
 
 import android.content.Context;
+import android.content.ContextWrapper;
+import com.devilved.tonetunner.R;
+import org.junit.Rule;
 import org.junit.Before;
 import org.junit.Test;
+import org.junit.rules.TemporaryFolder;
 import org.junit.runner.RunWith;
 import org.robolectric.RobolectricTestRunner;
 import org.robolectric.RuntimeEnvironment;
 import org.robolectric.annotation.Config;
+
+import java.io.File;
+import java.lang.reflect.Field;
+
+import javax.crypto.spec.SecretKeySpec;
+
 import static org.junit.Assert.*;
 
 /** Exercises configuration and consent without using a real credential or contacting a provider. */
 @RunWith(RobolectricTestRunner.class)
 @Config(sdk = 28)
 public class AiSettingsTest {
-    private AiSettings settings;
+    @Rule public final TemporaryFolder temporaryFolder = new TemporaryFolder();
 
-    @Before public void reset() {
+    private AiSettings settings;
+    private SecretStore testSecretStore;
+
+    @Before public void reset() throws Exception {
         Context context = RuntimeEnvironment.getApplication();
         context.getSharedPreferences("ai_settings", Context.MODE_PRIVATE).edit().clear().commit();
         settings = new AiSettings(context);
+
+        Context storageContext = new TestStorageContext(context, temporaryFolder.newFolder("no-backup"));
+        testSecretStore = new SecretStore(storageContext,
+                () -> new SecretKeySpec(new byte[32], "AES"));
+        Field secretStore = AiSettings.class.getDeclaredField("secretStore");
+        secretStore.setAccessible(true);
+        secretStore.set(settings, testSecretStore);
     }
 
     @Test public void newInstallDefaultsToLocalAndDoesNotAuthorizeCloudUploadsOrEnhancement() {
@@ -94,13 +114,65 @@ public class AiSettingsTest {
                 local(), true, enhancement(), " \n ", "", true, false, ""));
     }
 
-    @Test public void requiredZdrRejectsOpenRouterTranscriptionDuringCredentialPreflight() {
+    @Test public void legacyOpenRouterTranscriptionDefaultsToRequiredZdrAndFailsCredentialPreflight() {
         RuntimeEnvironment.getApplication().getSharedPreferences("ai_settings", Context.MODE_PRIVATE)
                 .edit().putString("transcription.provider", Provider.OPENROUTER.name())
-                .putBoolean("transcription.require_zdr", true).putBoolean("cloud.consent", true).commit();
+                .putBoolean("cloud.consent", true).commit();
 
-        assertEquals(com.devilved.tonetunner.R.string.ai_openrouter_transcription_zdr_unsupported,
+        assertTrue(settings.getTranscriptionConfigWithoutKey().requireZdr);
+
+        assertEquals(R.string.ai_openrouter_transcription_zdr_unsupported,
                 settings.validateCloudCredentials());
+    }
+
+    @Test public void saveRejectsOpenRouterTranscriptionBeforeStoringKeyOrPreferences() throws Exception {
+        Context context = RuntimeEnvironment.getApplication();
+        String endpoint = Provider.OPENROUTER.transcriptionEndpoint();
+        ProviderConfig openRouter = new ProviderConfig(Provider.OPENROUTER,
+                endpoint, Provider.OPENROUTER.defaultTranscriptionModel(), "synthetic-test-key", true);
+
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> settings.saveSettings(openRouter, false, enhancement(), "", "", true));
+
+        assertEquals(context.getString(
+                R.string.ai_openrouter_transcription_zdr_unsupported),
+                error.getMessage());
+        assertEquals("An invalid choice must not replace the previously saved provider.",
+                Provider.LOCAL, settings.getTranscriptionConfigWithoutKey().provider);
+        assertFalse(settings.isCloudConsentGranted());
+        assertFalse(testSecretStore.hasKey(Provider.OPENROUTER, "transcription", endpoint));
+    }
+
+    @Test public void saveReportsUnsupportedZdrBeforeMissingApiKey() {
+        Context context = RuntimeEnvironment.getApplication();
+        ProviderConfig openRouterWithoutKey = new ProviderConfig(Provider.OPENROUTER,
+                Provider.OPENROUTER.transcriptionEndpoint(),
+                Provider.OPENROUTER.defaultTranscriptionModel(), "", true);
+
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> settings.saveSettings(openRouterWithoutKey, false, enhancement(), "", "", true));
+
+        assertEquals(context.getString(R.string.ai_openrouter_transcription_zdr_unsupported),
+                error.getMessage());
+        assertEquals(Provider.LOCAL, settings.getTranscriptionConfigWithoutKey().provider);
+        assertFalse(settings.isCloudConsentGranted());
+    }
+
+    @Test public void explicitOpenRouterTranscriptionZdrOptOutSavesAndPreservesEnhancementChoice()
+            throws Exception {
+        Context context = RuntimeEnvironment.getApplication();
+        String endpoint = Provider.OPENROUTER.transcriptionEndpoint();
+        ProviderConfig openRouter = new ProviderConfig(Provider.OPENROUTER, endpoint,
+                Provider.OPENROUTER.defaultTranscriptionModel(), "synthetic-test-key", false);
+
+        settings.saveSettings(openRouter, false, enhancement(), "", "", true);
+
+        AiSettings reloaded = new AiSettings(context);
+        assertEquals(Provider.OPENROUTER, reloaded.getTranscriptionConfigWithoutKey().provider);
+        assertFalse(reloaded.getTranscriptionConfigWithoutKey().requireZdr);
+        assertTrue(reloaded.getEnhancementConfigWithoutKey().requireZdr);
+        assertTrue(reloaded.isCloudConsentGranted());
+        assertTrue(testSecretStore.hasKey(Provider.OPENROUTER, "transcription", endpoint));
     }
 
     @Test public void openRouterTranscriptionCanOptOutOfUnsupportedZdrRequirement() {
@@ -108,7 +180,7 @@ public class AiSettingsTest {
                 .edit().putString("transcription.provider", Provider.OPENROUTER.name())
                 .putBoolean("transcription.require_zdr", false).putBoolean("cloud.consent", true).commit();
 
-        assertNotEquals(com.devilved.tonetunner.R.string.ai_openrouter_transcription_zdr_unsupported,
+        assertNotEquals(R.string.ai_openrouter_transcription_zdr_unsupported,
                 settings.validateCloudCredentials());
     }
 
@@ -169,5 +241,22 @@ public class AiSettingsTest {
     private static ProviderConfig enhancement() {
         return new ProviderConfig(Provider.OPENROUTER, Provider.OPENROUTER.enhancementEndpoint(),
                 Provider.OPENROUTER.defaultEnhancementModel(), "", true);
+    }
+
+    private static final class TestStorageContext extends ContextWrapper {
+        private final File noBackupDirectory;
+
+        TestStorageContext(Context base, File noBackupDirectory) {
+            super(base);
+            this.noBackupDirectory = noBackupDirectory;
+        }
+
+        @Override public Context getApplicationContext() {
+            return this;
+        }
+
+        @Override public File getNoBackupFilesDir() {
+            return noBackupDirectory;
+        }
     }
 }

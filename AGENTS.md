@@ -27,6 +27,7 @@ Removing them violates GPLv3/Apache-2.0 and risks a DMCA takedown of the reposit
 
 # Documentation location (required)
 
+- `AGENTS.md` is intentionally tracked as shared project guidance. Keep credentials and private machine paths outside it.
 - Keep every engineering document, research note, design, implementation plan, verification record, and other documentation created for ToneTunner inside the ToneTunner project directory.
 - Use the repository `docs/` tree for canonical documents. Optional copies in `.superpower/` must also remain inside the ToneTunner project directory.
 - Do not place the only or canonical copy of documentation in global Codex directories, external temporary folders, or another project. When using an isolated worktree, keep the PR copy in its repository tree and keep a synchronized copy under the main ToneTunner project directory's `docs/` tree throughout the work.
@@ -34,10 +35,10 @@ Removing them violates GPLv3/Apache-2.0 and risks a DMCA takedown of the reposit
 
 # Building
 
-- There is no local Android SDK on the development Mac. Build in the cloud with GitHub Actions:
+- Run Android builds and executable tests in GitHub Actions:
   - `.github/workflows/android-build.yml`: debug APK on push/PR, or `gh workflow run android-build.yml -f ref=<branch>`.
   - `.github/workflows/release.yml`: push tag `v<versionName>` to publish a signed APK to GitHub Releases; a manual run is a signed dry run.
-- The repo has no `gradlew` script; CI uses Gradle 8.14.5 (AGP 8.13.2) + JDK 17 directly.
+- The repo has no `gradlew` script. Read the current Gradle version from `gradle/wrapper/gradle-wrapper.properties`, the Android Gradle Plugin version from `settings.gradle`, and the JDK configuration from the workflows. Keep workflow toolchain pins synchronized with those files when upgrading.
 - Never commit keystores, passwords or `local.properties`. Signing keys live only in GitHub secrets and in the maintainer's private backup.
 - Before every release, bump `versionCode` and `versionName` in `app/build.gradle`.
 
