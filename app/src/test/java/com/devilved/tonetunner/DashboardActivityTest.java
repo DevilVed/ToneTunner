@@ -74,7 +74,7 @@ public class DashboardActivityTest {
             TextView cache = activity.getWindow().getDecorView().findViewWithTag("cache_rate");
             assertTrue(cache.getText().toString().contains("50%"));
             TextView reliability = activity.getWindow().getDecorView().findViewWithTag("reliability");
-            assertTrue(reliability.getText().toString().startsWith("2 completed · 1 failed"));
+            assertTrue(reliability.getText().toString().startsWith("Completed: 2 · Failed: 1"));
             BarChartView tokens = activity.getWindow().getDecorView().findViewWithTag("chart_tokens");
             assertTrue(String.valueOf(tokens.getContentDescription()).contains("500"));
             assertNotNull(activity.getWindow().getDecorView().findViewWithTag("model_enhancement_gpt-4o-mini"));

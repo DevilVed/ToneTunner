@@ -247,7 +247,8 @@ public class DashboardActivity extends AppCompatActivity {
         body.addView(text(getString(R.string.dashboard_cost_detail, money(s.costUsd), money(perDictation),
                 money(perHour)), 14, false), matchWrap());
         if (s.unpriced > 0) {
-            body.addView(text(getString(R.string.dashboard_cost_unpriced, s.unpriced), 12, false), matchWrap());
+            String note = getResources().getQuantityString(R.plurals.dashboard_cost_unpriced, s.unpriced, s.unpriced);
+            body.addView(text(note, 12, false), matchWrap());
         }
         body.addView(text(getString(R.string.dashboard_cost_note), 12, false), matchWrap());
         return card;
@@ -338,8 +339,9 @@ public class DashboardActivity extends AppCompatActivity {
                     ? R.string.dashboard_model_enhancement : R.string.dashboard_model_transcription);
             row.addView(text(kind + " · " + model.model, 14, true), matchWrap());
             String cost = model.unpriced ? getString(R.string.dashboard_model_unpriced) : money(model.costUsd);
-            row.addView(text(getString(R.string.dashboard_model_detail, model.sessions, duration(model.audioMs),
-                    number(model.tokens), cost, seconds(model.avgRequestMs())), 12, false), matchWrap());
+            String detail = getResources().getQuantityString(R.plurals.dashboard_model_detail, model.sessions,
+                    model.sessions, duration(model.audioMs), number(model.tokens), cost, seconds(model.avgRequestMs()));
+            row.addView(text(detail, 12, false), matchWrap());
             boolean local = model.provider == null || "LOCAL".equals(model.provider);
             if (!local) {
                 row.setClickable(true);
@@ -367,7 +369,8 @@ public class DashboardActivity extends AppCompatActivity {
             body.addView(row(deviceName(device.getKey()), number(device.getValue())), matchWrap());
         }
         if (s.micFallbacks > 0) {
-            body.addView(text(getString(R.string.dashboard_mic_fallbacks, s.micFallbacks), 12, false), matchWrap());
+            String note = getResources().getQuantityString(R.plurals.dashboard_mic_fallbacks, s.micFallbacks, s.micFallbacks);
+            body.addView(text(note, 12, false), matchWrap());
         }
         body.addView(row(R.string.dashboard_mic_level, decibels(s.avgSpeechLevelDb)), matchWrap());
         body.addView(row(R.string.dashboard_mic_peak, decibels(s.maxPeakDb)), matchWrap());

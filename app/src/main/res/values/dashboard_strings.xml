@@ -20,7 +20,10 @@
     <string name="dashboard_words_detail">Time saved compares typing at 40 words per minute with the time spent speaking. You speak at about %1$s words per minute.</string>
     <string name="dashboard_cost_title">API cost</string>
     <string name="dashboard_cost_detail">%1$s in total · %2$s per dictation · %3$s per hour of audio</string>
-    <string name="dashboard_cost_unpriced">%1$d dictations used a model without a price. Set its price under Models.</string>
+    <plurals name="dashboard_cost_unpriced">
+        <item quantity="one">%1$d dictation used a model without a price. Set its price under Models.</item>
+        <item quantity="other">%1$d dictations used a model without a price. Set its price under Models.</item>
+    </plurals>
     <string name="dashboard_cost_note">OpenRouter costs are the amounts it reports. Other costs are usage multiplied by the prices under Models.</string>
     <string name="dashboard_tokens_title">Tokens and cache</string>
     <string name="dashboard_tokens_detail">Prompt %1$s · Output %2$s · Transcription %3$s</string>
@@ -44,7 +47,10 @@
     <string name="dashboard_models_hint">Tap a model to change its price.</string>
     <string name="dashboard_model_transcription">Transcription</string>
     <string name="dashboard_model_enhancement">Enhancement</string>
-    <string name="dashboard_model_detail">%1$d dictations · %2$s · %3$s tokens · %4$s · %5$s per request</string>
+    <plurals name="dashboard_model_detail">
+        <item quantity="one">%1$d dictation · %2$s · %3$s tokens · %4$s · %5$s per request</item>
+        <item quantity="other">%1$d dictations · %2$s · %3$s tokens · %4$s · %5$s per request</item>
+    </plurals>
     <string name="dashboard_model_unpriced">no price</string>
     <string name="dashboard_mic_title">Microphone</string>
     <string name="dashboard_mic_builtin">Phone</string>
@@ -52,13 +58,16 @@
     <string name="dashboard_mic_wired">Wired or USB</string>
     <string name="dashboard_mic_other">Other</string>
     <string name="dashboard_mic_automatic">Chosen by Android</string>
-    <string name="dashboard_mic_fallbacks">Fell back to the phone microphone %1$d times</string>
+    <plurals name="dashboard_mic_fallbacks">
+        <item quantity="one">Fell back to the phone microphone %1$d time</item>
+        <item quantity="other">Fell back to the phone microphone %1$d times</item>
+    </plurals>
     <string name="dashboard_mic_level">Average speech level before boost</string>
     <string name="dashboard_mic_peak">Loudest peak</string>
     <string name="dashboard_mic_gain">Average boost</string>
     <string name="dashboard_mic_clipping">Microphone overload (clipped samples)</string>
     <string name="dashboard_reliability_title">Reliability</string>
-    <string name="dashboard_reliability_detail">%1$d completed · %2$d failed · %3$d cancelled after paid requests</string>
+    <string name="dashboard_reliability_detail">Completed: %1$d · Failed: %2$d · Cancelled after paid requests: %3$d</string>
     <string name="dashboard_clear">Clear usage data</string>
     <string name="dashboard_clear_confirm">Delete all usage measurements from this phone? Your dictations and settings are not affected.</string>
     <string name="dashboard_clear_action">Delete</string>

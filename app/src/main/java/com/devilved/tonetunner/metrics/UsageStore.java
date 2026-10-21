@@ -7,6 +7,7 @@ import android.database.sqlite.SQLiteDatabase;
 import android.database.sqlite.SQLiteOpenHelper;
 import android.util.Log;
 
+import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -23,12 +24,13 @@ public final class UsageStore extends SQLiteOpenHelper {
     static final int MAX_ROWS = 200_000;
 
     private static UsageStore instance;
-    private final Context owner;
+    /** Weak, so the static instance never pins a context; only compared to detect a new application. */
+    private final WeakReference<Context> owner;
 
     public static synchronized UsageStore get(Context context) {
         Context app = context.getApplicationContext();
         // One helper per process; a new application object (as in tests) gets its own.
-        if (instance == null || instance.owner != app) {
+        if (instance == null || instance.owner.get() != app) {
             if (instance != null) instance.close();
             instance = new UsageStore(app);
         }
@@ -37,7 +39,7 @@ public final class UsageStore extends SQLiteOpenHelper {
 
     private UsageStore(Context context) {
         super(context, NAME, null, VERSION);
-        owner = context;
+        owner = new WeakReference<>(context);
     }
 
     @Override public void onCreate(SQLiteDatabase db) {
