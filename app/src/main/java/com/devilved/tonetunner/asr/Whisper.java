@@ -196,11 +196,11 @@ public class Whisper {
         boolean overlap = session.overlap;
         try {
             if (!isCurrent(token)) return;
-            PcmRecording candidate = new RecoveryStore(context).open(session);
+            PcmRecording opened = new RecoveryStore(context).open(session);
             synchronized (Whisper.this) {
-                if (!isCurrent(token)) { candidate.close(); return; }
-                activeRecording = candidate;
-                input = candidate;
+                if (!isCurrent(token)) { opened.close(); return; }
+                activeRecording = opened;
+                input = opened;
             }
             String inferenceLanguage = CloudClient.normalizeLanguage(requestedLanguage);
             boolean automaticLanguage = inferenceLanguage.isEmpty();
