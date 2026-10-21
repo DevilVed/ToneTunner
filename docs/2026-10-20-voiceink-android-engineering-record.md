@@ -6,7 +6,7 @@ Date: 20 October 2026. Last updated: 21 October 2026. This document explains the
 
 The historical application/build commit is `bd0e80a393040ff19fb4fd3373830fbb4c94d1b2`. The following `f580faa` commit changed only acceptance documentation. The recovery repairs described here are not represented by that build; their source and regression tests are committed later in this branch, and the replacement full-workflow result is still pending.
 
-The work is on `agents/voiceink4android`, with [draft PR #133](https://github.com/DevilVed/ToneTunner/pull/133) targeting `master`. The baseline fetched from GitHub was `f7519520f5c749ee74229f42f2e98da51105b64b`. No release tag or signed public release was created as part of this experiment.
+The work is on `agents/voiceink4android`, with [draft PR #133](https://github.com/DevilVed/ToneTunner/pull/133) targeting `beta-test-v1` (it originally targeted `master` and was retargeted on 21 October because this is a new feature that needs phone testing before release). The baseline fetched from GitHub was `f7519520f5c749ee74229f42f2e98da51105b64b`. No release tag or signed public release was created as part of this experiment.
 
 ## Reading guide and evidence boundaries
 
@@ -402,7 +402,7 @@ PR creation initially failed through the CLI because its token lacked pull-reque
 | APK artifact | [ToneTunner-agents-voiceink4android-bd0e80a-debug](https://github.com/DevilVed/ToneTunner/actions/runs/39444393039/artifacts/12277090921) |
 | Raw APK size | 172,099,534 bytes / 164.13 MiB |
 | APK SHA-256 | `7955053f832a1a26e9feb666334119f05267126db62db52cc69b3041b70cd931` |
-| Integration state | Experimental feature branch, draft PR #133 to `master` |
+| Integration state | Experimental feature branch, draft PR #133 to `beta-test-v1` |
 
 These values remain useful for identifying the earlier APK and reproducing its build, but they are not evidence for the review repairs. The 38 lint warnings concern dependency/toolchain and layout/style recommendations; “zero errors” does not mean “zero warnings.” Native 16 KB alignment errors were repaired rather than suppressed. The scoped reviews that preceded `bd0e80a` did not inspect the later checkpoint, retention, or delivery-acknowledgement changes.
 
