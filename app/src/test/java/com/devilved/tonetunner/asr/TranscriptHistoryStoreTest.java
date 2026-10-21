@@ -62,6 +62,39 @@ public class TranscriptHistoryStoreTest {
         assertEquals("upsert must keep one history entry", 1, reopened.list(10, 0).size());
     }
 
+    @Test public void retryCheckpointDoesNotReplaceACompletedEntryBeforeNextSuccessfulResult()
+            throws Exception {
+        TranscriptHistoryStore store = new TranscriptHistoryStore(context);
+        store.saveResult("retry-session", "original recognized text", "Enhanced final text.",
+                "en", "Original enhancement note.");
+        TranscriptHistoryStore.Entry completed = store.get("retry-session");
+        assertNotNull(completed);
+
+        // Whisper checkpoints the same recovery id when a retry starts. If that retry is canceled,
+        // the previously completed and delivered text must remain available in text history.
+        store.saveRaw("retry-session", "new partial retry text", "fr");
+
+        TranscriptHistoryStore.Entry afterInterruptedRetry = store.get("retry-session");
+        assertNotNull(afterInterruptedRetry);
+        assertTrue(afterInterruptedRetry.isComplete);
+        assertEquals(completed.createdAt, afterInterruptedRetry.createdAt);
+        assertEquals(completed.updatedAt, afterInterruptedRetry.updatedAt);
+        assertEquals("original recognized text", afterInterruptedRetry.rawText);
+        assertEquals("Enhanced final text.", afterInterruptedRetry.text);
+        assertEquals("en", afterInterruptedRetry.language);
+        assertEquals("Original enhancement note.", afterInterruptedRetry.warning);
+        assertEquals("a retry checkpoint must not create a duplicate row", 1, store.list(10, 0).size());
+
+        store.saveResult("retry-session", "new complete retry transcript", "Retry completed.",
+                "fr", "Retry note.");
+        TranscriptHistoryStore.Entry retryResult = store.get("retry-session");
+        assertTrue(retryResult.isComplete);
+        assertEquals(completed.createdAt, retryResult.createdAt);
+        assertEquals("new complete retry transcript", retryResult.rawText);
+        assertEquals("Retry completed.", retryResult.text);
+        assertEquals("Retry note.", retryResult.warning);
+    }
+
     @Test public void longUnicodeRawAndFinalTextRoundTripWithoutCursorWindowTruncation() throws Exception {
         String raw = "漢🙂e\u0301".repeat(240_000);
         assertTrue(raw.getBytes(StandardCharsets.UTF_8).length > 2 * 1024 * 1024);
