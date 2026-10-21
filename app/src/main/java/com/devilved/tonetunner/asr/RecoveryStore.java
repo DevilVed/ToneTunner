@@ -1,6 +1,7 @@
 package com.devilved.tonetunner.asr;
 
 import android.content.Context;
+import android.util.AtomicFile;
 
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -11,10 +12,8 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.AtomicMoveNotSupportedException;
-import java.nio.file.Files;
-import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -30,6 +29,9 @@ public final class RecoveryStore {
     private static final Set<String> OPEN_AUDIO = new HashSet<>();
     private static final Set<String> DELIVERY_AUDIO = new HashSet<>();
     private static final Object ORPHAN_IMPORT_LOCK = new Object();
+    // AtomicFile readers can restore a backup. Serialize metadata readers and writers across
+    // store instances so a UI list cannot roll back a worker's active checkpoint write.
+    private static final Object METADATA_LOCK = new Object();
     private static final String DIRECTORY_NAME = "dictation-recovery";
     private static final String FALLBACK_DIRECTORY_NAME = "dictation-recovery-fallback";
     private static final String CAPTURE_DIRECTORY_NAME = "dictation-audio";
@@ -112,7 +114,7 @@ public final class RecoveryStore {
         return entry;
     }
 
-    /** Returns every intact or recoverable pending entry, ordered by ID. */
+    /** Returns every intact or recoverable pending entry, newest saved capture first. */
     public synchronized List<Entry> list() throws IOException {
         Map<String, Entry> entries = new LinkedHashMap<>();
         importRecoveryOrphans();
@@ -151,7 +153,8 @@ public final class RecoveryStore {
         if (entries.isEmpty() && storageFailure != null && !sawUsableRoot) throw storageFailure;
 
         List<Entry> result = new ArrayList<>(entries.values());
-        result.sort(Comparator.comparing(entry -> entry.id));
+        result.sort(Comparator.comparingLong((Entry entry) -> entry.createdAtEpochMillis)
+                .reversed().thenComparing(entry -> entry.id));
         return result;
     }
 
@@ -286,9 +289,11 @@ public final class RecoveryStore {
         if ((length & 1L) != 0 || offset > length) {
             throw new IllegalArgumentException("Recovery offset must be within the retained audio.");
         }
+        Entry previous = readEntry(directory, id);
         Entry updated = new Entry(id, clean(transcript), clean(requestedLanguage),
                 clean(detectedLanguage), translate, offset, overlap, length,
-                recording.getCaptureWarning());
+                recording.getCaptureWarning(), previous == null
+                        ? Math.max(0L, audioFile.lastModified()) : previous.createdAtEpochMillis);
         writeMetadataAtomically(directory, encodeMetadata(updated));
         return updated;
     }
@@ -300,23 +305,24 @@ public final class RecoveryStore {
         if ((length & 1L) != 0) return null;
 
         File metadataFile = childFile(directory, METADATA_NAME);
-        if (!metadataFile.isFile() || !isContained(directory, metadataFile)) {
-            return fallbackEntry(id, length);
+        File backupFile = childFile(directory, METADATA_NAME + ".bak");
+        if ((!metadataFile.isFile() && !backupFile.isFile()) || !isContained(directory, metadataFile)) {
+            return fallbackEntry(id, length, audioFile.lastModified());
         }
 
         try {
             byte[] metadataBytes = readBounded(metadataFile);
             JSONObject metadata = new JSONObject(new String(metadataBytes, StandardCharsets.UTF_8));
-            if (!id.equals(metadata.optString("id", ""))) return fallbackEntry(id, length);
+            if (!id.equals(metadata.optString("id", ""))) return fallbackEntry(id, length, audioFile.lastModified());
 
             Object rawOffset = metadata.opt("offset");
-            if (!(rawOffset instanceof Number)) return fallbackEntry(id, length);
+            if (!(rawOffset instanceof Number)) return fallbackEntry(id, length, audioFile.lastModified());
             Number numericOffset = (Number) rawOffset;
             long offset = numericOffset.longValue();
             double preciseOffset = numericOffset.doubleValue();
             if (preciseOffset != (double) offset || offset < 0 || (offset & 1L) != 0
                     || offset > length) {
-                return fallbackEntry(id, length);
+                return fallbackEntry(id, length, audioFile.lastModified());
             }
             String warning = metadata.isNull("captureWarning")
                     ? null : metadata.optString("captureWarning", null);
@@ -326,15 +332,16 @@ public final class RecoveryStore {
                     metadata.optBoolean("translate", false),
                     offset,
                     metadata.optBoolean("overlap", false),
-                    length, warning);
+                    length, warning, Math.max(0L,
+                            metadata.optLong("createdAtEpochMillis", audioFile.lastModified())));
         } catch (JSONException | IOException | RuntimeException e) {
             // Keep the audio discoverable even when its metadata was interrupted or damaged.
-            return fallbackEntry(id, length);
+            return fallbackEntry(id, length, audioFile.lastModified());
         }
     }
 
-    private Entry fallbackEntry(String id, long length) {
-        return new Entry(id, "", "auto", "", false, 0L, false, length, null);
+    private Entry fallbackEntry(String id, long length, long createdAt) {
+        return new Entry(id, "", "auto", "", false, 0L, false, length, null, Math.max(0L, createdAt));
     }
 
     private File findDirectory(String id) throws IOException {
@@ -439,7 +446,7 @@ public final class RecoveryStore {
             return;
         }
 
-        Entry imported = fallbackEntry(id, audio.length());
+        Entry imported = fallbackEntry(id, audio.length(), audio.lastModified());
         try {
             writeMetadataAtomically(pending, encodeMetadata(imported));
         } catch (IOException e) {
@@ -455,6 +462,7 @@ public final class RecoveryStore {
         JSONObject metadata = new JSONObject();
         try {
             metadata.put("id", entry.id);
+            metadata.put("createdAtEpochMillis", entry.createdAtEpochMillis);
             metadata.put("transcript", entry.transcript);
             metadata.put("requestedLanguage", entry.requestedLanguage);
             metadata.put("detectedLanguage", entry.detectedLanguage);
@@ -475,22 +483,28 @@ public final class RecoveryStore {
     }
 
     private void writeMetadataAtomically(File directory, byte[] bytes) throws IOException {
-        File destination = childFile(directory, METADATA_NAME);
-        File temporary = File.createTempFile("entry-", ".tmp", directory);
-        try {
-            try (FileOutputStream output = new FileOutputStream(temporary)) {
+        synchronized (METADATA_LOCK) {
+            File destination = childFile(directory, METADATA_NAME);
+            childFile(directory, METADATA_NAME + ".bak");
+            childFile(directory, METADATA_NAME + ".new");
+            AtomicFile atomic = new AtomicFile(destination);
+            FileOutputStream output = null;
+            try {
+                output = atomic.startWrite();
                 output.write(bytes);
                 output.flush();
                 output.getFD().sync();
+                atomic.finishWrite(output);
+                output = null;
+                // Some framework versions log commit failures rather than throwing. Never claim
+                // a new checkpoint until a bounded read returns the bytes that were committed.
+                if (!Arrays.equals(bytes, readBounded(destination))) {
+                    throw new IOException("Recovery metadata could not be committed.");
+                }
+            } catch (IOException | RuntimeException e) {
+                if (output != null) atomic.failWrite(output);
+                throw new IOException("Recovery metadata could not be saved safely.");
             }
-            try {
-                Files.move(temporary.toPath(), destination.toPath(),
-                        StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
-            } catch (AtomicMoveNotSupportedException e) {
-                throw new IOException("Atomic recovery metadata updates are unavailable.");
-            }
-        } finally {
-            if (temporary.exists()) temporary.delete();
         }
     }
 
@@ -503,6 +517,7 @@ public final class RecoveryStore {
                 && first.offset == second.offset
                 && first.overlap == second.overlap
                 && first.lengthBytes == second.lengthBytes
+                && first.createdAtEpochMillis == second.createdAtEpochMillis
                 && (first.captureWarning == null
                     ? second.captureWarning == null
                     : first.captureWarning.equals(second.captureWarning));
@@ -541,18 +556,19 @@ public final class RecoveryStore {
     }
 
     private static byte[] readBounded(File file) throws IOException {
-        if (file.length() > MAX_METADATA_BYTES) throw new IOException("Recovery metadata is too large.");
-        try (FileInputStream input = new FileInputStream(file);
-             ByteArrayOutputStream output = new ByteArrayOutputStream()) {
-            byte[] buffer = new byte[4096];
-            int read;
-            while ((read = input.read(buffer)) != -1) {
-                if (output.size() > MAX_METADATA_BYTES - read) {
-                    throw new IOException("Recovery metadata is too large.");
+        synchronized (METADATA_LOCK) {
+            try (FileInputStream input = new AtomicFile(file).openRead();
+                 ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+                byte[] buffer = new byte[4096];
+                int read;
+                while ((read = input.read(buffer)) != -1) {
+                    if (output.size() > MAX_METADATA_BYTES - read) {
+                        throw new IOException("Recovery metadata is too large.");
+                    }
+                    output.write(buffer, 0, read);
                 }
-                output.write(buffer, 0, read);
+                return output.toByteArray();
             }
-            return output.toByteArray();
         }
     }
 
@@ -588,10 +604,18 @@ public final class RecoveryStore {
         public final boolean overlap;
         public final long lengthBytes;
         public final String captureWarning;
+        public final long createdAtEpochMillis;
 
         private Entry(String id, String transcript, String requestedLanguage,
                       String detectedLanguage, boolean translate, long offset,
                       boolean overlap, long lengthBytes, String captureWarning) {
+            this(id, transcript, requestedLanguage, detectedLanguage, translate, offset,
+                    overlap, lengthBytes, captureWarning, System.currentTimeMillis());
+        }
+
+        private Entry(String id, String transcript, String requestedLanguage,
+                      String detectedLanguage, boolean translate, long offset,
+                      boolean overlap, long lengthBytes, String captureWarning, long createdAtEpochMillis) {
             this.id = id;
             this.transcript = transcript;
             this.requestedLanguage = requestedLanguage;
@@ -601,6 +625,7 @@ public final class RecoveryStore {
             this.overlap = overlap;
             this.lengthBytes = lengthBytes;
             this.captureWarning = captureWarning;
+            this.createdAtEpochMillis = createdAtEpochMillis;
         }
     }
 }

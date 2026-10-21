@@ -96,6 +96,40 @@ public class CloudOnboardingTest {
         }
     }
 
+    @Test public void unsavedCredentialAndPromptDraftSurviveConfigurationChangeInMemoryOnly()
+            throws Exception {
+        final String marker = "rotation-only-credential-fixture";
+        final String draftPrompt = "Keep this unsaved prompt after rotation";
+        try (ActivityController<AiSettingsActivity> controller =
+                     Robolectric.buildActivity(AiSettingsActivity.class).setup()) {
+            AiSettingsActivity first = controller.get();
+            Object transcriptionStage = field(AiSettingsActivity.class, "transcription").get(first);
+            EditText keyInput = (EditText) field(transcriptionStage.getClass(), "apiKey")
+                    .get(transcriptionStage);
+            EditText promptInput = (EditText) field(AiSettingsActivity.class, "promptInput").get(first);
+            keyInput.setText(marker);
+            promptInput.setText(draftPrompt);
+
+            Bundle state = new Bundle();
+            controller.saveInstanceState(state);
+            assertFalse("A typed key must not be written into Activity saved state",
+                    bundleContains(state, marker));
+
+            controller.recreate();
+
+            AiSettingsActivity recreated = controller.get();
+            Object recreatedStage = field(AiSettingsActivity.class, "transcription").get(recreated);
+            EditText recreatedKey = (EditText) field(recreatedStage.getClass(), "apiKey")
+                    .get(recreatedStage);
+            EditText recreatedPrompt = (EditText) field(AiSettingsActivity.class, "promptInput")
+                    .get(recreated);
+            assertEquals("An unsaved typed key should remain available after rotation",
+                    marker, recreatedKey.getText().toString());
+            assertEquals("An unsaved prompt should remain available after rotation",
+                    draftPrompt, recreatedPrompt.getText().toString());
+        }
+    }
+
     private static Field field(Class<?> owner, String name) throws NoSuchFieldException {
         Field field = owner.getDeclaredField(name);
         field.setAccessible(true);

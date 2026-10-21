@@ -33,6 +33,8 @@ public final class SecretStore {
     private static final int NONCE_BYTES = 12;
     private static final int TAG_BITS = 128;
     private static final int MAX_CIPHERTEXT_BYTES = 64 * 1024;
+    // AtomicFile has no cross-instance locking: readers must not restore a writer's backup.
+    private static final Object FILE_IO_LOCK = new Object();
 
     private final File directory;
     private final KeySource keySource;
@@ -55,6 +57,12 @@ public final class SecretStore {
 
     /** Returns whether a credential is saved for precisely this provider, stage and endpoint. */
     public synchronized boolean hasKey(Provider provider, String stage, String endpoint) throws IOException {
+        synchronized (FILE_IO_LOCK) {
+            return hasKeyLocked(provider, stage, endpoint);
+        }
+    }
+
+    private boolean hasKeyLocked(Provider provider, String stage, String endpoint) throws IOException {
         File file = fileFor(identity(provider, stage, endpoint));
         if (file.exists()) return true;
         File backup = new File(file.getPath() + ".bak");
@@ -63,6 +71,12 @@ public final class SecretStore {
 
     /** Returns an empty string if no credential is saved. */
     public synchronized String getKey(Provider provider, String stage, String endpoint) throws IOException {
+        synchronized (FILE_IO_LOCK) {
+            return getKeyLocked(provider, stage, endpoint);
+        }
+    }
+
+    private String getKeyLocked(Provider provider, String stage, String endpoint) throws IOException {
         String identity = identity(provider, stage, endpoint);
         File file = fileFor(identity);
         AtomicFile atomicFile = new AtomicFile(file);
@@ -111,6 +125,12 @@ public final class SecretStore {
 
     /** Stores a non-empty credential. Empty input intentionally leaves any saved key unchanged. */
     public synchronized void putKey(Provider provider, String stage, String endpoint, String apiKey) throws IOException {
+        synchronized (FILE_IO_LOCK) {
+            putKeyLocked(provider, stage, endpoint, apiKey);
+        }
+    }
+
+    private void putKeyLocked(Provider provider, String stage, String endpoint, String apiKey) throws IOException {
         if (apiKey == null || apiKey.isEmpty()) return;
         String identity = identity(provider, stage, endpoint);
         byte[] clear = apiKey.getBytes(StandardCharsets.UTF_8);
@@ -155,6 +175,12 @@ public final class SecretStore {
 
     /** Removes only the key associated with this exact provider, stage and endpoint. */
     public synchronized void removeKey(Provider provider, String stage, String endpoint) throws IOException {
+        synchronized (FILE_IO_LOCK) {
+            removeKeyLocked(provider, stage, endpoint);
+        }
+    }
+
+    private void removeKeyLocked(Provider provider, String stage, String endpoint) throws IOException {
         String identity = identity(provider, stage, endpoint);
         File file = fileFor(identity);
         AtomicFile atomicFile = new AtomicFile(file);

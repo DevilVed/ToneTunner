@@ -44,7 +44,6 @@ import com.devilved.tonetunner.asr.RecordingGesture;
 import com.devilved.tonetunner.asr.Whisper;
 import com.devilved.tonetunner.asr.WhisperResult;
 import com.devilved.tonetunner.cloud.AiSettings;
-import com.devilved.tonetunner.cloud.ProviderConfig;
 import com.devilved.tonetunner.utils.HapticFeedback;
 import com.devilved.tonetunner.utils.LanguagePairAdapter;
 import com.devilved.tonetunner.utils.ThemeUtils;
@@ -72,6 +71,7 @@ public class MainActivity extends AppCompatActivity {
     private Button btnCancelProcessing;
     private Button btnSavedDictations;
     private final ExecutorService recoveryFiles = Executors.newSingleThreadExecutor();
+    private final ExecutorService entrypointTasks = Executors.newSingleThreadExecutor();
     private LinearLayout layoutModeChinese;
     private LinearLayout layoutTTS;
     private CheckBox append;
@@ -89,8 +89,12 @@ public class MainActivity extends AppCompatActivity {
     private long sessionGeneration;
     private boolean sessionActive;
     private boolean recording;
+    private boolean sessionTranslateRequested;
     private final RecordingGesture recordingGesture = new RecordingGesture();
     private boolean processing;
+    private boolean validating;
+    private boolean pendingStartAfterPermission;
+    private int providerSummaryGeneration;
     private TextToSpeech tts;
 
     @SuppressLint("ClickableViewAccessibility")
@@ -237,32 +241,55 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     protected void onPause() {
+        boolean hadActiveSession = sessionActive || recording || processing || validating;
         cancelCurrentSession(null);
+        if (hadActiveSession && !isFinishing() && !isDestroyed()) {
+            tvStatus.setText(R.string.entrypoint_ready);
+        }
         super.onPause();
     }
 
     @Override
     protected void onDestroy() {
         cancelCurrentSession(null);
+        ++providerSummaryGeneration;
+        entrypointTasks.shutdownNow();
         recoveryFiles.shutdownNow();
         deinitTTS();
         super.onDestroy();
     }
 
     private void refreshProviderSummary() {
+        int generation = ++providerSummaryGeneration;
         try {
-            AiSettings settings = new AiSettings(this);
-            String summary = settings.getSummary();
-            if (TextUtils.isEmpty(summary)) summary = getString(R.string.entrypoint_provider_summary_unknown);
-            if (hasMissingCloudKey(settings)) {
-                summary = getString(R.string.entrypoint_cloud_key_missing);
-            } else if (hasCloudWork(settings) && !settings.isCloudConsentGranted()) {
-                summary = getString(R.string.entrypoint_cloud_consent_missing);
-            }
-            tvProviderSummary.setText(summary);
-        } catch (RuntimeException e) {
-            // Keep settings failures safe and direct the user to the settings screen.
-            tvProviderSummary.setText(R.string.entrypoint_provider_summary_unknown);
+            entrypointTasks.execute(() -> {
+                String summary;
+                try {
+                    AiSettings settings = new AiSettings(this);
+                    summary = settings.getSummary();
+                    if (TextUtils.isEmpty(summary)) {
+                        summary = getString(R.string.entrypoint_provider_summary_unknown);
+                    }
+                    if (hasCloudWork(settings)) {
+                        if (!settings.isCloudConsentGranted()) {
+                            summary = getString(R.string.entrypoint_cloud_consent_missing);
+                        } else {
+                            int error = settings.validateCloudCredentials();
+                            if (error != 0) summary = getString(error);
+                        }
+                    }
+                } catch (RuntimeException e) {
+                    summary = getString(R.string.entrypoint_provider_summary_unknown);
+                }
+                String result = summary;
+                runOnUiThread(() -> {
+                    if (generation == providerSummaryGeneration && !isFinishing() && !isDestroyed()) {
+                        tvProviderSummary.setText(result);
+                    }
+                });
+            });
+        } catch (java.util.concurrent.RejectedExecutionException ignored) {
+            // The Activity is already being destroyed.
         }
     }
 
@@ -288,43 +315,22 @@ public class MainActivity extends AppCompatActivity {
         return settings.isCloudTranscription() || settings.isEnhancementEnabled();
     }
 
-    private boolean hasMissingCloudKey(AiSettings settings) {
-        if (settings.isCloudTranscription()) {
-            ProviderConfig transcription = settings.getTranscriptionConfig();
-            if (transcription == null || TextUtils.isEmpty(transcription.apiKey)) return true;
-        }
-        if (settings.isEnhancementEnabled()) {
-            ProviderConfig enhancement = settings.getEnhancementConfig();
-            return enhancement == null || TextUtils.isEmpty(enhancement.apiKey);
-        }
-        return false;
-    }
-
     private boolean startRecording() {
-        if (recording || processing) return false;
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
-                != PackageManager.PERMISSION_GRANTED) {
-            Toast.makeText(this, R.string.need_record_audio_permission, Toast.LENGTH_SHORT).show();
-            requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, REQUEST_RECORD_AUDIO);
-            resetRecordButton();
-            return false;
-        }
-
+        if (recording || processing || validating) return false;
+        final AiSettings settings;
+        final boolean translateRequested = translate.isChecked();
         try {
-            AiSettings settings = new AiSettings(this);
-            if (hasCloudWork(settings)) {
-                if (!settings.isCloudConsentGranted()) {
-                    tvStatus.setText(R.string.entrypoint_cloud_consent_missing);
-                    Toast.makeText(this, R.string.entrypoint_cloud_consent_toast, Toast.LENGTH_LONG).show();
-                    resetRecordButton();
-                    return false;
-                }
-                if (hasMissingCloudKey(settings)) {
-                    tvStatus.setText(R.string.entrypoint_cloud_key_missing);
-                    Toast.makeText(this, R.string.entrypoint_cloud_key_missing, Toast.LENGTH_LONG).show();
-                    resetRecordButton();
-                    return false;
-                }
+            settings = new AiSettings(this);
+            if (translateRequested && !settings.isTranslationSupported()) {
+                tvStatus.setText(R.string.entrypoint_translation_unsupported);
+                resetRecordButton();
+                return false;
+            }
+            if (hasCloudWork(settings) && !settings.isCloudConsentGranted()) {
+                tvStatus.setText(R.string.entrypoint_cloud_consent_missing);
+                Toast.makeText(this, R.string.entrypoint_cloud_consent_toast, Toast.LENGTH_LONG).show();
+                resetRecordButton();
+                return false;
             }
         } catch (RuntimeException e) {
             tvStatus.setText(R.string.entrypoint_settings_unavailable);
@@ -332,23 +338,73 @@ public class MainActivity extends AppCompatActivity {
             return false;
         }
 
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
+                != PackageManager.PERMISSION_GRANTED) {
+            pendingStartAfterPermission = true;
+            Toast.makeText(this, R.string.need_record_audio_permission, Toast.LENGTH_SHORT).show();
+            requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, REQUEST_RECORD_AUDIO);
+            resetRecordButton();
+            return false;
+        }
+
         long token = ++sessionGeneration;
+        sessionActive = true;
+        recording = false;
+        processing = false;
+        validating = hasCloudWork(settings);
+        if (validating) {
+            tvStatus.setText(R.string.entrypoint_validating);
+            processingBar.setProgress(0);
+            processingBar.setIndeterminate(true);
+            setControlsForState();
+            try {
+                entrypointTasks.execute(() -> {
+                    int error;
+                    try { error = settings.validateCloudCredentials(); }
+                    catch (RuntimeException e) { error = R.string.entrypoint_settings_unavailable; }
+                    final int validationError = error;
+                    runOnUiThread(() -> {
+                        if (!isCurrentSession(token) || !validating) return;
+                        validating = false;
+                        if (validationError != 0) {
+                            failCurrentSession(token, getString(validationError));
+                        } else if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
+                                != PackageManager.PERMISSION_GRANTED) {
+                            failCurrentSession(token, getString(R.string.need_record_audio_permission));
+                        } else {
+                            beginCapture(token, translateRequested);
+                        }
+                    });
+                });
+            } catch (java.util.concurrent.RejectedExecutionException e) {
+                failCurrentSession(token, getString(R.string.entrypoint_settings_unavailable));
+                return false;
+            }
+            return true;
+        }
+        beginCapture(token, translateRequested);
+        return recording;
+    }
+
+    private void beginCapture(long token, boolean translateRequested) {
+        if (!isCurrentSession(token)) return;
+        validating = false;
         sessionActive = true;
         recording = true;
         processing = false;
+        sessionTranslateRequested = translateRequested;
         try {
             ensureWhisper(token);
             createRecorder(token);
             HapticFeedback.vibrate(this);
+            mWhisper.setAction(translateRequested ? ACTION_TRANSLATE : ACTION_TRANSCRIBE);
             mRecorder.start();
             tvStatus.setText(R.string.entrypoint_recording);
             processingBar.setProgress(0);
             processingBar.setIndeterminate(true);
             setControlsForState();
-            return true;
         } catch (RuntimeException e) {
             failCurrentSession(token, getString(R.string.entrypoint_processing_error));
-            return false;
         }
     }
 
@@ -361,7 +417,14 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onUpdateReceived(String message) {
                 if (!isCurrentSession(token)) return;
-                if (Whisper.MSG_PROCESSING.equals(message)) {
+                if (Whisper.MSG_PREPARING.equals(message)) {
+                    validating = false;
+                    processing = true;
+                    recording = false;
+                    tvStatus.setText(R.string.entrypoint_preparing);
+                    processingBar.setIndeterminate(true);
+                    setControlsForState();
+                } else if (Whisper.MSG_PROCESSING.equals(message)) {
                     startTime = System.currentTimeMillis();
                     processing = true;
                     recording = false;
@@ -400,7 +463,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void createRecorder(long token) {
-        releaseRecorder(false);
+        releaseRecorder();
         Recorder recorder = new Recorder(this);
         mRecorder = recorder;
         recorder.setListener(message -> runOnUiThread(() -> onRecorderMessage(token, message)));
@@ -408,7 +471,9 @@ public class MainActivity extends AppCompatActivity {
 
     private void onRecorderMessage(long token, String message) {
         if (!isCurrentSession(token)) return;
-        if (Recorder.MSG_RECORDING.equals(message)) {
+        if (Recorder.MSG_SPEECH_STARTED.equals(message)) {
+            return;
+        } else if (Recorder.MSG_RECORDING.equals(message)) {
             tvStatus.setText(R.string.entrypoint_recording);
             processingBar.setIndeterminate(true);
         } else if (Recorder.MSG_RECORDING_DONE.equals(message)) {
@@ -416,7 +481,7 @@ public class MainActivity extends AppCompatActivity {
             recording = false;
             processing = true;
             updateRecordingScreen();
-            startProcessing(token, translate.isChecked() ? ACTION_TRANSLATE : ACTION_TRANSCRIBE);
+            startProcessing(token, sessionTranslateRequested ? ACTION_TRANSLATE : ACTION_TRANSCRIBE);
         } else {
             failCurrentSession(token, getString(R.string.error_no_input));
         }
@@ -433,7 +498,12 @@ public class MainActivity extends AppCompatActivity {
         processingBar.setProgress(0);
         processingBar.setIndeterminate(true);
         setControlsForState();
-        mRecorder.stop();
+        Recorder stopping = mRecorder;
+        try {
+            entrypointTasks.execute(stopping::stop);
+        } catch (java.util.concurrent.RejectedExecutionException ignored) {
+            // Teardown is already releasing this recorder and suppressing callbacks.
+        }
         btnRecord.setBackgroundResource(R.drawable.rounded_button_background);
     }
 
@@ -506,10 +576,11 @@ public class MainActivity extends AppCompatActivity {
         sessionActive = false;
         recording = false;
         processing = false;
+        validating = false;
         updateRecordingScreen();
         processingBar.setIndeterminate(false);
         processingBar.setProgress(0);
-        releaseRecorder(true);
+        releaseRecorder();
         deinitModel();
         if (!isFinishing() && !isDestroyed()) {
             tvStatus.setText(safeMessage);
@@ -522,10 +593,11 @@ public class MainActivity extends AppCompatActivity {
         sessionActive = false;
         recording = false;
         processing = false;
+        validating = false;
         updateRecordingScreen();
         processingBar.setIndeterminate(false);
         processingBar.setProgress(0);
-        releaseRecorder(true);
+        releaseRecorder();
         deinitModel();
         if (statusString != null && !isFinishing() && !isDestroyed()) {
             tvStatus.setText(statusString);
@@ -533,12 +605,11 @@ public class MainActivity extends AppCompatActivity {
         if (!isFinishing() && !isDestroyed()) setControlsForState();
     }
 
-    private void releaseRecorder(boolean stopFirst) {
+    private void releaseRecorder() {
         Recorder recorder = mRecorder;
         mRecorder = null;
         if (recorder == null) return;
         recorder.setListener(null);
-        if (stopFirst && recorder.isInProgress()) recorder.stop();
         recorder.release();
     }
 
@@ -559,10 +630,11 @@ public class MainActivity extends AppCompatActivity {
     private void setControlsForState() {
         updateRecordingScreen();
         if (btnRecord == null) return;
-        btnRecord.setEnabled(!processing);
-        if (btnSavedDictations != null) btnSavedDictations.setEnabled(!processing && !recording);
-        btnCancelProcessing.setVisibility(processing || recording ? View.VISIBLE : View.GONE);
-        btnCancelProcessing.setEnabled(processing || recording);
+        boolean busy = processing || recording || validating;
+        btnRecord.setEnabled(!processing && !validating);
+        if (btnSavedDictations != null) btnSavedDictations.setEnabled(!busy);
+        btnCancelProcessing.setVisibility(busy ? View.VISIBLE : View.GONE);
+        btnCancelProcessing.setEnabled(busy);
         btnRecord.setBackgroundResource(recording
                 ? R.drawable.rounded_button_background_pressed : R.drawable.rounded_button_background);
         btnRecord.setContentDescription(recording ? getString(R.string.entrypoint_stop_recording)
@@ -570,12 +642,12 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void updateRecordingScreen() {
-        if (recording || processing) getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        if (recording || processing || validating) getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         else getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
     }
 
     private void showSavedDictations() {
-        if (recording || processing) return;
+        if (recording || processing || validating) return;
         btnSavedDictations.setEnabled(false);
         recoveryFiles.execute(() -> {
             try {
@@ -589,9 +661,20 @@ public class MainActivity extends AppCompatActivity {
                         return;
                     }
                     String[] labels = new String[entries.size()];
-                    for (int i = 0; i < entries.size(); i++) labels[i] = getString(
-                            R.string.recovery_entry, i + 1, entries.get(i).lengthBytes / 32_000L);
+                    long totalBytes = 0L;
+                    for (int i = 0; i < entries.size(); i++) {
+                        RecoveryStore.Entry entry = entries.get(i);
+                        totalBytes += Math.max(0L, entry.lengthBytes);
+                        double seconds = entry.lengthBytes / 32_000.0;
+                        String duration = seconds < 1.0
+                                ? getString(R.string.recovery_duration_subsecond)
+                                : getString(R.string.recovery_duration_seconds, seconds);
+                        labels[i] = getString(R.string.recovery_entry, i + 1, duration);
+                    }
+                    String storage = getString(R.string.recovery_storage_summary, entries.size(),
+                            totalBytes / (1024.0 * 1024.0));
                     new AlertDialog.Builder(this).setTitle(R.string.recovery_title)
+                            .setMessage(storage)
                             .setItems(labels, (dialog, which) -> showSavedDictation(entries.get(which)))
                             .setNegativeButton(android.R.string.cancel, null).show();
                 });
@@ -616,7 +699,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void resumeSavedDictation(String id) {
-        if (recording || processing) return;
+        if (recording || processing || validating) return;
         long token = ++sessionGeneration;
         sessionActive = true;
         processing = true;
@@ -649,7 +732,11 @@ public class MainActivity extends AppCompatActivity {
         if (requestCode == REQUEST_RECORD_AUDIO && !isFinishing()) {
             if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
                 tvStatus.setText(R.string.entrypoint_ready);
+                boolean shouldStart = pendingStartAfterPermission;
+                pendingStartAfterPermission = false;
+                if (shouldStart) startRecording();
             } else {
+                pendingStartAfterPermission = false;
                 tvStatus.setText(R.string.entrypoint_permission_denied);
                 Toast.makeText(this, R.string.entrypoint_permission_denied, Toast.LENGTH_LONG).show();
             }

@@ -1,4 +1,4 @@
-"""Cloud-only rebuild of upstream Extensions 0.13.0 JNI libraries for 16 KB pages."""
+"""Rebuild upstream Extensions 0.13.0 JNI libraries for 16 KB pages."""
 import argparse
 import hashlib
 import io
@@ -10,16 +10,29 @@ import zipfile
 from check_alignment import verify_archive
 
 REVISION = "9d5638b0b1f28ed2ca9ef589d5ec3ea86f859432"
+SOURCE_URL = "https://github.com/microsoft/onnxruntime-extensions.git"
 BASE_SHA256 = "cb98c6fbeac1a9707228c4b76cfbb395b4dc4d310900aefaa672561d17fd6d9d"
 BASE_URL = ("https://repo.maven.apache.org/maven2/com/microsoft/onnxruntime/"
             "onnxruntime-extensions-android/0.13.0/onnxruntime-extensions-android-0.13.0.aar")
 ABIS = ("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
 
 
-def build(source, sdk, ndk, output):
+def read_base_aar(base_aar=None):
+    if base_aar is None:
+        with urllib.request.urlopen(BASE_URL, timeout=60) as response:
+            published = response.read()
+    else:
+        published = Path(base_aar).read_bytes()
+    if hashlib.sha256(published).hexdigest() != BASE_SHA256:
+        raise ValueError("Base Extensions AAR checksum does not match the pinned artifact")
+    return published
+
+
+def build(source, sdk, ndk, output, base_aar=None):
     revision = subprocess.check_output(["git", "-C", str(source), "rev-parse", "HEAD"], text=True).strip()
     if revision != REVISION:
         raise ValueError("Extensions source is not the pinned upstream revision")
+    published = read_base_aar(base_aar)
     replacements = {}
     linker_flags = "-Wl,-z,max-page-size=16384 -Wl,-z,common-page-size=16384"
     for abi in ABIS:
@@ -35,10 +48,6 @@ def build(source, sdk, ndk, output):
         ], cwd=source, check=True)
         for library in ("libortextensions.so", "libonnxruntime_extensions4j_jni.so"):
             replacements[f"jni/{abi}/{library}"] = (build_dir / "Release/lib" / library).read_bytes()
-    with urllib.request.urlopen(BASE_URL, timeout=60) as response:
-        published = response.read()
-    if hashlib.sha256(published).hexdigest() != BASE_SHA256:
-        raise ValueError("Published Extensions AAR checksum does not match the pinned artifact")
     output.parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(io.BytesIO(published)) as original, zipfile.ZipFile(output, "w") as rebuilt:
         original_native = {entry.filename for entry in original.infolist()
@@ -52,7 +61,9 @@ def build(source, sdk, ndk, output):
                          f"Upstream: microsoft/onnxruntime-extensions\nSource: {REVISION}\n"
                          f"Base AAR SHA256: {BASE_SHA256}\nNDK: {ndk.name}\nAPI: 28\n"
                          f"Link flags: {linker_flags}\nJava classes and resources unchanged.\n")
-    print(f"Rebuilt Extensions AAR: {verify_archive(output)} validated 64-bit native libraries")
+    validated = verify_archive(output)
+    print(f"Rebuilt Extensions AAR: {validated} validated 64-bit native libraries")
+    return validated
 
 
 if __name__ == "__main__":

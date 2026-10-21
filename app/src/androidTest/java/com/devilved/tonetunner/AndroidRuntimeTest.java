@@ -121,8 +121,8 @@ public class AndroidRuntimeTest {
         finally { vad.close(); }
     }
 
-    @Test public void boundRecognitionServiceStartsMicrophoneAndWaitsForSpeechOnApi35() throws Exception {
-        org.junit.Assume.assumeTrue("API 35 bound-service microphone policy check", Build.VERSION.SDK_INT >= 35);
+    @Test public void boundRecognitionServiceStartsMicrophoneAndWaitsForSpeechOnModernAndroid() throws Exception {
+        org.junit.Assume.assumeTrue("API 34+ bound-service microphone policy check", Build.VERSION.SDK_INT >= 34);
 
         Context context = context();
         SharedPreferencesSnapshot saved = SharedPreferencesSnapshot.capture(

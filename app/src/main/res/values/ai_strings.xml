@@ -12,6 +12,7 @@
     <string name="ai_api_key">API key</string>
     <string name="ai_key_no_saved">No saved key for this destination. Enter a key.</string>
     <string name="ai_key_saved_hint">A key is stored encrypted for this provider and endpoint. Leave blank to keep it.</string>
+    <string name="ai_key_status_checking">Checking secure key storage…</string>
     <string name="ai_remove_key">Remove saved key</string>
     <string name="ai_discover_models">Refresh models</string>
     <string name="ai_model_discovery_loading">Loading models…</string>

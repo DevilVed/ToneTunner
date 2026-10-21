@@ -34,6 +34,7 @@ import org.json.JSONObject;
 public final class CloudClient {
     public static final int MAX_RESPONSE_BYTES = 1024 * 1024;
 
+    private static final int MAX_MODEL_CATALOG_BYTES = 8 * 1024 * 1024;
     private static final long CONNECT_TIMEOUT_SECONDS = 15;
     private static final long WRITE_TIMEOUT_SECONDS = 60;
     private static final long READ_TIMEOUT_SECONDS = 75;
@@ -43,6 +44,7 @@ public final class CloudClient {
     private static final int MAX_TRANSCRIPT_CHARACTERS = 500_000;
     private static final int MAX_ENHANCED_CHARACTERS = 500_000;
     private static final int MAX_INSTRUCTION_CHARACTERS = 16_000;
+    private static final int MIN_CODE_POINTS_FOR_SHORTENING_GUARD = 80;
 
     private static final MediaType JSON_MEDIA_TYPE = MediaType.parse("application/json; charset=utf-8");
     private static final MediaType WAV_MEDIA_TYPE = MediaType.parse("audio/wav");
@@ -186,6 +188,7 @@ public final class CloudClient {
         byte[] response = execute(request, true);
         String enhanced = parseEnhancementResponse(response);
         checkNotCancelled();
+        rejectSevereShortening(text, enhanced);
         return enhanced;
     }
 
@@ -218,7 +221,7 @@ public final class CloudClient {
                 .header("Accept", "application/json")
                 .get()
                 .build();
-        byte[] response = execute(request, false);
+        byte[] response = execute(request, false, true);
         List<Model> models = parseModels(response, config.provider, transcription);
         checkNotCancelled();
         return models;
@@ -342,6 +345,19 @@ public final class CloudClient {
             return content.trim();
         } catch (JSONException e) {
             throw safe(INVALID_RESPONSE);
+        }
+    }
+
+    private static void rejectSevereShortening(String original, String enhanced) throws IOException {
+        String trimmedOriginal = original.trim();
+        String trimmedEnhanced = enhanced.trim();
+        int originalCodePoints = trimmedOriginal.codePointCount(0, trimmedOriginal.length());
+        if (originalCodePoints < MIN_CODE_POINTS_FOR_SHORTENING_GUARD) {
+            return;
+        }
+        int enhancedCodePoints = trimmedEnhanced.codePointCount(0, trimmedEnhanced.length());
+        if (2L * enhancedCodePoints < originalCodePoints) {
+            throw safe("Enhancement output was too short to trust. The original transcript was kept.");
         }
     }
 
@@ -495,6 +511,10 @@ public final class CloudClient {
     }
 
     private byte[] execute(Request request, boolean enhancement) throws IOException {
+        return execute(request, enhancement, false);
+    }
+
+    private byte[] execute(Request request, boolean enhancement, boolean modelCatalog) throws IOException {
         checkNotCancelled();
         Call call = httpClient.newCall(request);
         if (!activeCall.compareAndSet(null, call)) {
@@ -512,7 +532,7 @@ public final class CloudClient {
             if (body == null) {
                 throw safe(INVALID_RESPONSE);
             }
-            byte[] bytes = readBounded(body, enhancement);
+            byte[] bytes = readBounded(body, enhancement, modelCatalog);
             checkNotCancelled();
             return bytes;
         } catch (SafeIOException e) {
@@ -527,23 +547,25 @@ public final class CloudClient {
         }
     }
 
-    private static byte[] readBounded(ResponseBody body, boolean enhancement) throws IOException {
+    private static byte[] readBounded(ResponseBody body, boolean enhancement, boolean modelCatalog)
+            throws IOException {
+        int maxBytes = modelCatalog ? MAX_MODEL_CATALOG_BYTES : MAX_RESPONSE_BYTES;
         String tooLargeMessage = enhancement
                 ? "Enhancement response was too large. Try a shorter recording."
                 : "Provider response exceeded the allowed size.";
         long contentLength = body.contentLength();
-        if (contentLength > MAX_RESPONSE_BYTES) {
+        if (contentLength > maxBytes) {
             throw safe(tooLargeMessage);
         }
         BufferedSource source = body.source();
         Buffer buffer = new Buffer();
         while (true) {
-            long remaining = MAX_RESPONSE_BYTES + 1L - buffer.size();
+            long remaining = maxBytes + 1L - buffer.size();
             long read = source.read(buffer, Math.min(IO_CHUNK_BYTES, remaining));
             if (read == -1) {
                 break;
             }
-            if (buffer.size() > MAX_RESPONSE_BYTES) {
+            if (buffer.size() > maxBytes) {
                 throw safe(tooLargeMessage);
             }
         }
@@ -562,6 +584,9 @@ public final class CloudClient {
         }
         if (code == 413) {
             return safe("Audio or request is too large.");
+        }
+        if (code == 400 || code == 404 || code == 422) {
+            return safe("Provider rejected the request. Check the model name, endpoint and account access.");
         }
         return safe("Provider request failed.");
     }
@@ -607,7 +632,14 @@ public final class CloudClient {
         return endpoint.newBuilder().encodedPath(translatedPath).build();
     }
 
-    private static boolean supportsTranslation(ProviderConfig config) {
+    /** Returns whether this provider/model combination can translate speech into English. */
+    public static boolean supportsTranslation(ProviderConfig config) {
+        if (config == null) {
+            return false;
+        }
+        if (config.provider == Provider.LOCAL) {
+            return true;
+        }
         String model = config.model.toLowerCase(Locale.ROOT);
         if (config.provider == Provider.GROQ) {
             return "whisper-large-v3".equals(model);

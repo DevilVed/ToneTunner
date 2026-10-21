@@ -16,7 +16,8 @@ public final class TextWindows {
                 int boundary = -1;
                 for (int index = end - 1; index >= floor; --index) {
                     char c = text.charAt(index);
-                    if (c == '\n' || c == '.' || c == '!' || c == '?' || c == '\u3002') {
+                    if (c == '\n' || c == '.' || c == '!' || c == '?' || c == '\u3002'
+                            || c == '\uff01' || c == '\uff1f' || c == '\uff1b') {
                         boundary = index + 1; break;
                     }
                 }

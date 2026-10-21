@@ -49,6 +49,8 @@ public class WhisperFailureRecoveryTest {
     private int errorCode;
     private boolean acceptDelivery = true;
     private boolean throwingDestination;
+    private boolean throwingProgress;
+    private boolean throwingErrors;
     private int blockAt;
     private final CountDownLatch blocked = new CountDownLatch(1);
     private final CountDownLatch allowBlocked = new CountDownLatch(1);
@@ -79,7 +81,9 @@ public class WhisperFailureRecoveryTest {
             public void close() { }
         });
         whisper.setListener(new Whisper.WhisperListener() {
-            public void onUpdateReceived(String message) { }
+            public void onUpdateReceived(String message) {
+                if (throwingProgress) throw new IllegalStateException("Synthetic progress destination failure");
+            }
             public void onResultReceived(WhisperResult value) { result = value; }
             @Override public boolean onResultDelivery(WhisperResult value) {
                 if (throwingDestination) throw new IllegalStateException("Synthetic destination failure");
@@ -88,7 +92,11 @@ public class WhisperFailureRecoveryTest {
                 return true;
             }
             public void onError(String message) { errors++; }
-            public void onError(int code, String message) { errorCode = code; errors++; }
+            public void onError(int code, String message) {
+                errorCode = code;
+                errors++;
+                if (throwingErrors) throw new IllegalStateException("Synthetic error destination failure");
+            }
         });
     }
 
@@ -271,6 +279,27 @@ public class WhisperFailureRecoveryTest {
         drainWorker();
         assertNotNull("the delivery claim must be released after an exception", result);
         assertTrue(store.list().isEmpty());
+    }
+
+    @Test public void throwingProgressDestinationDoesNotCrashTheMainLooper() throws Exception {
+        throwingProgress = true;
+        startAndDrain(recording(1, 2048));
+        // A failing status view also rejects the final DONE notification, so the finished text stays saved.
+        assertNull(result);
+        RecoveryStore.Entry saved = new RecoveryStore(context).list().get(0);
+        assertEquals(rawText, saved.transcript);
+        assertEquals(32_000, saved.lengthBytes);
+    }
+
+    @Test public void throwingErrorDestinationDoesNotCrashOrDiscardTheFailedDictation() throws Exception {
+        throwingErrors = true;
+        failAt = 1;
+        startAndDrain(recording(1, 2048));
+        assertEquals(1, errors);
+        assertNull(result);
+        RecoveryStore.Entry saved = new RecoveryStore(context).list().get(0);
+        assertEquals(32_000, saved.lengthBytes);
+        assertEquals(0, saved.offset);
     }
 
     @Test public void startDoesNotOpenPrivateStorageOrAiSettingsOnTheMainThread() throws Exception {

@@ -2,6 +2,15 @@ plugins {
     id 'com.android.application'
 }
 
+def alignedExtensionsAar = rootProject.file('native-dependencies/onnxruntime-extensions-android.aar')
+if (!alignedExtensionsAar.isFile()) {
+    throw new GradleException("Missing aligned ONNX Runtime Extensions AAR at ${alignedExtensionsAar}. " +
+            "Run: python3 tools/native/prepare_extensions.py --sdk <ANDROID_HOME> " +
+            "--ndk <ANDROID_HOME>/ndk/27.2.12479018 " +
+            "--output native-dependencies/onnxruntime-extensions-android.aar. " +
+            "For offline preparation, also pass --source and --base-aar. See tools/native/README.md.")
+}
+
 android {
     namespace 'com.devilved.tonetunner'
     compileSdk 35
@@ -39,9 +48,6 @@ android {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-            ndk {
-                abiFilters "arm64-v8a"
-            }
         }
     }
 
@@ -76,7 +82,7 @@ dependencies {
     implementation 'com.microsoft.onnxruntime:onnxruntime-android:1.27.0'
     // CI builds the upstream 0.13.0 native sources with 16 KB-compatible linker flags.
     // See tools/native/README.md; no unaligned fallback is packaged.
-    implementation files(rootProject.file('native-dependencies/onnxruntime-extensions-android.aar'))
+    implementation files(alignedExtensionsAar)
 
     testImplementation 'junit:junit:4.13.2'
     testImplementation 'com.squareup.okhttp3:mockwebserver:4.12.0'

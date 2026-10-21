@@ -30,12 +30,15 @@ public final class PcmRecording implements AutoCloseable {
     private static final int MIN_QUIET_FRAMES = 300 / FRAME_MILLIS;
     private static final int QUIET_MEAN_ABSOLUTE_THRESHOLD = 256;
     private static final int OUTPUT_BUFFER_BYTES = 64 * 1024;
+    static final String STORAGE_FAILURE_WARNING =
+            "Storage interrupted. Returned the audio persisted before the storage failure.";
     private static final Object LIVE_FILES_LOCK = new Object();
     private static final Set<String> LIVE_FILE_PATHS = new HashSet<>();
 
     private File file;
     private String registryPath;
     private OutputStream output;
+    private FileOutputStream rawOutput;
     private RandomAccessFile input;
     private long lengthBytes;
     private long readPosition;
@@ -53,9 +56,11 @@ public final class PcmRecording implements AutoCloseable {
         else afterClose = callback;
     }
 
-    private PcmRecording(File file, String registryPath, OutputStream output) {
+    private PcmRecording(File file, String registryPath, FileOutputStream rawOutput,
+                         OutputStream output) {
         this.file = file;
         this.registryPath = registryPath;
+        this.rawOutput = rawOutput;
         this.output = output;
     }
 
@@ -74,7 +79,7 @@ public final class PcmRecording implements AutoCloseable {
                 || positionBytes > length) {
             throw new IOException("Retained recording position is invalid.");
         }
-        PcmRecording recording = new PcmRecording(file, registryPath, null);
+        PcmRecording recording = new PcmRecording(file, registryPath, null, null);
         recording.lengthBytes = length;
         recording.readPosition = positionBytes;
         recording.finished = true;
@@ -105,10 +110,10 @@ public final class PcmRecording implements AutoCloseable {
                 throw new IOException("Unable to open private recording storage.");
             }
             try {
-                OutputStream output = new BufferedOutputStream(
-                        new FileOutputStream(file), OUTPUT_BUFFER_BYTES);
+                FileOutputStream rawOutput = new FileOutputStream(file);
+                OutputStream output = new BufferedOutputStream(rawOutput, OUTPUT_BUFFER_BYTES);
                 LIVE_FILE_PATHS.add(registryPath);
-                return new PcmRecording(file, registryPath, output);
+                return new PcmRecording(file, registryPath, rawOutput, output);
             } catch (IOException e) {
                 file.delete();
                 throw new IOException("Unable to open private recording storage.");
@@ -133,7 +138,7 @@ public final class PcmRecording implements AutoCloseable {
             output.write(data, offset, length);
             lengthBytes += length;
         } catch (IOException e) {
-            failAndClose();
+            finishAfterCaptureFailure(STORAGE_FAILURE_WARNING);
             throw new IOException("Unable to write recording audio to private storage.");
         }
     }
@@ -146,11 +151,63 @@ public final class PcmRecording implements AutoCloseable {
             output.flush();
             output.close();
             output = null;
+            rawOutput = null;
             finished = true;
         } catch (IOException e) {
-            failAndClose();
+            finishAfterCaptureFailure(STORAGE_FAILURE_WARNING);
             throw new IOException("Unable to finish recording audio in private storage.");
         }
+    }
+
+    /**
+     * Closes the raw file stream without closing or flushing its buffer again, then reconciles the
+     * usable prefix from the physical file. A failed BufferedOutputStream flush may have already
+     * written part of its buffer; retrying that buffer can duplicate the prefix.
+     *
+     * @return true when at least one complete PCM16 sample can be read from the salvaged spool
+     */
+    synchronized boolean finishAfterCaptureFailure(String warning) {
+        if (closed) return false;
+        if (finished) {
+            if (warning != null && !warning.isEmpty()) captureWarning = warning;
+            return lengthBytes >= BYTES_PER_SAMPLE;
+        }
+
+        // Drop the BufferedOutputStream without calling close(): its pending bytes are ambiguous
+        // after a partial write, so another flush could duplicate audio already persisted.
+        output = null;
+        FileOutputStream stream = rawOutput;
+        rawOutput = null;
+        if (stream != null) {
+            try {
+                stream.close();
+            } catch (IOException ignored) {
+                // The file length below is authoritative for whatever the filesystem accepted.
+            }
+        }
+
+        long persistedBytes = file != null && file.isFile() ? file.length() : 0;
+        if ((persistedBytes & 1L) != 0) {
+            try (RandomAccessFile truncated = new RandomAccessFile(file, "rw")) {
+                truncated.setLength(persistedBytes - 1);
+                persistedBytes--;
+            } catch (IOException e) {
+                // It remains the caller's decision whether to keep or remove this unusable spool.
+                lengthBytes = 0;
+                readPosition = 0;
+                lastChunkHardCut = false;
+                finished = true;
+                if (warning != null && !warning.isEmpty()) captureWarning = warning;
+                return false;
+            }
+        }
+
+        lengthBytes = persistedBytes;
+        readPosition = 0;
+        lastChunkHardCut = false;
+        finished = true;
+        if (warning != null && !warning.isEmpty()) captureWarning = warning;
+        return persistedBytes >= BYTES_PER_SAMPLE;
     }
 
     /** Returns the number of bytes successfully written so far. */
@@ -321,6 +378,15 @@ public final class PcmRecording implements AutoCloseable {
                 failure = new IOException("Unable to close private recording storage.");
             } finally {
                 output = null;
+            }
+        }
+        if (rawOutput != null) {
+            try {
+                rawOutput.close();
+            } catch (IOException e) {
+                if (failure == null) failure = new IOException("Unable to close private recording storage.");
+            } finally {
+                rawOutput = null;
             }
         }
         if (input != null) {

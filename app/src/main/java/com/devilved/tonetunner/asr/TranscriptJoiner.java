@@ -11,6 +11,7 @@ final class TranscriptJoiner {
     private static final int MIN_OVERLAP_WORDS = 2;
     private static final int MIN_OVERLAP_CHARACTERS = 8;
     private static final int MAX_OVERLAP_CHARACTERS = 256;
+    private static final int MIN_UNSPACED_OVERLAP_LETTERS = 2;
     private static final Pattern WORD_PATTERN = Pattern.compile("[\\p{L}\\p{N}]+");
 
     private TranscriptJoiner() {}
@@ -50,6 +51,25 @@ final class TranscriptJoiner {
         if (result.length() == 0) {
             append(result, part);
             return;
+        }
+
+        int previousContentEnd = trailingClosingPunctuationStart(result);
+        if (previousContentEnd == 0) {
+            append(result, part);
+            return;
+        }
+        int previousLastCodePoint = Character.codePointBefore(result, previousContentEnd);
+        int nextFirstCodePoint = next.codePointAt(0);
+        if (unspaced(previousLastCodePoint) && unspaced(nextFirstCodePoint)) {
+            int consumed = unspacedOverlapEnd(result, previousContentEnd, next);
+            if (consumed > 0) {
+                // Exact repeated phrases of two or more script letters at a hard cut are
+                // inherently ambiguous with audio-window overlap.
+                consumed = consumeDuplicatePunctuation(
+                        result.toString(), previousContentEnd, next, consumed);
+                appendUnspacedOverlapRemainder(result, next.substring(consumed));
+                return;
+            }
         }
 
         int previousOffset = boundedTailStart(result, MAX_OVERLAP_CHARACTERS);
@@ -95,6 +115,73 @@ final class TranscriptJoiner {
             return;
         }
         append(result, part);
+    }
+
+    /** Matches a bounded code-point suffix/prefix for scripts without whitespace word breaks. */
+    private static int unspacedOverlapEnd(CharSequence previous, int previousEnd, String next) {
+        int previousStart = boundedTailStart(previous, MAX_OVERLAP_CHARACTERS, previousEnd);
+        int previousCodePoints = Character.codePointCount(previous, previousStart, previousEnd);
+        int nextEnd = boundedPrefixEnd(next, MAX_OVERLAP_CHARACTERS);
+        int nextCodePoints = next.codePointCount(0, nextEnd);
+        int maximum = Math.min(previousCodePoints, nextCodePoints);
+        for (int count = maximum; count > 0; count--) {
+            int leftStart = Character.offsetByCodePoints(previous, previousEnd, -count);
+            int rightEnd = next.offsetByCodePoints(0, count);
+            if (countUnspacedLetters(previous, leftStart, previousEnd)
+                    >= MIN_UNSPACED_OVERLAP_LETTERS
+                    && sameCodePoints(previous, leftStart, previousEnd, next, 0, rightEnd)) {
+                return rightEnd;
+            }
+        }
+        return 0;
+    }
+
+    private static int trailingClosingPunctuationStart(CharSequence text) {
+        int end = text.length();
+        while (end > 0) {
+            int codePoint = Character.codePointBefore(text, end);
+            if (!isClosingPunctuation(codePoint, 0, "")) break;
+            end -= Character.charCount(codePoint);
+        }
+        return end;
+    }
+
+    private static int countUnspacedLetters(CharSequence text, int start, int end) {
+        int count = 0;
+        for (int offset = start; offset < end;) {
+            int codePoint = Character.codePointAt(text, offset);
+            if (unspaced(codePoint) && Character.isLetter(codePoint)) count++;
+            offset += Character.charCount(codePoint);
+        }
+        return count;
+    }
+
+    private static void appendUnspacedOverlapRemainder(StringBuilder result, String remainder) {
+        if (remainder.isEmpty()) return;
+        int right = remainder.codePointAt(0);
+        if (Character.isWhitespace(right) || unspaced(right)) {
+            result.append(remainder);
+            return;
+        }
+        if (result.length() > 0) {
+            int left = result.codePointBefore(result.length());
+            if (needsSpace(left, right, remainder, result)) result.append(' ');
+        }
+        result.append(remainder);
+    }
+
+    private static boolean sameCodePoints(CharSequence left, int leftStart, int leftEnd,
+                                          String right, int rightStart, int rightEnd) {
+        int leftOffset = leftStart;
+        int rightOffset = rightStart;
+        while (leftOffset < leftEnd && rightOffset < rightEnd) {
+            int leftCodePoint = Character.toLowerCase(Character.codePointAt(left, leftOffset));
+            int rightCodePoint = Character.toLowerCase(right.codePointAt(rightOffset));
+            if (leftCodePoint != rightCodePoint) return false;
+            leftOffset += Character.charCount(Character.codePointAt(left, leftOffset));
+            rightOffset += Character.charCount(right.codePointAt(rightOffset));
+        }
+        return leftOffset == leftEnd && rightOffset == rightEnd;
     }
 
     private static int findWordOverlap(String previous, List<Word> previousWords,
@@ -186,7 +273,11 @@ final class TranscriptJoiner {
     }
 
     private static int boundedTailStart(StringBuilder text, int maxCodePoints) {
-        int start = text.length();
+        return boundedTailStart(text, maxCodePoints, text.length());
+    }
+
+    private static int boundedTailStart(CharSequence text, int maxCodePoints, int end) {
+        int start = end;
         int count = 0;
         while (start > 0 && count < maxCodePoints) {
             start -= Character.charCount(Character.codePointBefore(text, start));
@@ -223,13 +314,14 @@ final class TranscriptJoiner {
 
     private static int consumeDuplicatePunctuation(String previous, int previousWordEnd,
                                                   String next, int nextWordEnd) {
-        int left = previous.length() - 1;
+        int left = previousWordEnd;
         int right = nextWordEnd;
-        while (left >= previousWordEnd && right < next.length()
-                && previous.charAt(left) == next.charAt(right)
-                && isPunctuation(previous.codePointBefore(left + 1))) {
-            left--;
-            right++;
+        while (left < previous.length() && right < next.length()) {
+            int leftCodePoint = Character.codePointAt(previous, left);
+            int rightCodePoint = Character.codePointAt(next, right);
+            if (leftCodePoint != rightCodePoint || !isPunctuation(leftCodePoint)) break;
+            left += Character.charCount(leftCodePoint);
+            right += Character.charCount(rightCodePoint);
         }
         return right;
     }

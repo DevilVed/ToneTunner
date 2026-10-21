@@ -84,6 +84,42 @@ public class SecretStoreTest {
                 reopened.getKey(Provider.GROQ, "transcription", TRANSCRIPTION_ENDPOINT));
     }
 
+    @Test public void differentStoreInstancesSerializeReadsAndWritesOfTheSameCredential() throws Exception {
+        final String first = "concurrent-fixture-A";
+        final String second = "concurrent-fixture-B";
+        store.putKey(Provider.GROQ, "transcription", TRANSCRIPTION_ENDPOINT, first);
+        ExecutorService executor = Executors.newFixedThreadPool(4);
+        CountDownLatch start = new CountDownLatch(1);
+        List<Future<?>> operations = new ArrayList<>();
+        try {
+            for (int task = 0; task < 4; task++) {
+                final int index = task;
+                operations.add(executor.submit(() -> {
+                    SecretStore independent = new SecretStore(storageContext, keySource);
+                    start.await();
+                    for (int iteration = 0; iteration < 30; iteration++) {
+                        if (index < 2) {
+                            independent.putKey(Provider.GROQ, "transcription", TRANSCRIPTION_ENDPOINT,
+                                    (iteration & 1) == 0 ? first : second);
+                        } else {
+                            String read = independent.getKey(Provider.GROQ, "transcription", TRANSCRIPTION_ENDPOINT);
+                            assertTrue("concurrent reads must see a complete committed credential",
+                                    first.equals(read) || second.equals(read));
+                        }
+                    }
+                    return null;
+                }));
+            }
+            start.countDown();
+            for (Future<?> operation : operations) operation.get(20, TimeUnit.SECONDS);
+        } finally {
+            start.countDown();
+            executor.shutdownNow();
+        }
+        assertTrue(new SecretStore(storageContext, keySource)
+                .hasKey(Provider.GROQ, "transcription", TRANSCRIPTION_ENDPOINT));
+    }
+
     @Test public void providerStageAndEndpointEachHaveIndependentCredentialIdentity() throws Exception {
         String otherEndpoint = "https://api.example.invalid/v2/audio/transcriptions";
         store.putKey(Provider.GROQ, "transcription", TRANSCRIPTION_ENDPOINT, FIXTURE_KEY);

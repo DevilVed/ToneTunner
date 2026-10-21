@@ -380,6 +380,18 @@ public class CloudClientTest {
     }
 
     @Test
+    public void allowsEnhancementOutputAtExactlyHalfTheLargeInputCodePointCount() throws Exception {
+        String source = repeatCodePoint('a', 80);
+        String enhanced = repeatCodePoint('b', 40);
+        server.enqueue(enhancementResponse(enhanced));
+        CloudClient client = client();
+        ProviderConfig config = new ProviderConfig(Provider.OPENAI,
+                Provider.OPENAI.enhancementEndpoint(), "gpt-4o-mini", "fixture-key", false);
+
+        assertEquals(enhanced, client.enhance(source, config, "", ""));
+    }
+
+    @Test
     public void rejectsAHostMismatchBeforeSendingTheApiKey() {
         CloudClient client = client();
         ProviderConfig config = new ProviderConfig(Provider.OPENAI,
@@ -460,6 +472,7 @@ public class CloudClientTest {
             assertFalse(error.getMessage().contains("fixture-key"));
             assertFalse(error.getMessage().contains("private provider body"));
         }
+        assertEquals(rejectedStatuses.length, server.getRequestCount());
     }
 
     @Test

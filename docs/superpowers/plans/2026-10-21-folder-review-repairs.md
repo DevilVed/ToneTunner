@@ -22,7 +22,7 @@ The user asked to address `review/deepseek_cr.md`, reviewed at `37744fa`. This i
 2. Run those tests in Actions, separating behavioral failures from fixture/setup failures. Preserve the green checkpoint of the earlier repair where available.
 3. Implement in scoped file groups: audio/segmentation, cloud transport, Android entry points/settings, native build/release preparation, and the root-owned shared facade/recovery metadata.
 4. Review the assembled ownership/cancellation paths and every review ID, including recommendations intentionally rejected because they conflict with the user's choices or existing evidence.
-5. Run JVM/lint, native validators, API 28/4 KB and API 35/16 KB connected tests, final debug and unsigned release assembly/alignment in Actions. Generate exact inventory from downloaded reports.
+5. Run JVM/lint, native validators, API 28/4 KB, API 34/4 KB, and API 35/16 KB connected tests, final debug and unsigned release assembly/alignment in Actions. Generate exact inventory from downloaded reports.
 6. Update README, engineering record, a per-finding review response, and PR #133 with the actual final commit, run, artifact, and remaining physical-device/F-Droid acceptance limits.
 
 ## Initial triage exceptions
@@ -33,11 +33,14 @@ The user asked to address `review/deepseek_cr.md`, reviewed at `37744fa`. This i
 - I12's proposed total-duration cap conflicts with the accepted untimed behavior. Document VAD's limits and provide visible stopping/cancellation controls.
 - M5's `*` branch is reachable at a split Markdown opening marker; add a regression rather than remove working behavior.
 - M6 is a bounded metadata/performance tradeoff; avoid introducing an unverified journal solely to eliminate theoretical quadratic text I/O. Record the real cap/limits and keep source audio on checkpoint failure.
-- M7's suggested non-atomic checkpoint replacement weakens recovery guarantees. Evaluate safe atomic-file alternatives; do not silently replace atomic writes with destructive overwrite.
+- M7's suggested non-atomic checkpoint replacement weakens recovery guarantees. Use Android AtomicFile with a shared metadata lock, fsync, bounded readback, and backup recovery; do not replace atomic writes with destructive overwrite.
 - M10 is an Android speech-intent transcription contract, not automatically the standalone app's translation preference. Document the distinction.
 - M12 misreads the earlier record: the pre-existing tracked `.DS_Store` modification was excluded from these commits, not removed from baseline tracking. Keep unrelated local changes untouched.
 - The orphan listener-method test was deliberate tests-first compatibility and failed on the missing behavior in the recorded RED run. Add final `@Override` annotations and exercise the production acknowledgement in instrumentation; do not describe that observed failure as a passing test.
 
 ## Evidence ledger
 
-Pending: the second-round tests-only cloud run, repairs, final verification, and per-finding disposition. The earlier `11eda74` run is a checkpoint for the first review only; it does not cover these additional cases.
+- First-review checkpoint: [39524551595](https://github.com/DevilVed/ToneTunner/actions/runs/39524551595), `11eda74`: complete success, 193 JVM tests in 26 suites, zero failures/errors/skips, lint zero errors/39 warnings, native gate and both Android runtime jobs passed, verified APK packaged. This is deliberately preserved as a checkpoint rather than substituted for the added folder-review coverage.
+- Tests-only `554b1ee`, then static fixture corrections `01bd79c`: [39525899701](https://github.com/DevilVed/ToneTunner/actions/runs/39525899701), 226 tests in 29 suites, 26 failures, zero errors/skips. The failures reproduce UI-thread credential/archive work, short-speech dilution, local sentinel delivery, throwing destination, physical spool deletion on write/flush failure, random recovery ordering, CJK/Thai overlap, fullwidth boundaries, unsupported translation preflight, service readiness/speech timing, IME restart cancellation, stale foreground status, manifest/launch flags, catalog response limits, enhancement severe shortening, actionable HTTP errors, and translation-capability visibility. Controls for private/replacement editors, local translation, exact response bounds, cancellation retention, and split Markdown behavior pass. The named public-method reflection failure is an intentional API-contract RED; the others reach their behavior assertions.
+
+Pending: integrated production repairs, final full cloud verification, exact test inventory, and per-finding disposition. The new API 35 bound-service test is gated behind JVM success and has not yet executed in this red run.

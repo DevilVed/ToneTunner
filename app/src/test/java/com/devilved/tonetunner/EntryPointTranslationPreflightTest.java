@@ -2,12 +2,15 @@ package com.devilved.tonetunner;
 
 import android.Manifest;
 import android.content.Context;
+import android.os.Looper;
 import android.text.InputType;
 import android.view.View;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputConnection;
 import android.widget.CheckBox;
 import android.widget.TextView;
+
+import androidx.preference.PreferenceManager;
 
 import com.devilved.tonetunner.asr.Recorder;
 import com.devilved.tonetunner.cloud.Provider;
@@ -39,8 +42,10 @@ public class EntryPointTranslationPreflightTest {
     private static final String UNSUPPORTED_OPENAI_MODEL = "gpt-4o-mini-transcribe";
 
     @Before public void clearSettings() throws Exception {
-        RuntimeEnvironment.getApplication().getSharedPreferences("ai_settings", Context.MODE_PRIVATE)
-                .edit().clear().commit();
+        Context application = RuntimeEnvironment.getApplication();
+        application.getSharedPreferences("ai_settings", Context.MODE_PRIVATE).edit().clear().commit();
+        PreferenceManager.getDefaultSharedPreferences(application).edit()
+                .putBoolean("imeModeAuto", false).commit();
         RecorderShadow.reset();
         Field translate = WhisperInputMethodService.class.getDeclaredField("translate");
         translate.setAccessible(true);
@@ -115,6 +120,47 @@ public class EntryPointTranslationPreflightTest {
         }
     }
 
+    @Test public void mainActivityIgnoresVADSpeechStartedNotification() throws Exception {
+        setTranscription(Provider.LOCAL, "", false);
+        ActivityController<MainActivity> controller = Robolectric.buildActivity(MainActivity.class).setup();
+        MainActivity activity = controller.get();
+        try {
+            Shadows.shadowOf(RuntimeEnvironment.getApplication())
+                    .grantPermissions(Manifest.permission.RECORD_AUDIO);
+            assertTrue(invokeStartRecording(activity));
+
+            RecorderShadow.emit(Recorder.MSG_SPEECH_STARTED);
+            Shadows.shadowOf(Looper.getMainLooper()).idle();
+
+            assertTrue(field(MainActivity.class, "sessionActive").getBoolean(activity));
+            assertTrue(field(MainActivity.class, "recording").getBoolean(activity));
+        } finally {
+            controller.destroy();
+        }
+    }
+
+    @Test public void recognizeActivityIgnoresVADSpeechStartedNotification() throws Exception {
+        setTranscription(Provider.LOCAL, "", false);
+        ActivityController<WhisperRecognizeActivity> controller =
+                Robolectric.buildActivity(WhisperRecognizeActivity.class).setup();
+        WhisperRecognizeActivity activity = controller.get();
+        try {
+            Shadows.shadowOf(RuntimeEnvironment.getApplication())
+                    .grantPermissions(Manifest.permission.RECORD_AUDIO);
+            Method begin = WhisperRecognizeActivity.class.getDeclaredMethod("beginRecording", boolean.class);
+            begin.setAccessible(true);
+            assertTrue((Boolean) begin.invoke(activity, false));
+
+            RecorderShadow.emit(Recorder.MSG_SPEECH_STARTED);
+            Shadows.shadowOf(Looper.getMainLooper()).idle();
+
+            assertTrue(field(WhisperRecognizeActivity.class, "sessionActive").getBoolean(activity));
+            assertTrue(field(WhisperRecognizeActivity.class, "recording").getBoolean(activity));
+        } finally {
+            controller.destroy();
+        }
+    }
+
     private static void setTranscription(Provider provider, String model, boolean consent) {
         RuntimeEnvironment.getApplication().getSharedPreferences("ai_settings", Context.MODE_PRIVATE)
                 .edit()
@@ -133,6 +179,12 @@ public class EntryPointTranslationPreflightTest {
         Method method = MainActivity.class.getDeclaredMethod("startRecording");
         method.setAccessible(true);
         return (Boolean) method.invoke(activity);
+    }
+
+    private static Field field(Class<?> owner, String name) throws Exception {
+        Field field = owner.getDeclaredField(name);
+        field.setAccessible(true);
+        return field;
     }
 
     private static EditorInfo editor() {
@@ -159,11 +211,17 @@ public class EntryPointTranslationPreflightTest {
     @Implements(value = Recorder.class, isInAndroidSdk = false)
     public static class RecorderShadow {
         static boolean started;
+        static Recorder.RecorderListener listener;
 
-        static void reset() { started = false; }
+        static void reset() { started = false; listener = null; }
+        static void emit(String message) {
+            if (listener != null) listener.onUpdateReceived(message);
+        }
 
         @Implementation protected void __constructor__(Context context) { }
-        @Implementation protected void setListener(Recorder.RecorderListener listener) { }
+        @Implementation protected void setListener(Recorder.RecorderListener listener) {
+            RecorderShadow.listener = listener;
+        }
         @Implementation protected void start() { started = true; }
         @Implementation protected boolean isInProgress() { return started; }
         @Implementation protected void stop() { started = false; }

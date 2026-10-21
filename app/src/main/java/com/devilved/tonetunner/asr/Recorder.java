@@ -42,6 +42,7 @@ public class Recorder {
     public static final String MSG_RECORDING_DONE = "Recording done...!";
     public static final String MSG_RECORDING_ERROR = "Recording error...";
     public static final String MSG_SPEECH_TIMEOUT = "Speech timeout...";
+    public static final String MSG_SPEECH_STARTED = "Speech started...";
 
     private final Context mContext;
     private final AtomicBoolean mInProgress = new AtomicBoolean(false);
@@ -226,6 +227,7 @@ public class Recorder {
             boolean heardSpeech = false;
             boolean microphoneReadFailed = false;
             boolean speechTimedOut = false;
+            boolean storageWriteFailed = false;
             long capturedSamples = 0;
             long initialSpeechDeadlineSamples = (long) sampleRate * INITIAL_SPEECH_TIMEOUT_SECONDS;
             long initialSpeechStartNanos = System.nanoTime();
@@ -245,12 +247,24 @@ public class Recorder {
                     mInProgress.set(false);
                     break;
                 }
-                recording.write(frame, 0, count);
+                try {
+                    recording.write(frame, 0, count);
+                } catch (IOException e) {
+                    storageWriteFailed = true;
+                    mInProgress.set(false);
+                    break;
+                }
                 capturedSamples += count / PcmRecording.BYTES_PER_SAMPLE;
                 if (useVAD && count == frame.length) {
                     boolean speech = vad.isSpeech(frame);
-                    if (speech) heardSpeech = true;
-                    else if (heardSpeech) mInProgress.set(false);
+                    if (speech) {
+                        if (!heardSpeech) {
+                            heardSpeech = true;
+                            sendUpdate(MSG_SPEECH_STARTED);
+                        }
+                    } else if (heardSpeech) {
+                        mInProgress.set(false);
+                    }
                 }
                 if (useVAD && !heardSpeech
                         && (capturedSamples >= initialSpeechDeadlineSamples
@@ -259,15 +273,35 @@ public class Recorder {
                     mInProgress.set(false);
                 }
             }
-            recording.finish();
+            try {
+                recording.finish();
+            } catch (IOException e) {
+                storageWriteFailed = true;
+            }
+            String captureWarning = null;
+            if (microphoneReadFailed) {
+                captureWarning = "Microphone interrupted. Returned the audio captured before interruption.";
+            }
+            if (storageWriteFailed) {
+                captureWarning = captureWarning == null ? PcmRecording.STORAGE_FAILURE_WARNING
+                        : captureWarning + " " + PcmRecording.STORAGE_FAILURE_WARNING;
+                recording.finishAfterCaptureFailure(captureWarning);
+            }
+            if (!released && storageWriteFailed
+                    && recording.lengthBytes() < PcmRecording.BYTES_PER_SAMPLE) {
+                try {
+                    // Keep even an unusable capture recognizable for later recovery inspection;
+                    // closing an owned spool would otherwise erase the evidence of storage failure.
+                    recording.retainForRecoveryFailure();
+                } catch (IOException e) {
+                    Log.w(TAG, "Unable to retain the failed recording spool for recovery", e);
+                }
+            }
             synchronized (this) {
                 if (!released && speechTimedOut) {
                     terminalMessage = MSG_SPEECH_TIMEOUT;
                 } else if (!released && recording.lengthBytes() >= PcmRecording.BYTES_PER_SAMPLE) {
-                    if (microphoneReadFailed) {
-                        recording.setCaptureWarning(
-                                "Microphone interrupted. Returned the audio captured before interruption.");
-                    }
+                    if (captureWarning != null) recording.setCaptureWarning(captureWarning);
                     publishedRecording = recording;
                     transferred = true;
                     terminalMessage = MSG_RECORDING_DONE;

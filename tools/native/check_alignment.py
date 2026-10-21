@@ -1,10 +1,12 @@
-"""Validate every shipped 64-bit ELF LOAD segment and APK native ZIP payload."""
+"""Validate 64-bit ELF LOAD segments and required ABI presence in native archives."""
 import argparse
 import struct
 import zipfile
 from pathlib import Path
 
 PAGE_SIZE = 16_384
+SUPPORTED_ABIS = {"armeabi-v7a", "arm64-v8a", "x86", "x86_64"}
+ALIGNED_64BIT_ABIS = {"arm64-v8a", "x86_64"}
 
 
 def validate_elf(data):
@@ -30,13 +32,17 @@ def validate_elf(data):
         raise ValueError("ELF has no LOAD segments")
 
 
-def verify_archive(path, apk=False):
+def verify_archive(path, apk=False, required_abis=()):
     checked = 0
+    present_abis = set()
     with zipfile.ZipFile(path) as archive, open(path, "rb") as raw:
         for entry in archive.infolist():
             parts = entry.filename.split("/")
             if (len(parts) != 3 or parts[0] not in {"lib", "jni"}
-                    or parts[1] not in {"arm64-v8a", "x86_64"} or not parts[2].endswith(".so")):
+                    or parts[1] not in SUPPORTED_ABIS or not parts[2].endswith(".so")):
+                continue
+            present_abis.add(parts[1])
+            if parts[1] not in ALIGNED_64BIT_ABIS:
                 continue
             try:
                 validate_elf(archive.read(entry))
@@ -48,6 +54,9 @@ def verify_archive(path, apk=False):
             except ValueError as error:
                 raise ValueError(f"{entry.filename}: {error}") from error
             checked += 1
+    missing_abis = set(required_abis) - present_abis
+    if missing_abis:
+        raise ValueError("Archive is missing native libraries for ABI(s): " + ", ".join(sorted(missing_abis)))
     if not checked:
         raise ValueError("Archive contains no 64-bit native libraries to validate")
     return checked
@@ -57,6 +66,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("archive", type=Path)
     parser.add_argument("--apk", action="store_true")
+    parser.add_argument("--require-abis", nargs="+", choices=sorted(SUPPORTED_ABIS), default=[])
     args = parser.parse_args()
-    count = verify_archive(args.archive, args.apk)
+    count = verify_archive(args.archive, args.apk, args.require_abis)
     print(f"Validated {count} 64-bit native libraries: {args.archive.name}")

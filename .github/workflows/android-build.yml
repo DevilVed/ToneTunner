@@ -14,7 +14,7 @@ on:
         required: false
         default: ""
       build_type:
-        description: "debug (installable) or release (unsigned unless signing secrets are set)"
+        description: "APK to upload: debug (installable) or unsigned release"
         required: false
         default: debug
         type: choice
@@ -111,6 +111,9 @@ jobs:
           - api: 28
             target: google_apis
             page_size: 4096
+          - api: 34
+            target: google_apis
+            page_size: 4096
           - api: 35
             target: google_apis_ps16k
             page_size: 16384
@@ -183,6 +186,9 @@ jobs:
         run: |
           echo "sdk.dir=$ANDROID_HOME" > local.properties
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;27.2.12479018"
+      - name: Install pinned APK build-tools
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "build-tools;35.0.0"
       - name: Install a stable debug keystore
         if: env.DEBUG_KEYSTORE_B64 != ''
         run: |
@@ -197,12 +203,16 @@ jobs:
         run: |
           if [ "$BUILD_TYPE" = "release" ]; then task=assembleRelease; else task=assembleDebug; fi
           gradle "$task" --stacktrace
+          # Exercise the unsigned release configuration on every verified build.
+          # This keeps release ABI packaging and native alignment under the same gates.
+          if [ "$BUILD_TYPE" != "release" ]; then gradle assembleRelease --stacktrace; fi
 
       - name: Verify APK alignment for modern Android devices
         run: |
           for apk in app/build/outputs/apk/*/*.apk; do
             "$ANDROID_HOME/build-tools/35.0.0/zipalign" -c -P 16 4 "$apk"
-            python3 tools/native/check_alignment.py --apk "$apk"
+            python3 tools/native/check_alignment.py --apk "$apk" \
+              --require-abis armeabi-v7a arm64-v8a x86 x86_64
           done
 
       - name: Name the artifact
@@ -216,6 +226,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.meta.outputs.name }}
-          path: app/build/outputs/apk/**/*.apk
+          path: app/build/outputs/apk/${{ env.BUILD_TYPE }}/*.apk
           if-no-files-found: error
           retention-days: 30

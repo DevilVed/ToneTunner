@@ -5,6 +5,9 @@
     <string name="dictation_cancelled">Dictation cancelled.</string>
     <string name="dictation_sensitive_field">Voice dictation is unavailable in this private field.</string>
     <string name="dictation_setup_required">Open AI settings to choose your providers and save your API keys.</string>
+    <string name="dictation_translation_unsupported">Translation is unavailable for the selected transcription model. Choose a translation-capable model in AI settings.</string>
+    <string name="dictation_validating">Checking cloud provider settings…</string>
+    <string name="dictation_preparing">Preparing dictation…</string>
     <string name="dictation_recording">Listening…</string>
     <string name="dictation_transcribing">Transcribing…</string>
     <string name="dictation_enhancing">Enhancing…</string>

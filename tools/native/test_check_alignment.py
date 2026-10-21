@@ -56,3 +56,16 @@ class AlignmentTest(unittest.TestCase):
             self.assertEqual(1, verify_archive(archive))
             with self.assertRaisesRegex(ValueError, "ZIP aligned"):
                 verify_archive(archive, apk=True)
+
+    def test_can_require_all_four_release_abis_while_validating_64bit_elfs(self):
+        abis = ("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
+        with tempfile.TemporaryDirectory() as directory:
+            archive = Path(directory) / "universal.apk"
+            with zipfile.ZipFile(archive, "w") as output:
+                for abi in abis:
+                    payload = elf() if abi in {"arm64-v8a", "x86_64"} else b"32-bit ELF is not parsed here"
+                    output.writestr(f"lib/{abi}/library.so", payload)
+            self.assertEqual(2, verify_archive(archive, required_abis=abis))
+
+            with self.assertRaisesRegex(ValueError, "x86"):
+                verify_archive(archive, required_abis=("armeabi-v7a", "arm64-v8a", "x86_64"))

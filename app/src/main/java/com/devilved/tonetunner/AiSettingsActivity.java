@@ -54,10 +54,13 @@ public final class AiSettingsActivity extends AppCompatActivity {
     private TextInputEditText promptInput;
     private TextInputEditText vocabularyInput;
     private CheckBox cloudConsent;
+    private Button saveButton;
     private TextView storageStatus;
     private CloudClient activeDiscoveryClient;
     private int discoveryGeneration;
+    private int saveGeneration;
     private boolean destroyed;
+    private boolean saving;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -72,14 +75,16 @@ public final class AiSettingsActivity extends AppCompatActivity {
         ProviderConfig enhancementConfig;
         boolean storageUnavailable = false;
         try {
-            transcriptionConfig = settings.getTranscriptionConfig();
-            enhancementConfig = settings.getEnhancementConfig();
+            transcriptionConfig = settings.getTranscriptionConfigWithoutKey();
+            enhancementConfig = settings.getEnhancementConfigWithoutKey();
         } catch (RuntimeException e) {
             transcriptionConfig = defaultConfig(Provider.GROQ, true);
             enhancementConfig = defaultConfig(Provider.OPENROUTER, false);
             storageUnavailable = true;
         }
         buildScreen(transcriptionConfig, enhancementConfig, settings.isEnhancementEnabled(), storageUnavailable);
+        Object retained = getLastCustomNonConfigurationInstance();
+        if (retained instanceof SettingsDraft) restoreDraft((SettingsDraft) retained);
         if (storageUnavailable && storageStatus != null) storageStatus.setText(R.string.ai_secure_storage_error);
     }
 
@@ -178,20 +183,44 @@ public final class AiSettingsActivity extends AppCompatActivity {
         scroll.addView(content);
         page.addView(scroll, new LinearLayout.LayoutParams(ViewGroupWidth.MATCH_PARENT, 0, 1f));
 
-        Button save = new Button(this);
-        save.setText(R.string.ai_save);
-        save.setAllCaps(false);
-        save.setEnabled(!storageUnavailable);
-        save.setOnClickListener(v -> saveSettings());
+        saveButton = new Button(this);
+        saveButton.setText(R.string.ai_save);
+        saveButton.setAllCaps(false);
+        saveButton.setEnabled(!storageUnavailable);
+        saveButton.setOnClickListener(v -> saveSettings());
         LinearLayout saveContainer = new LinearLayout(this);
         saveContainer.setPadding(horizontal, dp(8), horizontal, dp(12));
-        saveContainer.addView(save, new LinearLayout.LayoutParams(ViewGroupWidth.MATCH_PARENT, dp(52)));
+        saveContainer.addView(saveButton, new LinearLayout.LayoutParams(ViewGroupWidth.MATCH_PARENT, dp(52)));
         page.addView(saveContainer, matchWrap());
 
         setContentView(page);
     }
 
+    @Override
+    public Object onRetainCustomNonConfigurationInstance() {
+        return captureDraft();
+    }
+
+    private SettingsDraft captureDraft() {
+        if (transcription == null || enhancement == null || enhancementEnabled == null
+                || promptInput == null || vocabularyInput == null || cloudConsent == null) return null;
+        return new SettingsDraft(transcription.captureDraft(), enhancement.captureDraft(),
+                enhancementEnabled.isChecked(), textOf(promptInput), textOf(vocabularyInput),
+                cloudConsent.isChecked());
+    }
+
+    private void restoreDraft(SettingsDraft draft) {
+        transcription.restoreDraft(draft.transcription);
+        enhancement.restoreDraft(draft.enhancement);
+        enhancementEnabled.setChecked(draft.enhancementEnabled);
+        promptInput.setText(draft.prompt);
+        vocabularyInput.setText(draft.vocabulary);
+        cloudConsent.setChecked(draft.cloudConsent);
+        setEnhancementFieldsEnabled(draft.enhancementEnabled);
+    }
+
     private void saveSettings() {
+        if (saving) return;
         boolean enabled = enhancementEnabled.isChecked();
         boolean cloud = transcription.provider != Provider.LOCAL
                 || (enabled && enhancement.provider != Provider.LOCAL);
@@ -203,25 +232,54 @@ public final class AiSettingsActivity extends AppCompatActivity {
 
         ProviderConfig transcriptionConfig = transcription.currentConfig();
         ProviderConfig enhancementConfig = enhancement.currentConfig();
+        String prompt = textOf(promptInput);
+        String vocabulary = textOf(vocabularyInput);
+        boolean consent = cloudConsent.isChecked();
+        int generation = ++saveGeneration;
+        saving = true;
+        saveButton.setEnabled(false);
         try {
-            settings.saveSettings(transcriptionConfig, enabled, enhancementConfig,
-                    textOf(promptInput), textOf(vocabularyInput), cloudConsent.isChecked());
-        } catch (IllegalArgumentException e) {
-            showMessage(e.getMessage(), R.string.ai_missing_api_key);
-            return;
-        } catch (IOException e) {
-            showMessage(e.getMessage(), R.string.ai_secure_storage_error);
-            return;
-        } catch (RuntimeException e) {
+            modelExecutor.execute(() -> {
+                String errorMessage = null;
+                int fallback = R.string.ai_secure_storage_error;
+                boolean succeeded = true;
+                try {
+                    settings.saveSettings(transcriptionConfig, enabled, enhancementConfig,
+                            prompt, vocabulary, consent);
+                } catch (IllegalArgumentException e) {
+                    succeeded = false;
+                    errorMessage = e.getMessage();
+                    fallback = R.string.ai_missing_api_key;
+                } catch (IOException e) {
+                    succeeded = false;
+                    errorMessage = e.getMessage();
+                } catch (RuntimeException e) {
+                    succeeded = false;
+                    errorMessage = null;
+                }
+                String failure = errorMessage;
+                int failureFallback = fallback;
+                boolean saved = succeeded;
+                runOnUiThread(() -> {
+                    if (destroyed || generation != saveGeneration || isFinishing()) return;
+                    saving = false;
+                    saveButton.setEnabled(true);
+                    if (!saved) {
+                        showMessage(failure, failureFallback);
+                        return;
+                    }
+                    transcription.clearEnteredKey();
+                    enhancement.clearEnteredKey();
+                    transcription.refreshKeyStatus();
+                    enhancement.refreshKeyStatus();
+                    toast(R.string.ai_saved);
+                });
+            });
+        } catch (java.util.concurrent.RejectedExecutionException e) {
+            saving = false;
+            saveButton.setEnabled(true);
             toast(R.string.ai_secure_storage_error);
-            return;
         }
-
-        transcription.clearEnteredKey();
-        enhancement.clearEnteredKey();
-        transcription.refreshKeyStatus();
-        enhancement.refreshKeyStatus();
-        toast(R.string.ai_saved);
     }
 
     private void showMessage(String message, int fallback) {
@@ -255,7 +313,7 @@ public final class AiSettingsActivity extends AppCompatActivity {
             toast(R.string.ai_missing_api_key);
             return;
         }
-        ProviderConfig config = stage.configForDiscovery();
+        ProviderConfig config = stage.configForDiscoveryWithoutStoredKey();
         if (config == null) return;
 
         int generation = ++discoveryGeneration;
@@ -266,21 +324,37 @@ public final class AiSettingsActivity extends AppCompatActivity {
         stage.refresh.setText(R.string.ai_model_discovery_loading);
         modelExecutor.execute(() -> {
             List<CloudClient.Model> models = null;
-            boolean failed = false;
+            int failure = 0;
             try {
-                models = client.models(config, stage.transcription);
-            } catch (IOException | RuntimeException e) {
-                failed = true;
+                String key = config.apiKey == null ? "" : config.apiKey.trim();
+                if (key.isEmpty()) {
+                    key = secretStore.getKey(config.provider,
+                            stage.transcription ? "transcription" : "enhancement", config.endpoint);
+                }
+                if (key == null || key.trim().isEmpty()) {
+                    failure = R.string.ai_missing_api_key;
+                } else {
+                    ProviderConfig requestConfig = new ProviderConfig(config.provider, config.endpoint,
+                            config.model, key, config.requireZdr);
+                    models = client.models(requestConfig, stage.transcription);
+                }
+            } catch (IOException e) {
+                failure = R.string.ai_secure_storage_error;
+            } catch (RuntimeException e) {
+                failure = R.string.ai_model_discovery_failed;
             }
             List<CloudClient.Model> result = models;
-            boolean requestFailed = failed;
+            int failureResource = failure;
             runOnUiThread(() -> {
                 if (destroyed || generation != discoveryGeneration || isFinishing()) return;
                 if (activeDiscoveryClient == client) activeDiscoveryClient = null;
                 stage.refresh.setEnabled(stage.active);
                 stage.refresh.setText(R.string.ai_discover_models);
-                if (requestFailed) {
-                    toast(R.string.ai_model_discovery_failed);
+                if (failureResource == R.string.ai_missing_api_key) {
+                    stage.keyLayout.setError(getString(R.string.ai_missing_api_key));
+                    toast(failureResource);
+                } else if (failureResource != 0) {
+                    toast(failureResource);
                 } else if (result == null || result.isEmpty()) {
                     toast(R.string.ai_model_discovery_empty);
                 } else {
@@ -342,6 +416,7 @@ public final class AiSettingsActivity extends AppCompatActivity {
         String originalEndpoint;
         boolean endpointWasEdited;
         boolean active;
+        int keyStatusGeneration;
 
         StageViews(boolean transcription, ProviderConfig config) {
             this.transcription = transcription;
@@ -486,7 +561,30 @@ public final class AiSettingsActivity extends AppCompatActivity {
                     textOf(apiKey), zdr.isChecked());
         }
 
-        ProviderConfig configForDiscovery() {
+        StageDraft captureDraft() {
+            return new StageDraft(provider, textOf(endpoint), textOf(model), textOf(apiKey),
+                    zdr.isChecked(), originalEndpoint, endpointWasEdited);
+        }
+
+        void restoreDraft(StageDraft draft) {
+            if (draft == null) return;
+            if (contains(providers, draft.provider)) {
+                provider = draft.provider;
+                providerSpinner.setSelection(indexOf(providers, provider));
+            }
+            endpoint.setText(draft.endpoint);
+            model.setText(draft.model);
+            apiKey.setText(draft.apiKey);
+            zdr.setChecked(draft.requireZdr);
+            originalEndpoint = draft.originalEndpoint;
+            endpointWasEdited = draft.endpointWasEdited;
+            active = provider != Provider.LOCAL
+                    && (transcription || enhancementEnabled == null || enhancementEnabled.isChecked());
+            applyProviderVisibility();
+            refreshKeyStatus();
+        }
+
+        ProviderConfig configForDiscoveryWithoutStoredKey() {
             if (provider == Provider.LOCAL) {
                 toast(R.string.ai_model_discovery_failed);
                 return null;
@@ -498,41 +596,49 @@ public final class AiSettingsActivity extends AppCompatActivity {
                 return null;
             }
             endpointLayout.setError(null);
-            String keyValue = textOf(apiKey).trim();
-            if (keyValue.isEmpty()) {
-                try {
-                    keyValue = secretStore.getKey(provider, stageName(), endpointValue);
-                } catch (IOException e) {
-                    toast(R.string.ai_secure_storage_error);
-                    return null;
-                }
-            }
-            if (keyValue.trim().isEmpty()) {
-                keyLayout.setError(getString(R.string.ai_missing_api_key));
-                return null;
-            }
             keyLayout.setError(null);
-            return new ProviderConfig(provider, endpointValue, modelValue, keyValue, zdr.isChecked());
+            return new ProviderConfig(provider, endpointValue, modelValue,
+                    textOf(apiKey).trim(), zdr.isChecked());
         }
 
         void refreshKeyStatus() {
             if (provider == Provider.LOCAL) {
+                ++keyStatusGeneration;
                 active = false;
+                keyLayout.setHelperText(null);
+                removeKey.setEnabled(false);
                 return;
             }
             active = transcription || enhancementEnabled == null || enhancementEnabled.isChecked();
             String current = textOf(endpoint).trim();
-            boolean found = false;
-            try {
-                found = !endpointWasEdited && secretStore.hasKey(provider, stageName(), current);
-            } catch (IOException e) {
-                keyLayout.setHelperText(getString(R.string.ai_secure_storage_error));
+            Provider selectedProvider = provider;
+            int generation = ++keyStatusGeneration;
+            if (endpointWasEdited) {
+                keyLayout.setHelperText(getString(R.string.ai_key_no_saved));
                 removeKey.setEnabled(false);
                 return;
             }
-            keyLayout.setHelperText(found ? getString(R.string.ai_key_saved_hint) : getString(R.string.ai_key_no_saved));
-            removeKey.setEnabled(found);
-            if (found) keyLayout.setError(null);
+            keyLayout.setHelperText(getString(R.string.ai_key_status_checking));
+            removeKey.setEnabled(false);
+            modelExecutor.execute(() -> {
+                boolean found = false;
+                boolean failed = false;
+                try {
+                    found = secretStore.hasKey(selectedProvider, stageName(), current);
+                } catch (IOException | RuntimeException e) {
+                    failed = true;
+                }
+                boolean hasSavedKey = found;
+                boolean checkFailed = failed;
+                runOnUiThread(() -> {
+                    if (destroyed || isFinishing() || generation != keyStatusGeneration
+                            || selectedProvider != provider || !current.equals(textOf(endpoint).trim())) return;
+                    keyLayout.setHelperText(getString(checkFailed ? R.string.ai_secure_storage_error
+                            : hasSavedKey ? R.string.ai_key_saved_hint : R.string.ai_key_no_saved));
+                    removeKey.setEnabled(hasSavedKey && !checkFailed);
+                    if (hasSavedKey) keyLayout.setError(null);
+                });
+            });
         }
 
         void clearEnteredKey() {
@@ -558,30 +664,56 @@ public final class AiSettingsActivity extends AppCompatActivity {
 
         private void confirmRemoveKey() {
             String endpointValue = textOf(endpoint).trim();
-            boolean exists;
-            try {
-                exists = secretStore.hasKey(provider, stageName(), endpointValue);
-            } catch (IOException e) {
-                toast(R.string.ai_key_remove_failed);
-                return;
-            }
-            if (!exists) {
-                toast(R.string.ai_key_no_saved);
-                return;
-            }
+            Provider selectedProvider = provider;
+            String selectedStage = stageName();
+            removeKey.setEnabled(false);
+            modelExecutor.execute(() -> {
+                boolean exists = false;
+                boolean failed = false;
+                try {
+                    exists = secretStore.hasKey(selectedProvider, selectedStage, endpointValue);
+                } catch (IOException | RuntimeException e) {
+                    failed = true;
+                }
+                boolean hasKey = exists;
+                boolean lookupFailed = failed;
+                runOnUiThread(() -> {
+                    if (destroyed || isFinishing() || selectedProvider != provider
+                            || !endpointValue.equals(textOf(endpoint).trim())) return;
+                    if (lookupFailed) {
+                        toast(R.string.ai_key_remove_failed);
+                    } else if (!hasKey) {
+                        toast(R.string.ai_key_no_saved);
+                    } else {
+                        showRemoveKeyConfirmation(selectedProvider, selectedStage, endpointValue);
+                    }
+                    refreshKeyStatus();
+                });
+            });
+        }
+
+        private void showRemoveKeyConfirmation(Provider selectedProvider, String selectedStage,
+                                               String endpointValue) {
             new AlertDialog.Builder(AiSettingsActivity.this)
                     .setMessage(R.string.ai_key_removal_confirm)
                     .setNegativeButton(R.string.ai_cancel, null)
-                    .setPositiveButton(R.string.ai_confirm, (dialog, which) -> {
+                    .setPositiveButton(R.string.ai_confirm, (dialog, which) -> modelExecutor.execute(() -> {
+                        boolean failed = false;
                         try {
-                            secretStore.removeKey(provider, stageName(), textOf(endpoint).trim());
-                            apiKey.setText("");
-                            refreshKeyStatus();
-                            toast(R.string.ai_key_removed);
-                        } catch (IOException e) {
-                            toast(R.string.ai_key_remove_failed);
+                            secretStore.removeKey(selectedProvider, selectedStage, endpointValue);
+                        } catch (IOException | RuntimeException e) {
+                            failed = true;
                         }
-                    })
+                        boolean removeFailed = failed;
+                        runOnUiThread(() -> {
+                            if (destroyed || isFinishing()) return;
+                            if (selectedProvider == provider && endpointValue.equals(textOf(endpoint).trim())) {
+                                apiKey.setText("");
+                                refreshKeyStatus();
+                            }
+                            toast(removeFailed ? R.string.ai_key_remove_failed : R.string.ai_key_removed);
+                        });
+                    }))
                     .show();
         }
 
@@ -730,6 +862,47 @@ public final class AiSettingsActivity extends AppCompatActivity {
 
     private void toast(int resource) {
         Toast.makeText(this, resource, Toast.LENGTH_LONG).show();
+    }
+
+    private static final class SettingsDraft {
+        final StageDraft transcription;
+        final StageDraft enhancement;
+        final boolean enhancementEnabled;
+        final String prompt;
+        final String vocabulary;
+        final boolean cloudConsent;
+
+        SettingsDraft(StageDraft transcription, StageDraft enhancement, boolean enhancementEnabled,
+                      String prompt, String vocabulary, boolean cloudConsent) {
+            this.transcription = transcription;
+            this.enhancement = enhancement;
+            this.enhancementEnabled = enhancementEnabled;
+            this.prompt = prompt;
+            this.vocabulary = vocabulary;
+            this.cloudConsent = cloudConsent;
+        }
+    }
+
+    /** Held by Activity's in-memory nonconfiguration instance only; never written to a Bundle. */
+    private static final class StageDraft {
+        final Provider provider;
+        final String endpoint;
+        final String model;
+        final String apiKey;
+        final boolean requireZdr;
+        final String originalEndpoint;
+        final boolean endpointWasEdited;
+
+        StageDraft(Provider provider, String endpoint, String model, String apiKey,
+                   boolean requireZdr, String originalEndpoint, boolean endpointWasEdited) {
+            this.provider = provider;
+            this.endpoint = endpoint;
+            this.model = model;
+            this.apiKey = apiKey;
+            this.requireZdr = requireZdr;
+            this.originalEndpoint = originalEndpoint;
+            this.endpointWasEdited = endpointWasEdited;
+        }
     }
 
     @Override

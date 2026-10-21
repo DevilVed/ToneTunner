@@ -36,6 +36,10 @@ import com.devilved.tonetunner.asr.Whisper;
 import com.devilved.tonetunner.asr.WhisperResult;
 import com.devilved.tonetunner.utils.HapticFeedback;
 
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
+
 public class WhisperInputMethodService extends InputMethodService {
     private ImageButton btnRecord;
     private ImageButton btnKeyboard;
@@ -49,6 +53,7 @@ public class WhisperInputMethodService extends InputMethodService {
     private ProgressBar processingBar = null;
     private SharedPreferences sp = null;
     private final Handler handler = new Handler(Looper.getMainLooper());
+    private final ExecutorService entrypointTasks = Executors.newSingleThreadExecutor();
     private Context mContext;
     private static boolean translate = false;
     private boolean modeAuto = false;
@@ -56,9 +61,14 @@ public class WhisperInputMethodService extends InputMethodService {
     private View inputRootView;
     private long editorGeneration;
     private long requestEditorGeneration;
+    private long validationGeneration;
+    private long providerSummaryGeneration;
+    private EditorIdentity activeEditorIdentity;
+    private InputConnection activeInputConnection;
     private boolean inputActive;
     private boolean acceptRecording;
     private boolean processing;
+    private boolean validating;
     private final RecordingGesture recordingGesture = new RecordingGesture();
     private final Runnable repeatDelete = new Runnable() {
         @Override public void run() {
@@ -79,14 +89,25 @@ public class WhisperInputMethodService extends InputMethodService {
         inputActive = false;
         ++editorGeneration;
         cancelDictation();
+        ++providerSummaryGeneration;
+        entrypointTasks.shutdownNow();
         super.onDestroy();
     }
 
     @Override
     public void onStartInput(EditorInfo attribute, boolean restarting) {
         super.onStartInput(attribute, restarting);
-        cancelDictation();
-        ++editorGeneration;
+        InputConnection connection = getCurrentInputConnection();
+        EditorIdentity nextIdentity = EditorIdentity.from(attribute);
+        boolean sameRestart = restarting && activeEditorIdentity != null
+                && activeEditorIdentity.equals(nextIdentity)
+                && activeInputConnection != null && activeInputConnection == connection;
+        if (!sameRestart) {
+            cancelDictation();
+            ++editorGeneration;
+        }
+        activeEditorIdentity = nextIdentity;
+        activeInputConnection = connection;
         inputActive = attribute != null;
     }
 
@@ -95,7 +116,7 @@ public class WhisperInputMethodService extends InputMethodService {
         super.onStartInputView(attribute, restarting);
         inputActive = attribute != null;
         if (tvStatus != null) {
-            showStatus(new AiSettings(this).getSummary());
+            refreshAiSummary();
             layoutButtons.setVisibility(View.VISIBLE);
         }
         if (modeAuto && !restarting) startRecording();
@@ -105,6 +126,8 @@ public class WhisperInputMethodService extends InputMethodService {
     public void onFinishInput() {
         inputActive = false;
         ++editorGeneration;
+        activeEditorIdentity = null;
+        activeInputConnection = null;
         cancelDictation();
         super.onFinishInput();
     }
@@ -113,6 +136,8 @@ public class WhisperInputMethodService extends InputMethodService {
     public void onFinishInputView(boolean finishingInput) {
         inputActive = false;
         ++editorGeneration;
+        activeEditorIdentity = null;
+        activeInputConnection = null;
         cancelDictation();
         super.onFinishInputView(finishingInput);
     }
@@ -176,17 +201,17 @@ public class WhisperInputMethodService extends InputMethodService {
         });
 
         btnRecord.setOnClickListener(v -> {
-            if (acceptRecording && mRecorder != null) mRecorder.stop();
+            if (acceptRecording && mRecorder != null) requestStopRecording();
             else startRecording();
         });
         btnRecord.setOnTouchListener((v, event) -> {
             if (event.getActionMasked() == MotionEvent.ACTION_DOWN) {
                 if (recordingGesture.down(acceptRecording, event.getEventTime()) == RecordingGesture.Action.STOP) {
-                    if (mRecorder != null) mRecorder.stop();
+                    if (mRecorder != null) requestStopRecording();
                 } else startRecording();
             } else if (event.getActionMasked() == MotionEvent.ACTION_UP) {
                 if (recordingGesture.up(event.getEventTime()) == RecordingGesture.Action.STOP
-                        && mRecorder != null && mRecorder.isInProgress()) mRecorder.stop();
+                        && mRecorder != null && mRecorder.isInProgress()) requestStopRecording();
             } else if (event.getActionMasked() == MotionEvent.ACTION_CANCEL) {
                 cancelDictation();
             }
@@ -228,15 +253,50 @@ public class WhisperInputMethodService extends InputMethodService {
         }
     }
 
+    private void refreshAiSummary() {
+        long generation = ++providerSummaryGeneration;
+        try {
+            entrypointTasks.execute(() -> {
+                String summary;
+                try {
+                    summary = new AiSettings(this).getSummary();
+                } catch (RuntimeException e) {
+                    summary = getString(R.string.ai_key_unavailable_summary);
+                }
+                String result = summary;
+                handler.post(() -> {
+                    if (generation == providerSummaryGeneration && inputActive && tvStatus != null
+                            && tvStatus.getVisibility() == View.GONE
+                            && !acceptRecording && !processing && !validating) {
+                        showStatus(result);
+                    }
+                });
+            });
+        } catch (RejectedExecutionException ignored) {
+            // The service is already shutting down.
+        }
+    }
+
     private void startRecording() {
         if (!inputActive || !checkRecordPermission()) return;
-        if (acceptRecording || (mWhisper != null && mWhisper.isInProgress())) {
+        if (acceptRecording || processing || validating || (mWhisper != null && mWhisper.isInProgress())) {
             showStatus(getString(R.string.please_wait));
             return;
         }
+        final long token = ++validationGeneration;
+        final long generation = editorGeneration;
+        final EditorIdentity editorIdentity = activeEditorIdentity;
+        final InputConnection inputConnection = activeInputConnection;
+        final boolean translateRequested = translate;
+        final AiSettings settings;
+        final boolean cloud;
         try {
-            AiSettings settings = new AiSettings(this);
-            boolean cloud = settings.isCloudTranscription() || settings.isEnhancementEnabled();
+            settings = new AiSettings(this);
+            cloud = settings.isCloudTranscription() || settings.isEnhancementEnabled();
+            if (translateRequested && !settings.isTranslationSupported()) {
+                showStatus(getString(R.string.dictation_translation_unsupported));
+                return;
+            }
             if (!eligibleEditor(cloud)) {
                 showStatus(getString(R.string.dictation_sensitive_field));
                 return;
@@ -245,27 +305,69 @@ public class WhisperInputMethodService extends InputMethodService {
                 showStatus(getString(R.string.dictation_setup_required));
                 return;
             }
-            if ((settings.isCloudTranscription() && settings.getTranscriptionConfig().apiKey.isEmpty())
-                    || (settings.isEnhancementEnabled() && settings.getEnhancementConfig().apiKey.isEmpty())) {
-                showStatus(getString(R.string.dictation_setup_required));
-                return;
-            }
         } catch (Exception e) {
             showStatus(getString(R.string.dictation_setup_required));
             return;
         }
+
+        if (cloud) {
+            validating = true;
+            updateInputViewKeepScreenOn();
+            showStatus(getString(R.string.dictation_validating));
+            try {
+                entrypointTasks.execute(() -> {
+                    int error;
+                    try { error = settings.validateCloudCredentials(); }
+                    catch (RuntimeException e) { error = R.string.entrypoint_settings_unavailable; }
+                    final int validationError = error;
+                    handler.post(() -> {
+                        if (!isCurrentStart(token, generation, editorIdentity, inputConnection)) return;
+                        validating = false;
+                        updateInputViewKeepScreenOn();
+                        if (validationError != 0) {
+                            showStatus(getString(validationError));
+                            return;
+                        }
+                        beginCapture(token, generation, editorIdentity, inputConnection, translateRequested);
+                    });
+                });
+            } catch (RejectedExecutionException e) {
+                validating = false;
+                updateInputViewKeepScreenOn();
+                showStatus(getString(R.string.dictation_setup_required));
+            }
+            return;
+        }
+        beginCapture(token, generation, editorIdentity, inputConnection, translateRequested);
+    }
+
+    private boolean isCurrentStart(long token, long generation, EditorIdentity editorIdentity,
+                                   InputConnection inputConnection) {
+        return token == validationGeneration && generation == editorGeneration && inputActive
+                && java.util.Objects.equals(activeEditorIdentity, editorIdentity)
+                && activeInputConnection == inputConnection
+                && getCurrentInputConnection() == inputConnection;
+    }
+
+    private void beginCapture(long token, long generation, EditorIdentity editorIdentity,
+                              InputConnection inputConnection, boolean translateRequested) {
+        if (!isCurrentStart(token, generation, editorIdentity, inputConnection)) return;
         if (mWhisper == null) initModel();
         if (mRecorder != null) mRecorder.release();
         Recorder recorder = new Recorder(this);
         mRecorder = recorder;
-        long generation = editorGeneration;
         requestEditorGeneration = generation;
         processing = false;
         acceptRecording = true;
         updateInputViewKeepScreenOn();
         recorder.setListener(message -> handler.post(() -> {
-            if (mRecorder != recorder || !acceptRecording || !inputActive || generation != editorGeneration) return;
-            if (Recorder.MSG_RECORDING.equals(message)) {
+            if (mRecorder != recorder || token != validationGeneration || !inputActive
+                    || generation != editorGeneration || !java.util.Objects.equals(activeEditorIdentity, editorIdentity)
+                    || activeInputConnection != inputConnection) return;
+            if (Recorder.MSG_SPEECH_STARTED.equals(message)) {
+                return;
+            } else if (Recorder.MSG_RECORDING.equals(message)) {
+                if (!acceptRecording) return;
                 btnRecord.setBackgroundResource(R.drawable.rounded_button_background_pressed);
                 showStatus(getString(R.string.dictation_recording));
             } else if (Recorder.MSG_RECORDING_DONE.equals(message)) {
@@ -273,7 +375,8 @@ public class WhisperInputMethodService extends InputMethodService {
                 processing = true;
                 updateInputViewKeepScreenOn();
                 btnRecord.setBackgroundResource(R.drawable.rounded_button_background);
-                startTranscription();
+                mWhisper.setAction(translateRequested ? ACTION_TRANSLATE : ACTION_TRANSCRIBE);
+                startTranscription(translateRequested);
             } else {
                 acceptRecording = false;
                 processing = false;
@@ -287,7 +390,20 @@ public class WhisperInputMethodService extends InputMethodService {
         HapticFeedback.vibrate(this);
         recorder.start();
         processingBar.setIndeterminate(true);
+    }
 
+    private void requestStopRecording() {
+        Recorder recorder = mRecorder;
+        if (recorder == null || !recorder.isInProgress()) return;
+        acceptRecording = false;
+        processing = true;
+        updateInputViewKeepScreenOn();
+        if (btnRecord != null) btnRecord.setBackgroundResource(R.drawable.rounded_button_background);
+        try {
+            entrypointTasks.execute(recorder::stop);
+        } catch (RejectedExecutionException ignored) {
+            // Service teardown releases the recorder and suppresses any late callback.
+        }
     }
 
     private boolean eligibleEditor(boolean sendsToCloud) {
@@ -302,14 +418,16 @@ public class WhisperInputMethodService extends InputMethodService {
     }
 
     private void updateInputViewKeepScreenOn() {
-        if (inputRootView != null) inputRootView.setKeepScreenOn(acceptRecording || processing);
+        if (inputRootView != null) inputRootView.setKeepScreenOn(acceptRecording || processing || validating);
     }
 
     private void cancelDictation() {
         handler.removeCallbacks(repeatDelete);
         recordingGesture.cancel();
+        ++validationGeneration;
         acceptRecording = false;
         processing = false;
+        validating = false;
         updateInputViewKeepScreenOn();
         if (mRecorder != null) { mRecorder.release(); mRecorder = null; }
         if (mWhisper != null) { mWhisper.unloadModel(); mWhisper = null; }
@@ -327,7 +445,11 @@ public class WhisperInputMethodService extends InputMethodService {
             @Override
             public void onUpdateReceived(String message) {
                 if (mWhisper != requestWhisper || requestEditorGeneration != editorGeneration || !inputActive) return;
-                if (Whisper.MSG_ENHANCING.equals(message)) {
+                if (Whisper.MSG_PREPARING.equals(message)) {
+                    processing = true;
+                    updateInputViewKeepScreenOn();
+                    showStatus(getString(R.string.dictation_preparing));
+                } else if (Whisper.MSG_ENHANCING.equals(message)) {
                     processing = true;
                     updateInputViewKeepScreenOn();
                     showStatus(getString(R.string.dictation_enhancing));
@@ -355,7 +477,8 @@ public class WhisperInputMethodService extends InputMethodService {
 
             @Override
             public boolean onResultDelivery(WhisperResult whisperResult) {
-                if (mWhisper != requestWhisper || requestEditorGeneration != editorGeneration || !inputActive) return false;
+                if (mWhisper != requestWhisper || requestEditorGeneration != editorGeneration || !inputActive
+                        || activeInputConnection != getCurrentInputConnection()) return false;
                 processing = false;
                 updateInputViewKeepScreenOn();
                 AiSettings settings = new AiSettings(WhisperInputMethodService.this);
@@ -388,11 +511,11 @@ public class WhisperInputMethodService extends InputMethodService {
         });
     }
 
-    private void startTranscription() {
+    private void startTranscription(boolean translateRequested) {
         handler.post(() -> processingBar.setProgress(0));
         handler.post(() -> processingBar.setIndeterminate(true));
         if (mWhisper!=null){
-            if (translate) mWhisper.setAction(ACTION_TRANSLATE);
+            if (translateRequested) mWhisper.setAction(ACTION_TRANSLATE);
             else mWhisper.setAction(ACTION_TRANSCRIBE);
 
             String langCode = sp.getString("language", "auto");
@@ -409,6 +532,36 @@ public class WhisperInputMethodService extends InputMethodService {
             tvStatus.setText(getString(R.string.need_record_audio_permission));
         }
         return (permission == PackageManager.PERMISSION_GRANTED);
+    }
+
+    private static final class EditorIdentity {
+        final String packageName;
+        final int fieldId;
+        final int inputType;
+        final int imeOptions;
+
+        private EditorIdentity(String packageName, int fieldId, int inputType, int imeOptions) {
+            this.packageName = packageName;
+            this.fieldId = fieldId;
+            this.inputType = inputType;
+            this.imeOptions = imeOptions;
+        }
+
+        static EditorIdentity from(EditorInfo editor) {
+            return editor == null ? null : new EditorIdentity(editor.packageName, editor.fieldId,
+                    editor.inputType, editor.imeOptions);
+        }
+
+        @Override public boolean equals(Object other) {
+            if (!(other instanceof EditorIdentity)) return false;
+            EditorIdentity that = (EditorIdentity) other;
+            return fieldId == that.fieldId && inputType == that.inputType && imeOptions == that.imeOptions
+                    && java.util.Objects.equals(packageName, that.packageName);
+        }
+
+        @Override public int hashCode() {
+            return java.util.Objects.hash(packageName, fieldId, inputType, imeOptions);
+        }
     }
 
 }

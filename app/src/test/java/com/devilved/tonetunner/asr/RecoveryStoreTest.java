@@ -56,6 +56,8 @@ public class RecoveryStoreTest {
         RecoveryStore.Entry reopenedEntry = reopenedStore.get(saved.id);
         assertNotNull(reopenedEntry);
         assertEquals(saved.id, reopenedEntry.id);
+        assertEquals("reopening must preserve the saved creation time", saved.createdAtEpochMillis,
+                reopenedEntry.createdAtEpochMillis);
         assertEquals("completed words", reopenedEntry.transcript);
         assertEquals("auto", reopenedEntry.requestedLanguage);
         assertEquals("en", reopenedEntry.detectedLanguage);
@@ -126,6 +128,24 @@ public class RecoveryStoreTest {
         }
         assertEquals("most recent saved capture should be first", newerId, store.list().get(0).id);
         assertEquals(olderId, store.list().get(1).id);
+    }
+
+    @Test public void interruptedAtomicCheckpointRestoresThePreviousCompleteMetadata() throws Exception {
+        RecoveryStore store = new RecoveryStore(context);
+        RecoveryStore.Entry saved;
+        try (PcmRecording source = recording("atomic-backup", new byte[]{1, 0, 2, 0})) {
+            saved = store.save(source, 2, "completed prefix", "auto", "en", false, null);
+        }
+        File metadata = new File(noBackupDirectory, "dictation-recovery/" + saved.id + "/entry.json");
+        File backup = new File(metadata.getPath() + ".bak");
+        assertTrue(metadata.renameTo(backup));
+        Files.write(metadata.toPath(), "{".getBytes(StandardCharsets.UTF_8));
+
+        RecoveryStore.Entry reopened = new RecoveryStore(context).get(saved.id);
+        assertEquals("completed prefix", reopened.transcript);
+        assertEquals(2, reopened.offset);
+        assertEquals(saved.createdAtEpochMillis, reopened.createdAtEpochMillis);
+        assertFalse("the recovered checkpoint should no longer have a pending backup", backup.exists());
     }
 
     @Test public void separateStoresCannotRetryOrDiscardTheSameOpenDictation() throws Exception {

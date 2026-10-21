@@ -1,0 +1,9 @@
+# EXAMPLE ONLY. Do not copy into fdroiddata or use for publication.
+# This draft is intentionally disabled and has no release Build block: no F-Droid
+# release tag has been selected, and the recipe has not passed fdroid lint or an
+# isolated F-Droid server build.
+RepoType: git
+Repo: https://github.com/DevilVed/ToneTunner.git
+Disabled: >-
+  Draft only. Add a real tagged release and a tested native dependency recipe,
+  then pass fdroid lint and an isolated F-Droid build before enabling or submitting.

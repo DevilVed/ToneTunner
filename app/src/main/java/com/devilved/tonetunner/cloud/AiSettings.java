@@ -45,6 +45,12 @@ public final class AiSettings {
         return new ProviderConfig(provider, endpoint, model, apiKey, requireZdr);
     }
 
+    /** Provider/model settings without touching credential storage; safe for UI preflight. */
+    public ProviderConfig getTranscriptionConfigWithoutKey() {
+        return readConfigWithoutKey(TRANS_PROVIDER, TRANS_ENDPOINT, TRANS_MODEL, TRANS_ZDR,
+                Provider.GROQ, true);
+    }
+
     public ProviderConfig getEnhancementConfig() {
         Provider provider = readProvider(ENH_PROVIDER, Provider.OPENROUTER);
         String endpoint = readEndpoint(ENH_ENDPOINT, provider, false);
@@ -54,6 +60,12 @@ public final class AiSettings {
         return new ProviderConfig(provider, endpoint, model, apiKey, requireZdr);
     }
 
+    /** Provider/model settings without touching credential storage; safe for UI preflight. */
+    public ProviderConfig getEnhancementConfigWithoutKey() {
+        return readConfigWithoutKey(ENH_PROVIDER, ENH_ENDPOINT, ENH_MODEL, ENH_ZDR,
+                Provider.OPENROUTER, false);
+    }
+
     public boolean isCloudTranscription() {
         return readProvider(TRANS_PROVIDER, Provider.GROQ) != Provider.LOCAL;
     }
@@ -61,6 +73,33 @@ public final class AiSettings {
     public boolean isEnhancementEnabled() {
         return preferences.getBoolean(ENH_ENABLED, false)
                 && readProvider(ENH_PROVIDER, Provider.OPENROUTER) != Provider.LOCAL;
+    }
+
+    /** Translation capability check contains no key reads and can run on an entry-point UI thread. */
+    public boolean isTranslationSupported() {
+        return CloudClient.supportsTranslation(getTranscriptionConfigWithoutKey());
+    }
+
+    /**
+     * Reads and validates the active cloud credentials. Call this on a worker because key lookup
+     * uses Android Keystore. Returns 0 when ready, otherwise a safe user-facing message resource.
+     */
+    public int validateCloudCredentials() {
+        if (!isCloudTranscription() && !isEnhancementEnabled()) return 0;
+        if (!isCloudConsentGranted()) return R.string.entrypoint_cloud_consent_missing;
+        try {
+            if (isCloudTranscription()) {
+                int error = validateCloudStage(getTranscriptionConfig(), true);
+                if (error != 0) return error;
+            }
+            if (isEnhancementEnabled()) {
+                int error = validateCloudStage(getEnhancementConfig(), false);
+                if (error != 0) return error;
+            }
+            return 0;
+        } catch (RuntimeException e) {
+            return R.string.entrypoint_settings_unavailable;
+        }
     }
 
     public String getEnhancementPrompt() {
@@ -74,24 +113,24 @@ public final class AiSettings {
     /** A short, key-free summary suitable for the app's main settings screen. */
     public String getSummary() {
         try {
-            ProviderConfig transcription = getTranscriptionConfig();
+            ProviderConfig transcription = getTranscriptionConfigWithoutKey();
             String transcriptionSummary;
             if (transcription.provider == Provider.LOCAL) {
                 transcriptionSummary = appContext.getString(R.string.ai_local_transcription_summary);
             } else {
                 transcriptionSummary = appContext.getString(R.string.ai_default_transcription_summary,
                         providerLabel(transcription.provider), transcription.model);
-                if (transcription.apiKey == null || transcription.apiKey.trim().isEmpty()) {
+                if (!secretStore.hasKey(transcription.provider, "transcription", transcription.endpoint)) {
                     transcriptionSummary += " · " + appContext.getString(R.string.ai_key_required_summary);
                 }
             }
 
             String enhancementSummary;
             if (isEnhancementEnabled()) {
-                ProviderConfig enhancement = getEnhancementConfig();
+                ProviderConfig enhancement = getEnhancementConfigWithoutKey();
                 enhancementSummary = appContext.getString(R.string.ai_enhancement_summary,
                         providerLabel(enhancement.provider), enhancement.model);
-                if (enhancement.apiKey == null || enhancement.apiKey.trim().isEmpty()) {
+                if (!secretStore.hasKey(enhancement.provider, "enhancement", enhancement.endpoint)) {
                     enhancementSummary += " · " + appContext.getString(R.string.ai_key_required_summary);
                 }
             } else {
@@ -99,6 +138,8 @@ public final class AiSettings {
             }
             return transcriptionSummary + "\n" + enhancementSummary;
         } catch (RuntimeException e) {
+            return appContext.getString(R.string.ai_key_unavailable_summary);
+        } catch (IOException e) {
             return appContext.getString(R.string.ai_key_unavailable_summary);
         }
     }
@@ -170,6 +211,23 @@ public final class AiSettings {
                 throw new IllegalArgumentException(appContext.getString(R.string.ai_missing_api_key));
             }
         }
+    }
+
+    private int validateCloudStage(ProviderConfig config, boolean transcription) {
+        if (config == null || config.provider == null || config.provider == Provider.LOCAL) return 0;
+        if (!isValidEndpoint(config.provider, config.endpoint, transcription)) {
+            return R.string.ai_endpoint_invalid;
+        }
+        if (safeString(config.model).trim().isEmpty()) return R.string.ai_model_required;
+        if (safeString(config.apiKey).trim().isEmpty()) return R.string.entrypoint_cloud_key_missing;
+        return 0;
+    }
+
+    private ProviderConfig readConfigWithoutKey(String providerKey, String endpointKey, String modelKey,
+                                                String zdrKey, Provider fallback, boolean transcription) {
+        Provider provider = readProvider(providerKey, fallback);
+        return new ProviderConfig(provider, readEndpoint(endpointKey, provider, transcription),
+                readModel(modelKey, provider, transcription), "", preferences.getBoolean(zdrKey, true));
     }
 
     private void persistEnteredKey(ProviderConfig config, String stage) throws IOException {

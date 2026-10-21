@@ -28,12 +28,16 @@ import com.devilved.tonetunner.voice_translation.neural_networks.voice.Recognize
 import com.github.houbb.opencc4j.util.ZhConverterUtil;
 
 import java.util.ArrayList;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 
 public class WhisperRecognitionService extends RecognitionService {
     static final String PREF_AUTO_STOP_AFTER_SILENCE = "recognitionServiceAutoStop";
     public static final String EXTRA_WARNING = "com.devilved.tonetunner.WARNING";
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
+    private final ExecutorService entrypointTasks = Executors.newSingleThreadExecutor();
     private volatile RecognitionRequest activeRequest;
     private long requestSequence;
     private volatile boolean serviceDestroyed;
@@ -48,6 +52,8 @@ public class WhisperRecognitionService extends RecognitionService {
         volatile Whisper whisper;
         volatile boolean cancelled;
         volatile boolean completed;
+        boolean readySent;
+        boolean speechStarted;
 
         RecognitionRequest(long id, Callback callback, String languageCode, boolean simpleChinese,
                            boolean autoStopAfterSilence) {
@@ -86,10 +92,44 @@ public class WhisperRecognitionService extends RecognitionService {
         if (!checkRecordPermission(request)) return;
         if (!allowCloudProcessing(request)) return;
 
+        final AiSettings settings;
+        final boolean cloudWork;
         try {
-            startRequest(request);
+            settings = new AiSettings(this);
+            cloudWork = settings.isCloudTranscription() || settings.isEnhancementEnabled();
         } catch (RuntimeException e) {
             reportError(request, SpeechRecognizer.ERROR_SERVER);
+            return;
+        }
+        if (cloudWork) {
+            try {
+                entrypointTasks.execute(() -> {
+                    int error;
+                    try { error = settings.validateCloudCredentials(); }
+                    catch (RuntimeException e) { error = R.string.entrypoint_settings_unavailable; }
+                    final int validationError = error;
+                    runOnMain(() -> {
+                        if (!isCurrentRequest(request)) return;
+                        if (validationError != 0) {
+                            reportError(request, SpeechRecognizer.ERROR_SERVER);
+                            return;
+                        }
+                        try {
+                            startRequest(request);
+                        } catch (RuntimeException e) {
+                            reportError(request, SpeechRecognizer.ERROR_SERVER);
+                        }
+                    });
+                });
+            } catch (RejectedExecutionException e) {
+                reportError(request, SpeechRecognizer.ERROR_SERVER);
+            }
+        } else {
+            try {
+                startRequest(request);
+            } catch (RuntimeException e) {
+                reportError(request, SpeechRecognizer.ERROR_SERVER);
+            }
         }
     }
 
@@ -130,14 +170,6 @@ public class WhisperRecognitionService extends RecognitionService {
         if (request.autoStopAfterSilence) recorder.initVad();
         recorder.start();
         HapticFeedback.vibrate(this);
-        runOnMain(() -> {
-            if (!isCurrentRequest(request)) return;
-            try {
-                request.callback.beginningOfSpeech();
-            } catch (RemoteException e) {
-                cancelRequest(request);
-            }
-        });
     }
 
     private boolean allowCloudProcessing(RecognitionRequest request) {
@@ -146,17 +178,6 @@ public class WhisperRecognitionService extends RecognitionService {
             boolean cloudWork = settings.isCloudTranscription() || settings.isEnhancementEnabled();
             if (!cloudWork) return true;
             if (!settings.isCloudConsentGranted()) {
-                reportError(request, SpeechRecognizer.ERROR_SERVER);
-                return false;
-            }
-            if (settings.isCloudTranscription()) {
-                if (TextUtils.isEmpty(settings.getTranscriptionConfig().apiKey)) {
-                    reportError(request, SpeechRecognizer.ERROR_SERVER);
-                    return false;
-                }
-            }
-            if (settings.isEnhancementEnabled()
-                    && TextUtils.isEmpty(settings.getEnhancementConfig().apiKey)) {
                 reportError(request, SpeechRecognizer.ERROR_SERVER);
                 return false;
             }
@@ -178,8 +199,19 @@ public class WhisperRecognitionService extends RecognitionService {
     private void onRecorderMessage(RecognitionRequest request, String message) {
         if (!isCurrentRequest(request)) return;
         if (Recorder.MSG_RECORDING.equals(message)) {
+            if (request.readySent) return;
+            request.readySent = true;
             try {
+                request.callback.readyForSpeech(new Bundle());
                 request.callback.rmsChanged(10);
+            } catch (RemoteException e) {
+                cancelRequest(request);
+            }
+        } else if (Recorder.MSG_SPEECH_STARTED.equals(message)) {
+            if (!request.readySent || request.speechStarted) return;
+            request.speechStarted = true;
+            try {
+                request.callback.beginningOfSpeech();
             } catch (RemoteException e) {
                 cancelRequest(request);
             }
@@ -263,7 +295,17 @@ public class WhisperRecognitionService extends RecognitionService {
         RecognitionRequest request = requestForCallback(callback);
         if (request == null) return;
         Recorder recorder = request.recorder;
-        if (recorder != null && recorder.isInProgress()) recorder.stop();
+        if (recorder == null) {
+            // A caller can stop before off-main credential validation finishes. Do not open the
+            // microphone afterward for a request that has already ended.
+            reportError(request, ERROR_CLIENT);
+        } else if (recorder.isInProgress()) {
+            try {
+                entrypointTasks.execute(recorder::stop);
+            } catch (RejectedExecutionException ignored) {
+                // Service teardown releases the recorder without waiting on the caller thread.
+            }
+        }
     }
 
     @Override
@@ -298,7 +340,7 @@ public class WhisperRecognitionService extends RecognitionService {
         if (request == null || request.cancelled || request.completed) return;
         request.cancelled = true;
         if (activeRequest == request) activeRequest = null;
-        releaseRecorder(request, true);
+        releaseRecorder(request);
         unloadWhisper(request);
     }
 
@@ -306,16 +348,15 @@ public class WhisperRecognitionService extends RecognitionService {
         if (request == null || request.completed) return;
         request.completed = true;
         if (activeRequest == request) activeRequest = null;
-        releaseRecorder(request, true);
+        releaseRecorder(request);
         unloadWhisper(request);
     }
 
-    private void releaseRecorder(RecognitionRequest request, boolean stopFirst) {
+    private void releaseRecorder(RecognitionRequest request) {
         Recorder recorder = request.recorder;
         request.recorder = null;
         if (recorder == null) return;
         recorder.setListener(null);
-        if (stopFirst && recorder.isInProgress()) recorder.stop();
         recorder.release();
     }
 
@@ -338,6 +379,7 @@ public class WhisperRecognitionService extends RecognitionService {
         serviceDestroyed = true;
         RecognitionRequest request = activeRequest;
         if (request != null) cancelRequest(request);
+        entrypointTasks.shutdownNow();
         super.onDestroy();
     }
 }

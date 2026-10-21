@@ -36,7 +36,10 @@
     <string name="setup_wrong_zip">This ZIP file does not contain the Whisper model files.</string>
     <string name="recovery_title">Saved dictations</string>
     <string name="recovery_empty">There are no failed dictations saved for recovery.</string>
-    <string name="recovery_entry">Saved dictation %1$d (%2$d seconds)</string>
+    <string name="recovery_entry">Saved dictation %1$d (%2$s)</string>
+    <string name="recovery_duration_subsecond">&lt;1 second</string>
+    <string name="recovery_duration_seconds">%1$.1f seconds</string>
+    <string name="recovery_storage_summary">%1$d saved dictations · %2$.2f MB total audio</string>
     <string name="recovery_disclosure">Audio and completed text stay privately on this phone until you retry successfully or discard them. Retry uses your current AI settings and may incur API charges. Completed windows are not resent. The failed request may already have been billed.</string>
     <string name="recovery_no_text">No completed text is available yet. The audio is saved.</string>
     <string name="recovery_retry">Retry remaining audio</string>

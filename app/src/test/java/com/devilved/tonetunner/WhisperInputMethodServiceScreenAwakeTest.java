@@ -67,6 +67,11 @@ public class WhisperInputMethodServiceScreenAwakeTest {
             assertFalse(fixture.inputView.getKeepScreenOn());
             NoMicrophoneRecorderShadow recorder = startManualRecording(fixture);
 
+            recorder.emit(Recorder.MSG_SPEECH_STARTED);
+            idleMainLooper();
+            assertTrue("VAD speech-start status must not terminate dictation or release the screen",
+                    fixture.inputView.getKeepScreenOn());
+
             recorder.emit(Recorder.MSG_RECORDING);
             idleMainLooper();
             assertTrue(fixture.inputView.getKeepScreenOn());

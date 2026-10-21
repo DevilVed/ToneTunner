@@ -16,6 +16,7 @@ import android.view.View;
 import android.view.WindowManager;
 import android.widget.ImageButton;
 import android.widget.ProgressBar;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
@@ -28,12 +29,14 @@ import com.devilved.tonetunner.asr.Whisper;
 import com.devilved.tonetunner.asr.WhisperResult;
 import com.devilved.tonetunner.cloud.AiSettings;
 import com.devilved.tonetunner.cloud.CloudClient;
-import com.devilved.tonetunner.cloud.ProviderConfig;
 import com.devilved.tonetunner.utils.HapticFeedback;
 import com.github.houbb.opencc4j.util.ZhConverterUtil;
 
 import java.util.ArrayList;
 import java.util.Locale;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 
 public class WhisperRecognizeActivity extends AppCompatActivity {
     private static final int REQUEST_RECORD_AUDIO = 11;
@@ -42,6 +45,7 @@ public class WhisperRecognizeActivity extends AppCompatActivity {
     private ImageButton btnCancel;
     private ImageButton btnModeAuto;
     private ProgressBar processingBar;
+    private TextView tvStatus;
     private Recorder mRecorder;
     private Whisper mWhisper;
     private SharedPreferences sp;
@@ -50,7 +54,9 @@ public class WhisperRecognizeActivity extends AppCompatActivity {
     private boolean sessionActive;
     private boolean recording;
     private final RecordingGesture recordingGesture = new RecordingGesture();
+    private final ExecutorService entrypointTasks = Executors.newSingleThreadExecutor();
     private boolean processing;
+    private boolean validating;
     private long sessionGeneration;
     private String langCode = "auto";
 
@@ -74,6 +80,7 @@ public class WhisperRecognizeActivity extends AppCompatActivity {
         btnRecord = findViewById(R.id.btnRecord);
         btnModeAuto = findViewById(R.id.btnModeAuto);
         processingBar = findViewById(R.id.processing_bar);
+        tvStatus = findViewById(R.id.tv_status);
 
         modeAuto = sp.getBoolean("imeModeAuto", false);
         btnModeAuto.setImageResource(modeAuto ? R.drawable.ic_auto_on_36dp : R.drawable.ic_auto_off_36dp);
@@ -123,7 +130,7 @@ public class WhisperRecognizeActivity extends AppCompatActivity {
     }
 
     private boolean beginRecording(boolean automatic) {
-        if (recording || processing) return false;
+        if (recording || processing || validating) return false;
         if (!allowCloudProcessing()) return false;
 
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
@@ -136,6 +143,51 @@ public class WhisperRecognizeActivity extends AppCompatActivity {
 
         long token = ++sessionGeneration;
         sessionActive = true;
+        recording = false;
+        processing = false;
+        final AiSettings settings;
+        final boolean cloud;
+        try {
+            settings = new AiSettings(this);
+            cloud = settings.isCloudTranscription() || settings.isEnhancementEnabled();
+        } catch (RuntimeException e) {
+            showFailure(token, getString(R.string.entrypoint_settings_unavailable));
+            return false;
+        }
+        if (cloud) {
+            validating = true;
+            setStatus(R.string.entrypoint_validating);
+            processingBar.setProgress(0);
+            processingBar.setIndeterminate(true);
+            updateRecordingScreen();
+            btnRecord.setEnabled(false);
+            try {
+                entrypointTasks.execute(() -> {
+                    int error;
+                    try { error = settings.validateCloudCredentials(); }
+                    catch (RuntimeException e) { error = R.string.entrypoint_settings_unavailable; }
+                    final int validationError = error;
+                    runOnUiThread(() -> {
+                        if (!isCurrentSession(token) || !validating) return;
+                        validating = false;
+                        btnRecord.setEnabled(true);
+                        updateRecordingScreen();
+                        if (validationError != 0) showFailure(token, getString(validationError));
+                        else startCapture(token);
+                    });
+                });
+            } catch (RejectedExecutionException e) {
+                validating = false;
+                showFailure(token, getString(R.string.entrypoint_settings_unavailable));
+            }
+            return true;
+        }
+        return startCapture(token);
+    }
+
+    private boolean startCapture(long token) {
+        if (!isCurrentSession(token)) return false;
+        validating = false;
         recording = true;
         processing = false;
         updateRecordingScreen();
@@ -145,6 +197,7 @@ public class WhisperRecognizeActivity extends AppCompatActivity {
             if (modeAuto) mRecorder.initVad();
             HapticFeedback.vibrate(this);
             mRecorder.start();
+            setStatus(R.string.entrypoint_recording);
             btnRecord.setContentDescription(getString(R.string.entrypoint_stop_recording));
             processingBar.setProgress(0);
             processingBar.setIndeterminate(true);
@@ -166,24 +219,6 @@ public class WhisperRecognizeActivity extends AppCompatActivity {
                 finish();
                 return false;
             }
-            if (settings.isCloudTranscription()) {
-                ProviderConfig config = settings.getTranscriptionConfig();
-                if (config == null || TextUtils.isEmpty(config.apiKey)) {
-                    Toast.makeText(this, R.string.entrypoint_cloud_key_missing, Toast.LENGTH_LONG).show();
-                    setResult(RESULT_CANCELED, null);
-                    finish();
-                    return false;
-                }
-            }
-            if (settings.isEnhancementEnabled()) {
-                ProviderConfig config = settings.getEnhancementConfig();
-                if (config == null || TextUtils.isEmpty(config.apiKey)) {
-                    Toast.makeText(this, R.string.entrypoint_cloud_key_missing, Toast.LENGTH_LONG).show();
-                    setResult(RESULT_CANCELED, null);
-                    finish();
-                    return false;
-                }
-            }
             return true;
         } catch (RuntimeException e) {
             Toast.makeText(this, R.string.entrypoint_settings_unavailable, Toast.LENGTH_LONG).show();
@@ -201,14 +236,21 @@ public class WhisperRecognizeActivity extends AppCompatActivity {
             @Override
             public void onUpdateReceived(String message) {
                 if (!isCurrentSession(token)) return;
-                if (Whisper.MSG_PROCESSING.equals(message)) {
+                if (Whisper.MSG_PREPARING.equals(message)) {
                     recording = false;
                     processing = true;
+                    setStatus(R.string.entrypoint_preparing);
+                    processingBar.setIndeterminate(true);
+                } else if (Whisper.MSG_PROCESSING.equals(message)) {
+                    recording = false;
+                    processing = true;
+                    setStatus(R.string.entrypoint_transcribing);
                     processingBar.setProgress(0);
                     processingBar.setIndeterminate(true);
                 } else if (Whisper.MSG_ENHANCING.equals(message)) {
                     recording = false;
                     processing = true;
+                    setStatus(R.string.entrypoint_enhancing);
                     processingBar.setProgress(0);
                     processingBar.setIndeterminate(true);
                 }
@@ -237,7 +279,7 @@ public class WhisperRecognizeActivity extends AppCompatActivity {
     }
 
     private void createRecorder(long token) {
-        releaseRecorder(false);
+        releaseRecorder();
         Recorder recorder = new Recorder(this);
         mRecorder = recorder;
         recorder.setListener(message -> runOnUiThread(() -> onRecorderMessage(token, message)));
@@ -245,7 +287,9 @@ public class WhisperRecognizeActivity extends AppCompatActivity {
 
     private void onRecorderMessage(long token, String message) {
         if (!isCurrentSession(token)) return;
-        if (Recorder.MSG_RECORDING_DONE.equals(message)) {
+        if (Recorder.MSG_SPEECH_STARTED.equals(message)) {
+            return;
+        } else if (Recorder.MSG_RECORDING_DONE.equals(message)) {
             HapticFeedback.vibrate(this);
             recording = false;
             processing = true;
@@ -253,6 +297,7 @@ public class WhisperRecognizeActivity extends AppCompatActivity {
             startTranscription(token);
         } else if (Recorder.MSG_RECORDING.equals(message)) {
             updateRecordingScreen();
+            setStatus(R.string.entrypoint_recording);
             btnRecord.setBackgroundResource(R.drawable.rounded_button_background_pressed);
             processingBar.setIndeterminate(true);
         } else {
@@ -268,12 +313,17 @@ public class WhisperRecognizeActivity extends AppCompatActivity {
         recording = false;
         processing = true;
         updateRecordingScreen();
+        setStatus(R.string.entrypoint_transcribing);
         btnRecord.setContentDescription(getString(R.string.record_button));
         btnRecord.setEnabled(false);
         processingBar.setProgress(0);
         processingBar.setIndeterminate(true);
-        mRecorder.stop();
-        resetRecordButton();
+        Recorder stopping = mRecorder;
+        try {
+            entrypointTasks.execute(stopping::stop);
+        } catch (RejectedExecutionException ignored) {
+            // Teardown releases the recorder and suppresses stale callbacks.
+        }
     }
 
     private void startTranscription(long token) {
@@ -326,8 +376,9 @@ public class WhisperRecognizeActivity extends AppCompatActivity {
         sessionActive = false;
         recording = false;
         processing = false;
+        validating = false;
         updateRecordingScreen();
-        releaseRecorder(true);
+        releaseRecorder();
         deinitModel();
         finish();
         return true;
@@ -342,10 +393,12 @@ public class WhisperRecognizeActivity extends AppCompatActivity {
         sessionActive = false;
         recording = false;
         processing = false;
+        validating = false;
+        setStatusText(safeMessage);
         updateRecordingScreen();
         processingBar.setIndeterminate(false);
         processingBar.setProgress(0);
-        releaseRecorder(true);
+        releaseRecorder();
         deinitModel();
         Toast.makeText(this, safeMessage, Toast.LENGTH_LONG).show();
         btnRecord.setEnabled(true);
@@ -367,22 +420,22 @@ public class WhisperRecognizeActivity extends AppCompatActivity {
         sessionActive = false;
         recording = false;
         processing = false;
+        validating = false;
         updateRecordingScreen();
         if (processingBar != null) {
             processingBar.setIndeterminate(false);
             processingBar.setProgress(0);
         }
-        releaseRecorder(true);
+        releaseRecorder();
         deinitModel();
         resetRecordButton();
     }
 
-    private void releaseRecorder(boolean stopFirst) {
+    private void releaseRecorder() {
         Recorder recorder = mRecorder;
         mRecorder = null;
         if (recorder == null) return;
         recorder.setListener(null);
-        if (stopFirst && recorder.isInProgress()) recorder.stop();
         recorder.release();
     }
 
@@ -403,8 +456,20 @@ public class WhisperRecognizeActivity extends AppCompatActivity {
         }
     }
 
+    private void setStatus(int resource) {
+        if (tvStatus == null) return;
+        tvStatus.setText(resource);
+        tvStatus.setVisibility(View.VISIBLE);
+    }
+
+    private void setStatusText(String text) {
+        if (tvStatus == null) return;
+        tvStatus.setText(text);
+        tvStatus.setVisibility(View.VISIBLE);
+    }
+
     private void updateRecordingScreen() {
-        if (recording || processing) getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        if (recording || processing || validating) getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         else getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
     }
 
@@ -417,6 +482,7 @@ public class WhisperRecognizeActivity extends AppCompatActivity {
     @Override
     protected void onDestroy() {
         cancelCurrentSession();
+        entrypointTasks.shutdownNow();
         super.onDestroy();
     }
 

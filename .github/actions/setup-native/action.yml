@@ -11,7 +11,9 @@ runs:
       uses: actions/cache@v4
       with:
         path: native-dependencies/onnxruntime-extensions-android.aar
-        key: aligned-extensions-${{ runner.os }}-${{ hashFiles('tools/native/*.py', '.github/actions/setup-native/action.yml') }}
+        # Test and source-preparation edits do not change the compiled JNI output.
+        # Keep the key scoped to the pinned native build implementation and NDK.
+        key: aligned-extensions-${{ runner.os }}-ndk-27.2.12479018-${{ hashFiles('tools/native/rebuild_extensions.py') }}
     - name: Check out pinned upstream extensions sources
       if: steps.cache.outputs.cache-hit != 'true'
       uses: actions/checkout@v4
@@ -29,7 +31,7 @@ runs:
       if: steps.cache.outputs.cache-hit != 'true'
       shell: bash
       run: |
-        python3 tools/native/rebuild_extensions.py --source native-source \
+        python3 tools/native/prepare_extensions.py --source native-source \
           --sdk "$ANDROID_HOME" --ndk "$ANDROID_HOME/ndk/27.2.12479018" \
           --output native-dependencies/onnxruntime-extensions-android.aar
     - name: Validate rebuilt or cached native libraries

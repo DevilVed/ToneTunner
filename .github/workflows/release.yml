@@ -81,7 +81,7 @@ jobs:
       - name: Point the build at the runner's Android SDK
         run: |
           echo "sdk.dir=$ANDROID_HOME" > local.properties
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;27.2.12479018"
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;27.2.12479018" "build-tools;35.0.0"
 
       - name: Prepare aligned native extensions
         uses: ./.github/actions/setup-native
@@ -98,7 +98,7 @@ jobs:
           RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
           RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
         run: |
-          build_tools="$ANDROID_HOME/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1)"
+          build_tools="$ANDROID_HOME/build-tools/35.0.0"
           keystore="$RUNNER_TEMP/release.keystore"
           echo "$RELEASE_KEYSTORE_B64" | base64 -d > "$keystore"
           mkdir -p dist
@@ -106,7 +106,8 @@ jobs:
           "$build_tools/apksigner" sign --ks "$keystore" --ks-pass env:RELEASE_KEYSTORE_PASSWORD \
             --ks-key-alias "$RELEASE_KEY_ALIAS" --out "dist/ToneTunner-$TAG.apk" "$RUNNER_TEMP/aligned.apk"
           "$build_tools/apksigner" verify --print-certs "dist/ToneTunner-$TAG.apk"
-          python3 tools/native/check_alignment.py --apk "dist/ToneTunner-$TAG.apk"
+          python3 tools/native/check_alignment.py --apk "dist/ToneTunner-$TAG.apk" \
+            --require-abis armeabi-v7a arm64-v8a x86 x86_64
           rm -f "$keystore"
           (cd dist && sha256sum "ToneTunner-$TAG.apk" > "ToneTunner-$TAG.apk.sha256")
 

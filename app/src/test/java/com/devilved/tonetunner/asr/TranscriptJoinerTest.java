@@ -93,6 +93,31 @@ public class TranscriptJoinerTest {
                 "ขอบเขตซ้ำและต่อไป", "ข้อความไทยต่อเนื่องสำหรับทดสอบขอบเขตซ้ำและต่อไป");
     }
 
+    @Test public void overlappingHardCutWindowsRemoveShortChineseOverlap() {
+        assertOverlappingHardCut("我想去北京", "北京站", "我想去北京站");
+    }
+
+    @Test public void overlappingHardCutWindowsRemoveShortJapaneseOverlap() {
+        assertOverlappingHardCut("今日は東京で", "東京で会います", "今日は東京で会います");
+    }
+
+    @Test public void overlappingHardCutWindowsMatchChineseAfterClosingPunctuation() {
+        assertOverlappingHardCut("今天在北京。", "北京下雨了", "今天在北京。下雨了");
+    }
+
+    @Test public void overlappingHardCutWindowsKeepOnlyOneRepeatedJapaneseFullStop() {
+        assertOverlappingHardCut("次は午後二時です。", "二時です。会議があります",
+                "次は午後二時です。会議があります");
+    }
+
+    @Test public void overlappingHardCutWindowsDoNotAssumeASingleCjkCharacterIsOverlap() {
+        assertOverlappingHardCut("我", "我很好", "我我很好");
+    }
+
+    @Test public void shortUnspacedWindowsWithoutAnExactBoundaryMatchArePreserved() {
+        assertOverlappingHardCut("我想去", "北京站", "我想去北京站");
+    }
+
     @Test public void overlappingAudioWindowsKeepShortTwoWordMatches() {
         StringBuilder result = new StringBuilder("We are");
         TranscriptJoiner.appendOverlapping(result, "we are ready");
