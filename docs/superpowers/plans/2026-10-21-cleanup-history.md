@@ -6,7 +6,7 @@
 
 **Architecture:** Separate prompt composition, literal dictionary corrections, durable text history, and existing audio recovery. Save recognition progress before enhancement and the final result before delivery.
 
-**Tech stack:** Java 11, Android SDK 35 / minSdk 28, SQLite, existing OkHttp and Android Keystore, Gradle 8.14.5 in Actions.
+**Tech stack:** Java 11, Android SDK 35 / minSdk 28, SQLite, existing OkHttp and Android Keystore. Current beta CI uses Gradle 9.7.1, AGP 9.4.1, Build Tools 36.0.0 and JDK 17.
 
 **Spec:** [Engineering study](../../2026-10-21-voiceink-cleanup-history-engineering.md).
 
@@ -98,3 +98,9 @@ The first fully verified application/test revision `f7b408e` passed Android buil
 - [x] Persist history permission during archival/checkpoints and honor it on explicit retries.
 - [x] Reproduce the two-store ownership regression and serialize policy restriction with audio claims. Actions 39588803707 passed 310 tests with only that focused failure.
 - [x] Remove the unused vocabulary argument, verify the cloud gates and resolve the remaining review threads. All sixteen inline threads are resolved.
+
+## Updated beta toolchain integration
+
+- [x] Merge beta base `154550c` (toolchain-hardening PR #137) into the feature branch; merge commit `0ad31b7` has no application-logic changes.
+- [x] Update current build documentation and the shared guide's AGP source path.
+- [x] Verify the dependency-security baseline, JVM/lint/static checks, runtime matrix and APK on the updated base; record its tested revision and artifact. Merged revision `0ad31b7` passed Android build 39635929624 (attempt 2) and Code checks 39635929617 (attempt 2), including all 311 JVM tests and all four runtime jobs. Section 14 of the engineering study records the current APK and infrastructure reruns. The final guide/README/record/plan update changes documentation only.

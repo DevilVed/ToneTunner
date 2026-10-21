@@ -38,7 +38,7 @@ Removing them violates GPLv3/Apache-2.0 and risks a DMCA takedown of the reposit
 - Run Android builds and executable tests in GitHub Actions:
   - `.github/workflows/android-build.yml`: debug APK on push/PR, or `gh workflow run android-build.yml -f ref=<branch>`.
   - `.github/workflows/release.yml`: push tag `v<versionName>` to publish a signed APK to GitHub Releases; a manual run is a signed dry run.
-- The repo has no `gradlew` script. Read the current Gradle version from `gradle/wrapper/gradle-wrapper.properties`, the Android Gradle Plugin version from `settings.gradle`, and the JDK configuration from the workflows. Keep workflow toolchain pins synchronized with those files when upgrading.
+- The repo has no `gradlew` script. Read the current Gradle version from `gradle/wrapper/gradle-wrapper.properties`, the Android Gradle Plugin version from the root `build.gradle`, and the JDK configuration from the workflows. Keep workflow toolchain pins synchronized with those files when upgrading.
 - Never commit keystores, passwords or `local.properties`. Signing keys live only in GitHub secrets and in the maintainer's private backup.
 - Before every release, bump `versionCode` and `versionName` in `app/build.gradle`.
 

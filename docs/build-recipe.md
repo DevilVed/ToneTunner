@@ -4,7 +4,7 @@ ToneTunner's application build needs the locally prepared ONNX Runtime Extension
 
 ## Prepare native dependencies
 
-Install Python 3, Git, JDK 17, Gradle 8.14.5, Android SDK platform 35, Android build-tools 35.0.0, and Android NDK `27.2.12479018`. The ONNX Runtime Extensions native build also requires the upstream CMake and Python dependencies. Set `ANDROID_HOME` to the SDK root, then from the repository root run:
+Install Python 3, Git, JDK 17, Gradle 9.7.1, Android SDK platform 35, Android build-tools 36.0.0, and Android NDK `27.2.12479018`. The Android Gradle Plugin is pinned to 9.4.1 in the root `build.gradle`. The ONNX Runtime Extensions native build also requires the upstream CMake and Python dependencies. Set `ANDROID_HOME` to the SDK root, then from the repository root run:
 
 ```sh
 python3 tools/native/prepare_extensions.py \
@@ -28,10 +28,10 @@ The command rejects any source revision or base-AAR checksum that differs from t
 
 ## Assemble and check APKs
 
-The Gradle app build checks for the ignored AAR during configuration. If it is missing, the error prints the preparation command and documentation path. With the Android SDK and Gradle available, build an APK with:
+The Gradle app build checks for the ignored AAR during configuration. If it is missing, the error prints the preparation command and documentation path. With the Android SDK and Gradle available, verify the build-tool dependency baseline, unit tests and lint before building an APK:
 
 ```sh
-gradle assembleDebug
+gradle verifySecurityDependencies testDebugUnitTest lintDebug assembleDebug
 ```
 
 The unsigned release build used for distribution verification is:
@@ -43,12 +43,12 @@ gradle assembleRelease
 The release variant includes the four ABIs already present in its native dependencies. For an APK, run the pinned Android build-tools `zipalign` check and the project's native alignment checker:
 
 ```sh
-"$ANDROID_HOME/build-tools/35.0.0/zipalign" -c -P 16 4 app/build/outputs/apk/release/app-release-unsigned.apk
+"$ANDROID_HOME/build-tools/36.0.0/zipalign" -c -P 16 4 app/build/outputs/apk/release/app-release-unsigned.apk
 python3 tools/native/check_alignment.py --apk app/build/outputs/apk/release/app-release-unsigned.apk \
   --require-abis armeabi-v7a arm64-v8a x86 x86_64
 ```
 
-The CI workflow runs JVM verification and the API 28, 34, and 35 Android runtime jobs before it assembles the APK. In its final gated build job, it assembles the requested APK and also the unsigned release variant when the requested artifact is debug, then checks alignment on every produced APK. The signed `release.yml` workflow remains a separate release process; this build check does not call it or publish an artifact as a release.
+The CI workflow verifies the resolved build-tool dependency baseline, JVM tests and lint, then runs API 28, 34, 35 with 16 KB pages, and 36 Android runtime jobs before it assembles the APK. In its final gated build job, it assembles the requested APK and also the unsigned release variant when the requested artifact is debug, then checks alignment on every produced APK. The signed `release.yml` workflow remains a separate release process; this build check does not call it or publish an artifact as a release.
 
 ## F-Droid status
 
