@@ -12,11 +12,8 @@ import java.util.Map;
 public final class DictionaryRules {
     private DictionaryRules() { }
 
-    /**
-     * Applies only explicit corrections in one pass. Vocabulary remains a contextual model hint and never
-     * rewrites transcript text; the parameter stays for compatibility with existing callers.
-     */
-    public static String apply(String text, String vocabulary, String replacements) {
+    /** Applies only explicit literal corrections in one pass; vocabulary remains contextual model guidance. */
+    public static String apply(String text, String replacements) {
         if (text == null || text.isEmpty()) {
             return text;
         }

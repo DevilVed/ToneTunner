@@ -64,7 +64,11 @@ public class WhisperFailureRecoveryTest {
         FailingEnhancement.calls = 0;
         deleteTree(new File(context.getNoBackupFilesDir(), "dictation-recovery"));
         deleteTree(new File(context.getNoBackupFilesDir(), "transcript-history"));
-        whisper = new Whisper(context, ignored -> new Whisper.LocalTranscriber() {
+        whisper = createWhisper();
+    }
+
+    private Whisper createWhisper() {
+        Whisper created = new Whisper(context, ignored -> new Whisper.LocalTranscriber() {
             public CloudClient.Transcript transcribe(byte[] pcm, String language, Recognizer.Action action)
                     throws IOException, InterruptedException {
                 languages.add(language);
@@ -83,7 +87,7 @@ public class WhisperFailureRecoveryTest {
             }
             public void close() { }
         });
-        whisper.setListener(new Whisper.WhisperListener() {
+        created.setListener(new Whisper.WhisperListener() {
             public void onUpdateReceived(String message) {
                 if (throwingProgress) throw new IllegalStateException("Synthetic progress destination failure");
             }
@@ -101,6 +105,7 @@ public class WhisperFailureRecoveryTest {
                 if (throwingErrors) throw new IllegalStateException("Synthetic error destination failure");
             }
         });
+        return created;
     }
 
     @After public void tearDown() {
@@ -546,6 +551,39 @@ public class WhisperFailureRecoveryTest {
         try (TranscriptHistoryStore history = new TranscriptHistoryStore(context)) {
             assertTrue(history.list(10, 0).isEmpty());
         }
+    }
+
+    @Test public void privateEditorHistoryOptOutSurvivesRejectedDeliveryAndNewFacadeRetry() throws Exception {
+        whisper.setHistoryEnabled(false);
+        acceptDelivery = false;
+        startAndDrain(recording(1, 2048));
+        assertNull("the simulated closed editor rejects the result", result);
+        RecoveryStore store = new RecoveryStore(context);
+        RecoveryStore.Entry saved = store.list().get(0);
+        assertEquals(rawText, saved.transcript);
+        assertEquals(32_000L, saved.offset);
+
+        File metadata = new File(context.getNoBackupFilesDir(),
+                "dictation-recovery/" + saved.id + "/entry.json");
+        org.json.JSONObject persisted = new org.json.JSONObject(
+                new String(Files.readAllBytes(metadata.toPath()), java.nio.charset.StandardCharsets.UTF_8));
+
+        int recognizedCalls = calls;
+        whisper.unloadModel();
+        whisper = createWhisper(); // A new facade defaults to history enabled.
+        acceptDelivery = true;
+        whisper.retrySaved(saved.id);
+        drainWorker();
+        assertNotNull("the retry still delivers recognized text", result);
+        assertEquals(rawText, result.getResult());
+        assertEquals("a completed private recording must not be transcribed again", recognizedCalls, calls);
+        assertTrue(store.list().isEmpty());
+        try (TranscriptHistoryStore history = new TranscriptHistoryStore(context)) {
+            assertTrue("retry must honor the original private-editor opt-out", history.list(10, 0).isEmpty());
+        }
+        assertTrue("recovery metadata must record the original private-editor history choice",
+                persisted.has("historyEnabled"));
+        assertFalse(persisted.optBoolean("historyEnabled", true));
     }
 
     private PcmRecording recording(int seconds, int amplitude) throws Exception {

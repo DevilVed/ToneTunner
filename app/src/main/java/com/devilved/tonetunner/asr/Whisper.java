@@ -282,7 +282,7 @@ public class Whisper {
             engine = null;
             String rawText = transcript.toString();
             if (rawText.trim().isEmpty()) throw new CloudClient.NoSpeechException();
-            String text = DictionaryRules.apply(rawText, vocabulary, replacements);
+            String text = DictionaryRules.apply(rawText, replacements);
             String warning = input.getCaptureWarning();
             if (enhance) {
                 update(token, MSG_ENHANCING);

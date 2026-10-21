@@ -209,6 +209,12 @@ public class RecoveryStoreTest {
         RecoveryStore.Entry reopened = reopenedStore.get(saved.id);
         assertNotNull(reopened);
         assertEquals("earlier words", reopened.transcript);
+        File fallbackMetadata = new File(fallback, saved.id + "/entry.json");
+        org.json.JSONObject savedMetadata = new org.json.JSONObject(
+                new String(Files.readAllBytes(fallbackMetadata.toPath()), StandardCharsets.UTF_8));
+        assertTrue("fallback recovery metadata must record the conservative history choice",
+                savedMetadata.has("historyEnabled"));
+        assertFalse(savedMetadata.optBoolean("historyEnabled", true));
         try (PcmRecording reader = reopenedStore.open(reopened)) {
             assertArrayEquals(new byte[]{22, 0, 33, 0}, reader.nextChunk());
         }
@@ -252,6 +258,13 @@ public class RecoveryStoreTest {
         assertEquals(0L, imported.offset);
         assertFalse(imported.translate);
         assertFalse(orphan.exists());
+        File importedMetadata = new File(noBackupDirectory,
+                "dictation-recovery/" + imported.id + "/entry.json");
+        org.json.JSONObject importedJson = new org.json.JSONObject(
+                new String(Files.readAllBytes(importedMetadata.toPath()), StandardCharsets.UTF_8));
+        assertTrue("orphan-imported audio must carry an explicit privacy-safe history policy",
+                importedJson.has("historyEnabled"));
+        assertFalse(importedJson.optBoolean("historyEnabled", true));
         try (PcmRecording reader = repairedStore.open(imported)) {
             assertArrayEquals(audio, reader.nextChunk());
         }
@@ -316,6 +329,58 @@ public class RecoveryStoreTest {
         assertEquals(boundary.id, nextWindow.id);
         assertFalse("a quiet boundary must disable hard-cut deduplication", nextWindow.overlap);
         assertFalse(reopenedStore.get(boundary.id).overlap);
+    }
+
+    @Test public void legacyMetadataWithoutHistoryPolicyUpgradesToPrivacySafeDefaultOnCheckpoint() throws Exception {
+        RecoveryStore store = new RecoveryStore(context);
+        RecoveryStore.Entry saved;
+        try (PcmRecording source = recording("legacy-history-policy", new byte[]{1, 0, 2, 0, 3, 0, 4, 0})) {
+            saved = store.save(source, 2, "completed prefix", "auto", "en", false, null);
+        }
+
+        File metadata = new File(noBackupDirectory,
+                "dictation-recovery/" + saved.id + "/entry.json");
+        org.json.JSONObject legacy = new org.json.JSONObject(
+                new String(Files.readAllBytes(metadata.toPath()), StandardCharsets.UTF_8));
+        legacy.remove("historyEnabled");
+        Files.write(metadata.toPath(), legacy.toString().getBytes(StandardCharsets.UTF_8));
+
+        try (PcmRecording retry = store.open(store.get(saved.id))) {
+            store.save(retry, 4, "completed prefix and retry", "auto", "en", false, saved.id);
+        }
+
+        org.json.JSONObject upgraded = new org.json.JSONObject(
+                new String(Files.readAllBytes(metadata.toPath()), StandardCharsets.UTF_8));
+        assertTrue("checkpointing legacy recovery must persist an explicit privacy-safe policy",
+                upgraded.has("historyEnabled"));
+        assertFalse(upgraded.optBoolean("historyEnabled", true));
+    }
+
+    @Test public void stringTrueHistoryPolicyIsRejectedAndRewrittenAsBooleanFalse() throws Exception {
+        RecoveryStore store = new RecoveryStore(context);
+        RecoveryStore.Entry saved;
+        try (PcmRecording source = recording("malformed-history-policy", new byte[]{1, 0, 2, 0, 3, 0, 4, 0})) {
+            saved = store.save(source, 2, "completed prefix", "auto", "en", false, null);
+        }
+
+        File metadata = new File(noBackupDirectory,
+                "dictation-recovery/" + saved.id + "/entry.json");
+        org.json.JSONObject malformed = new org.json.JSONObject(
+                new String(Files.readAllBytes(metadata.toPath()), StandardCharsets.UTF_8));
+        malformed.put("historyEnabled", "true");
+        Files.write(metadata.toPath(), malformed.toString().getBytes(StandardCharsets.UTF_8));
+
+        try (PcmRecording retry = store.open(store.get(saved.id))) {
+            store.save(retry, 4, "completed prefix and retry", "auto", "en", false, saved.id);
+        }
+
+        org.json.JSONObject upgraded = new org.json.JSONObject(
+                new String(Files.readAllBytes(metadata.toPath()), StandardCharsets.UTF_8));
+        Object historyPolicy = upgraded.opt("historyEnabled");
+        assertTrue("checkpointing must replace malformed policy data with a JSON boolean",
+                historyPolicy instanceof Boolean);
+        assertEquals("string values must not grant permission to persist private text",
+                Boolean.FALSE, historyPolicy);
     }
 
     @Test public void invalidRetryCheckpointKeepsTheExistingIdMetadataAndAudio() throws Exception {

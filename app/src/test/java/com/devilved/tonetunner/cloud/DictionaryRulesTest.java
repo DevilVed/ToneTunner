@@ -18,14 +18,14 @@ public class DictionaryRulesTest {
                 + "teh => the\n"
                 + "the => THE";
 
-        assertEquals("NYC and N. the, then THE.", apply(text, "", rules));
+        assertEquals("NYC and N. the, then THE.", apply(text, rules));
     }
 
     @Test
     public void combiningMarksAreWordCharactersAtReplacementBoundaries() throws Exception {
         String text = "Ann\u0301ette met ANN.";
 
-        assertEquals("Ann\u0301ette met Dr. Ann.", apply(text, "", "Ann => Dr. Ann"));
+        assertEquals("Ann\u0301ette met Dr. Ann.", apply(text, "Ann => Dr. Ann"));
     }
 
     @Test
@@ -33,32 +33,29 @@ public class DictionaryRulesTest {
         String text = "The key is $x and path C:\\tmp.";
         String rules = "$x => $cash\nC:\\tmp => C:\\safe";
 
-        assertEquals("The key is $cash and path C:\\safe.", apply(text, "", rules));
+        assertEquals("The key is $cash and path C:\\safe.", apply(text, rules));
     }
 
     @Test
-    public void vocabularyDoesNotRewriteExistingTranscriptSpelling() throws Exception {
+    public void textWithoutExplicitRulesKeepsItsOriginalSpelling() throws Exception {
         String text = "Please ask DEVILVED and tonetunner, not tonetunnerish.";
-        String vocabulary = " DevilVed, ToneTunner\nDEVILVED, ToneTunner ";
 
-        assertEquals(text, apply(text, vocabulary, ""));
+        assertEquals(text, apply(text, ""));
     }
 
     @Test
-    public void commonWordsInVocabularyStayLowercaseAndExplicitCorrectionsStillApply() throws Exception {
+    public void explicitCorrectionsWorkAlongsideOrdinaryWords() throws Exception {
         String text = "I will go if you may use tone tuner.";
-        String vocabulary = "Will, May, Go, ToneTunner";
         String replacements = "tone tuner => ToneTunner";
 
-        assertEquals("I will go if you may use ToneTunner.", apply(text, vocabulary, replacements));
+        assertEquals("I will go if you may use ToneTunner.", apply(text, replacements));
     }
 
     @Test
-    public void vocabularyForCommonWordsDoesNotChangeTheirCasing() throws Exception {
+    public void ordinaryWordsStayUnchangedWithoutExplicitCorrections() throws Exception {
         String text = "I will go if you may.";
-        String vocabulary = "Will, May, Go";
 
-        assertEquals(text, apply(text, vocabulary, ""));
+        assertEquals(text, apply(text, ""));
     }
 
     @Test
@@ -77,9 +74,9 @@ public class DictionaryRulesTest {
         }
     }
 
-    private String apply(String text, String vocabulary, String replacements) throws Exception {
-        Method method = dictionaryMethod("apply", String.class, String.class, String.class);
-        return (String) invoke(method, null, text, vocabulary, replacements);
+    private String apply(String text, String replacements) throws Exception {
+        Method method = dictionaryMethod("apply", String.class, String.class);
+        return (String) invoke(method, null, text, replacements);
     }
 
     private void validate(String vocabulary, String replacements) throws Exception {
