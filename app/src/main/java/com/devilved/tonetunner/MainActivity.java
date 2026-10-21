@@ -700,8 +700,8 @@ public class MainActivity extends AppCompatActivity {
                                 : getString(R.string.recovery_duration_seconds, seconds);
                         labels[i] = getString(R.string.recovery_entry, i + 1, duration);
                     }
-                    String storage = getString(R.string.recovery_storage_summary, entries.size(),
-                            totalBytes / (1024.0 * 1024.0));
+                    String storage = getResources().getQuantityString(R.plurals.recovery_storage_summary,
+                            entries.size(), entries.size(), totalBytes / (1024.0 * 1024.0));
                     new AlertDialog.Builder(this).setTitle(R.string.recovery_title)
                             .setMessage(storage)
                             .setItems(labels, (dialog, which) -> showSavedDictation(entries.get(which)))

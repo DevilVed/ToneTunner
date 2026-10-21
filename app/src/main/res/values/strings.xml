@@ -39,7 +39,10 @@
     <string name="recovery_entry">Saved dictation %1$d (%2$s)</string>
     <string name="recovery_duration_subsecond">&lt;1 second</string>
     <string name="recovery_duration_seconds">%1$.1f seconds</string>
-    <string name="recovery_storage_summary">%1$d saved dictations · %2$.2f MB total audio</string>
+    <plurals name="recovery_storage_summary">
+        <item quantity="one">%1$d saved dictation · %2$.2f MB total audio</item>
+        <item quantity="other">%1$d saved dictations · %2$.2f MB total audio</item>
+    </plurals>
     <string name="recovery_disclosure">Audio and completed text stay privately on this phone until you retry successfully or discard them. Retry uses your current AI settings and may incur API charges. Completed windows are not resent. The failed request may already have been billed.</string>
     <string name="recovery_no_text">No completed text is available yet. The audio is saved.</string>
     <string name="recovery_retry">Retry remaining audio</string>

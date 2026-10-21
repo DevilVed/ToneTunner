@@ -46,6 +46,8 @@ public class Whisper {
     public static final String MSG_PROCESSING = "Processing...";
     public static final String MSG_ENHANCING = "Enhancing...";
     public static final String MSG_PROCESSING_DONE = "Processing done...!";
+    /** OpenAI rejects uploads under 0.1 s; a window that short cannot hold a spoken word. */
+    static final int MIN_CLOUD_WINDOW_BYTES = PcmRecording.SAMPLE_RATE * PcmRecording.BYTES_PER_SAMPLE / 10;
 
     private final Context context;
     private final Handler main = new Handler(Looper.getMainLooper());
@@ -209,8 +211,12 @@ public class Whisper {
                 long end = input.positionBytes();
                 boolean hardCut = input.wasHardCut();
                 boolean hasText = false;
+                // A sub-0.1 s tail (e.g. after a silent window ended at the 28 s bound) would make the
+                // provider reject the whole dictation, including on every explicit retry.
+                boolean cloudSliver = transcription.provider != Provider.LOCAL
+                        && chunk.length < MIN_CLOUD_WINDOW_BYTES;
                 try {
-                    if (explicitRetry || !isVeryQuiet(chunk)) {
+                    if (!cloudSliver && (explicitRetry || !isVeryQuiet(chunk))) {
                         if (transcription.provider == Provider.LOCAL && engine == null) {
                             LocalTranscriber candidate = localFactory.create(context);
                             synchronized (Whisper.this) {
