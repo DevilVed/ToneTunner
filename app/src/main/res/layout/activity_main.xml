@@ -35,23 +35,32 @@
             android:orientation="horizontal">
 
             <Button
-                android:id="@+id/btnAiSettings"
+                android:id="@+id/btnSettings"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_marginEnd="4dp"
                 android:layout_weight="1"
-                android:text="@string/entrypoint_ai_settings"
-                android:contentDescription="@string/entrypoint_ai_settings" />
+                android:text="@string/settings_title"
+                android:contentDescription="@string/settings_title" />
 
             <Button
-                android:id="@+id/btnEnableKeyboard"
+                android:id="@+id/btnAiSettings"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_marginStart="4dp"
                 android:layout_weight="1"
-                android:text="@string/entrypoint_enable_keyboard"
-                android:contentDescription="@string/entrypoint_enable_keyboard" />
+                android:text="@string/entrypoint_ai_settings"
+                android:contentDescription="@string/entrypoint_ai_settings" />
         </LinearLayout>
+
+        <!-- Shown only until the keyboard is enabled; Settings shows its status afterwards. -->
+        <Button
+            android:id="@+id/btnEnableKeyboard"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="8dp"
+            android:text="@string/entrypoint_enable_keyboard"
+            android:contentDescription="@string/entrypoint_enable_keyboard" />
 
         <LinearLayout
             android:id="@+id/layout_language"

@@ -3,7 +3,6 @@
     <string name="entrypoint_title">ToneTunner</string>
     <string name="entrypoint_ai_settings">AI settings</string>
     <string name="entrypoint_enable_keyboard">Enable voice keyboard</string>
-    <string name="entrypoint_keyboard_enabled">Voice keyboard enabled</string>
     <string name="entrypoint_provider_summary_unknown">Choose a transcription provider in AI settings.</string>
     <string name="entrypoint_cloud_key_missing">A cloud API key is missing. Add it in AI settings before recording.</string>
     <string name="entrypoint_cloud_consent_missing">Review the cloud audio disclosure in AI settings before recording.</string>

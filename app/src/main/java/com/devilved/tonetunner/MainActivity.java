@@ -20,8 +20,6 @@ import android.util.Pair;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.WindowManager;
-import android.view.inputmethod.InputMethodInfo;
-import android.view.inputmethod.InputMethodManager;
 import android.widget.AdapterView;
 import android.widget.Button;
 import android.widget.CheckBox;
@@ -69,6 +67,7 @@ public class MainActivity extends AppCompatActivity {
     private ImageButton btnRecord;
     private ImageButton btnInfo;
     private Button btnAiSettings;
+    private Button btnSettings;
     private Button btnEnableKeyboard;
     private Button btnCancelProcessing;
     private Button btnSavedDictations;
@@ -123,6 +122,7 @@ public class MainActivity extends AppCompatActivity {
         btnRecord = findViewById(R.id.btnRecord);
         btnInfo = findViewById(R.id.btnInfo);
         btnAiSettings = findViewById(R.id.btnAiSettings);
+        btnSettings = findViewById(R.id.btnSettings);
         btnEnableKeyboard = findViewById(R.id.btnEnableKeyboard);
         btnCancelProcessing = findViewById(R.id.btnCancelProcessing);
         btnSavedDictations = findViewById(R.id.btnSavedDictations);
@@ -225,6 +225,7 @@ public class MainActivity extends AppCompatActivity {
 
         btnCancelProcessing.setOnClickListener(view -> cancelCurrentSession(R.string.entrypoint_cancelled));
         btnAiSettings.setOnClickListener(view -> startActivity(new Intent(this, AiSettingsActivity.class)));
+        btnSettings.setOnClickListener(view -> startActivity(new Intent(this, SettingsActivity.class)));
         btnEnableKeyboard.setOnClickListener(view -> startActivity(new Intent(Settings.ACTION_INPUT_METHOD_SETTINGS)));
         btnInfo.setOnClickListener(view -> startActivity(
                 new Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/DevilVed/ToneTunner"))));
@@ -309,21 +310,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void updateKeyboardStatus() {
-        InputMethodManager manager = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
-        boolean enabled = false;
-        if (manager != null) {
-            String myInputMethodId = getPackageName() + "/" + WhisperInputMethodService.class.getName();
-            List<InputMethodInfo> enabledMethods = manager.getEnabledInputMethodList();
-            for (InputMethodInfo method : enabledMethods) {
-                if (method.getId().equals(myInputMethodId)) {
-                    enabled = true;
-                    break;
-                }
-            }
-        }
-        int label = enabled ? R.string.entrypoint_keyboard_enabled : R.string.entrypoint_enable_keyboard;
-        btnEnableKeyboard.setText(label);
-        btnEnableKeyboard.setContentDescription(getString(label));
+        btnEnableKeyboard.setVisibility(SettingsActivity.isKeyboardEnabled(this) ? View.GONE : View.VISIBLE);
     }
 
     private boolean hasCloudWork(AiSettings settings) {

@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_title">Settings</string>
+    <string name="settings_category_dictation">Dictation</string>
+    <string name="settings_ai_title">AI providers and models</string>
+    <string name="settings_ai_loading">Loading your transcription and enhancement choices…</string>
+    <string name="settings_local_model_title">Local Whisper model</string>
+    <string name="settings_local_model_installed">Installed. Choose Local in AI providers to transcribe on this phone.</string>
+    <string name="settings_local_model_missing">Not installed. Tap to download or import it for offline transcription.</string>
+    <string name="settings_auto_mode_title">Hands-free mode</string>
+    <string name="settings_auto_mode_summary">Start listening as soon as the voice keyboard or voice input opens, and stop when you finish speaking.</string>
+    <string name="settings_category_keyboard">Voice keyboard</string>
+    <string name="settings_keyboard_title">ToneTunner keyboard</string>
+    <string name="settings_keyboard_enabled">Enabled. Switch to it from any text field to dictate.</string>
+    <string name="settings_keyboard_disabled">Not enabled. Tap to turn it on in Android settings.</string>
+    <string name="settings_category_other_apps">Other apps</string>
+    <string name="settings_voice_input_title">Voice input for other apps</string>
+    <string name="settings_voice_input_summary">Language, Chinese script and stop-on-silence for apps that use Android speech recognition.</string>
+    <string name="settings_category_about">About</string>
+    <string name="settings_source_title">Source code</string>
+    <string name="settings_source_summary">github.com/DevilVed/ToneTunner</string>
+    <string name="settings_version_title">Version</string>
+</resources>

@@ -7,7 +7,10 @@ import android.graphics.Canvas;
 import android.view.View;
 import android.view.ViewGroup;
 
+import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.app.AppCompatDelegate;
+import androidx.preference.Preference;
+import androidx.preference.PreferenceFragmentCompat;
 import androidx.test.core.app.ActivityScenario;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 import androidx.test.platform.app.InstrumentationRegistry;
@@ -36,6 +39,43 @@ public class AiSettingsScreenTest {
             }
         } finally {
             instrumentation.removeMonitor(monitor);
+        }
+    }
+
+    @Test public void settingsOpensFromTheMainScreenAndLeadsToAiSettings() {
+        Instrumentation instrumentation = InstrumentationRegistry.getInstrumentation();
+        Instrumentation.ActivityMonitor settingsMonitor =
+                instrumentation.addMonitor(SettingsActivity.class.getName(), null, false);
+        Instrumentation.ActivityMonitor aiMonitor =
+                instrumentation.addMonitor(AiSettingsActivity.class.getName(), null, false);
+        try (ActivityScenario<MainActivity> main = ActivityScenario.launch(MainActivity.class)) {
+            main.onActivity(activity -> activity.findViewById(R.id.btnSettings).performClick());
+            Activity settings = instrumentation.waitForMonitorWithTimeout(settingsMonitor, 15_000);
+            assertNotNull("Tapping Settings must open the settings screen", settings);
+            try {
+                assertLaidOutAndDrawable(instrumentation, settings);
+                instrumentation.runOnMainSync(() -> {
+                    PreferenceFragmentCompat fragment = (PreferenceFragmentCompat)
+                            ((AppCompatActivity) settings).getSupportFragmentManager()
+                                    .findFragmentById(R.id.settings_container);
+                    assertNotNull(fragment);
+                    Preference aiPreference = fragment.findPreference("ai_settings");
+                    assertNotNull(aiPreference);
+                    aiPreference.getOnPreferenceClickListener().onPreferenceClick(aiPreference);
+                });
+                Activity ai = instrumentation.waitForMonitorWithTimeout(aiMonitor, 15_000);
+                assertNotNull("AI providers must open from Settings", ai);
+                try {
+                    assertLaidOutAndDrawable(instrumentation, ai);
+                } finally {
+                    instrumentation.runOnMainSync(ai::finish);
+                }
+            } finally {
+                instrumentation.runOnMainSync(settings::finish);
+            }
+        } finally {
+            instrumentation.removeMonitor(settingsMonitor);
+            instrumentation.removeMonitor(aiMonitor);
         }
     }
 
