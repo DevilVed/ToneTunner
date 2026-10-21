@@ -70,6 +70,18 @@ public final class RecoveryStore {
                                    boolean translate, String existingId, boolean overlap)
             throws IOException {
         if (recording == null) throw new IllegalArgumentException("Recording is required.");
+        // PcmRecording's methods lock the recording itself. Holding that monitor makes the length
+        // check, the metadata snapshot and the rename one step that no close() can interleave.
+        synchronized (recording) {
+            return saveLocked(recording, offset, transcript, requestedLanguage, detectedLanguage,
+                    translate, existingId, overlap);
+        }
+    }
+
+    private Entry saveLocked(PcmRecording recording, long offset, String transcript,
+                             String requestedLanguage, String detectedLanguage,
+                             boolean translate, String existingId, boolean overlap)
+            throws IOException {
         if (offset < 0 || (offset & 1L) != 0 || offset > recording.lengthBytes()) {
             throw new IllegalArgumentException("Recovery offset must be an even byte position within the audio.");
         }

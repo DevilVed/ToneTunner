@@ -103,7 +103,7 @@ final class TranscriptJoiner {
             return;
         }
 
-        int overlapWordCount = findWordOverlap(previous, previousWords, nextPrefix, nextWords);
+        int overlapWordCount = findWordOverlap(previous, previousWords, nextWords);
         if (overlapWordCount >= MIN_OVERLAP_WORDS) {
             int consumed = nextWords.get(overlapWordCount - 1).end;
             consumed = consumeDuplicatePunctuation(previous, previousLast.end, next, consumed);
@@ -184,8 +184,9 @@ final class TranscriptJoiner {
         return leftOffset == leftEnd && rightOffset == rightEnd;
     }
 
-    private static int findWordOverlap(String previous, List<Word> previousWords,
-                                       String next, List<Word> nextWords) {
+    // The overlap always starts at the next window's first word, so only non-word characters can
+    // precede it there; the previous side is checked for trailing text below.
+    private static int findWordOverlap(String previous, List<Word> previousWords, List<Word> nextWords) {
         int maximum = Math.min(previousWords.size(), nextWords.size());
         for (int count = maximum; count >= MIN_OVERLAP_WORDS; count--) {
             int previousStartIndex = previousWords.size() - count;

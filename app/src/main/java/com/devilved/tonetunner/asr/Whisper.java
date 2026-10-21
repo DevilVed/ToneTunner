@@ -133,20 +133,24 @@ public class Whisper {
                         requestedLanguage, requestedAction == Recognizer.ACTION_TRANSLATE, null, false);
             }
         } catch (IOException | RuntimeException e) {
-            if (recording != null && !recording.isClosed()) {
-                try { recording.retainForRecoveryFailure(); } catch (IOException ignored) { }
+            if (recording != null) {
+                synchronized (recording) {
+                    if (!recording.isClosed()) {
+                        try { recording.retainForRecoveryFailure(); } catch (IOException ignored) { }
+                    }
+                }
             }
-            synchronized (this) { if (gate.isCurrent(token)) archiving = false; }
+            synchronized (this) { if (isCurrent(token)) archiving = false; }
             // Retry lookups fail with fixed RecoveryStore messages (e.g. an entry already discarded).
             String message = explicitRetry && e instanceof IOException ? e.getMessage()
                     : "Could not prepare saved dictation storage. Free storage and open Saved dictations before trying again.";
-            if (gate.isCurrent(token)) error(token, message);
+            if (isCurrent(token)) error(token, message);
             return;
         } finally {
             closeRecording(recording);
         }
         synchronized (this) {
-            if (!gate.isCurrent(token)) return;
+            if (!isCurrent(token)) return;
             archiving = false;
         }
         final RecoveryStore.Entry session = retained;
@@ -173,38 +177,36 @@ public class Whisper {
         } catch (Exception e) {
             String message = e instanceof IOException ? e.getMessage()
                     : "Could not read AI settings. Open AI settings and save your configuration again.";
-            if (gate.isCurrent(token)) preserveAndReport(token, null, session, session.offset,
+            if (isCurrent(token)) preserveAndReport(token, null, session, session.offset,
                     session.transcript, requestedLanguage, session.detectedLanguage, requestedAction,
                     session.overlap, message, android.speech.SpeechRecognizer.ERROR_SERVER);
             return;
         }
         CloudClient client = new CloudClient();
         synchronized (this) {
-            if (!gate.isCurrent(token)) return;
+            if (!isCurrent(token)) return;
             cloud = client;
         }
         update(token, MSG_PROCESSING);
         LocalTranscriber engine = null;
         PcmRecording input = null;
-        StringBuilder transcript = new StringBuilder(session == null ? "" : session.transcript);
-        String detectedLanguage = session == null ? requestedLanguage : session.detectedLanguage;
-        long resumeOffset = session == null ? 0 : session.offset;
-        boolean overlap = session != null && session.overlap;
+        StringBuilder transcript = new StringBuilder(session.transcript);
+        String detectedLanguage = session.detectedLanguage;
+        long resumeOffset = session.offset;
+        boolean overlap = session.overlap;
         try {
-            if (!gate.isCurrent(token)) return;
-            if (session != null) {
-                PcmRecording candidate = new RecoveryStore(context).open(session);
-                synchronized (Whisper.this) {
-                    if (!gate.isCurrent(token)) { candidate.close(); return; }
-                    activeRecording = candidate;
-                    input = candidate;
-                }
+            if (!isCurrent(token)) return;
+            PcmRecording candidate = new RecoveryStore(context).open(session);
+            synchronized (Whisper.this) {
+                if (!isCurrent(token)) { candidate.close(); return; }
+                activeRecording = candidate;
+                input = candidate;
             }
             String inferenceLanguage = CloudClient.normalizeLanguage(requestedLanguage);
             boolean automaticLanguage = inferenceLanguage.isEmpty();
             if (automaticLanguage) inferenceLanguage = CloudClient.normalizeDetectedLanguage(detectedLanguage);
             if (inferenceLanguage.isEmpty()) inferenceLanguage = "auto";
-            while (gate.isCurrent(token)) {
+            while (isCurrent(token)) {
                 resumeOffset = input.positionBytes();
                 byte[] chunk = input.nextChunk();
                 if (chunk == null) break;
@@ -220,7 +222,7 @@ public class Whisper {
                         if (transcription.provider == Provider.LOCAL && engine == null) {
                             LocalTranscriber candidate = localFactory.create(context);
                             synchronized (Whisper.this) {
-                                if (!gate.isCurrent(token)) { candidate.close(); return; }
+                                if (!isCurrent(token)) { candidate.close(); return; }
                                 local = candidate;
                                 engine = candidate;
                             }
@@ -246,20 +248,18 @@ public class Whisper {
                 } catch (CloudClient.NoSpeechException ignored) {
                     // A pause does not discard earlier speech or stop the rest of the recording.
                 } finally { clear(chunk); }
-                if (!gate.isCurrent(token)) return;
+                if (!isCurrent(token)) return;
                 overlap = hardCut && hasText;
                 resumeOffset = end - (overlap ? PcmRecording.SAMPLE_RATE : 0); // 500 ms of PCM16.
                 input.seekTo(resumeOffset);
-                if (session != null) {
-                    synchronized (Whisper.this) {
-                        if (!gate.isCurrent(token)) return;
-                        new RecoveryStore(context).save(input, resumeOffset, transcript.toString(),
-                                requestedLanguage, detectedLanguage,
-                                requestedAction == Recognizer.ACTION_TRANSLATE, session.id, overlap);
-                    }
+                synchronized (Whisper.this) {
+                    if (!isCurrent(token)) return;
+                    new RecoveryStore(context).save(input, resumeOffset, transcript.toString(),
+                            requestedLanguage, detectedLanguage,
+                            requestedAction == Recognizer.ACTION_TRANSLATE, session.id, overlap);
                 }
             }
-            if (!gate.isCurrent(token)) return;
+            if (!isCurrent(token)) return;
             closeLocal(engine);
             engine = null;
             String text = transcript.toString();
@@ -270,17 +270,17 @@ public class Whisper {
                 try {
                     StringBuilder enhanced = new StringBuilder();
                     for (String piece : TextWindows.split(text, 3000)) {
-                        if (!gate.isCurrent(token)) return;
+                        if (!isCurrent(token)) return;
                         TranscriptJoiner.appendEnhanced(enhanced, piece,
                                 client.enhance(piece, enhancement, prompt, vocabulary));
                     }
                     text = enhanced.toString();
                 } catch (IOException | RuntimeException e) {
-                    if (!gate.isCurrent(token)) return;
+                    if (!isCurrent(token)) return;
                     warning = joinWarning(warning, "Enhancement failed. Returned the complete raw transcript.");
                 }
             }
-            if (!gate.isCurrent(token)) return;
+            if (!isCurrent(token)) return;
             WhisperResult result = new WhisperResult(text,
                     detectedLanguage == null ? requestedLanguage : detectedLanguage, requestedAction, warning);
             new RecoveryStore(context).prepareDelivery(session);
@@ -314,7 +314,7 @@ public class Whisper {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         } catch (Exception e) {
-            if (gate.isCurrent(token)) {
+            if (isCurrent(token)) {
                 int code = e instanceof CloudClient.NoSpeechException
                         ? android.speech.SpeechRecognizer.ERROR_NO_MATCH
                         : android.speech.SpeechRecognizer.ERROR_SERVER;
@@ -358,7 +358,7 @@ public class Whisper {
         for (int frameStart = 0; frameStart + 1 < pcm.length; frameStart += frameBytes) {
             int end = Math.min(pcm.length & ~1, frameStart + frameBytes);
             long squares = 0;
-            for (int i = frameStart; i < end; i += 2) {
+            for (int i = frameStart; i + 1 < end; i += 2) {
                 int value = (short) ((pcm[i] & 255) | (pcm[i + 1] << 8));
                 squares += (long) value * value;
             }
@@ -400,6 +400,13 @@ public class Whisper {
     }
 
     public boolean isInProgress() { return gate.isBusy(); }
+    /**
+     * Worker-side generation check. It takes the same monitor as stop(), so a check made inside a
+     * synchronized (this) block stays true until that block's side effect (publishing a client or
+     * engine, writing a checkpoint) is complete. Main-thread callbacks use gate.complete() directly:
+     * that call is the single authority on whether a result or error is delivered.
+     */
+    private synchronized boolean isCurrent(long token) { return gate.isCurrent(token); }
     private void update(long token, String message) {
         main.post(() -> {
             WhisperListener current = listener;

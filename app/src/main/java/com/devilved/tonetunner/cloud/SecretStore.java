@@ -136,6 +136,7 @@ public final class SecretStore {
         byte[] clear = apiKey.getBytes(StandardCharsets.UTF_8);
         byte[] nonce = null;
         byte[] encrypted = null;
+        byte[] packed = null;
         try {
             Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
             cipher.init(Cipher.ENCRYPT_MODE, getOrCreateKey());
@@ -146,18 +147,24 @@ public final class SecretStore {
                 throw storageFailure();
             }
 
-            ensureDirectory();
-            AtomicFile atomicFile = new AtomicFile(fileFor(identity));
-            FileOutputStream output = null;
-            try {
-                output = atomicFile.startWrite();
-                DataOutputStream data = new DataOutputStream(output);
+            // Frame the record in memory: AtomicFile.finishWrite must sync and close the file stream
+            // itself, so no wrapper may own (and close) it first.
+            ByteArrayOutputStream framed = new ByteArrayOutputStream(6 + nonce.length + encrypted.length);
+            try (DataOutputStream data = new DataOutputStream(framed)) {
                 data.writeByte(FILE_VERSION);
                 data.writeByte(nonce.length);
                 data.writeInt(encrypted.length);
                 data.write(nonce);
                 data.write(encrypted);
-                data.flush();
+            }
+            packed = framed.toByteArray();
+
+            ensureDirectory();
+            AtomicFile atomicFile = new AtomicFile(fileFor(identity));
+            FileOutputStream output = null;
+            try {
+                output = atomicFile.startWrite();
+                output.write(packed);
                 atomicFile.finishWrite(output);
                 output = null;
             } catch (IOException | RuntimeException e) {
@@ -170,6 +177,7 @@ public final class SecretStore {
             wipe(clear);
             wipe(nonce);
             wipe(encrypted);
+            wipe(packed);
         }
     }
 
