@@ -383,6 +383,74 @@ public class RecoveryStoreTest {
                 Boolean.FALSE, historyPolicy);
     }
 
+    @Test public void policyAwareCheckpointsCannotReenableHistoryAfterAnOptOut() throws Exception {
+        RecoveryStore store = new RecoveryStore(context);
+        RecoveryStore.Entry original;
+        try (PcmRecording source = recording("history-policy-monotonic", new byte[]{1, 0, 2, 0, 3, 0, 4, 0, 5, 0, 6, 0})) {
+            original = store.save(source, 0, "initial transcript", "auto", "en", false,
+                    null, false, true);
+        }
+        assertTrue(original.historyEnabled);
+
+        RecoveryStore.Entry restricted;
+        try (PcmRecording retry = store.open(store.get(original.id))) {
+            restricted = store.save(retry, 2, "first checkpoint", "auto", "en", false,
+                    original.id, false, false);
+        }
+        assertFalse(restricted.historyEnabled);
+
+        try (PcmRecording laterRetry = store.open(store.get(original.id))) {
+            store.save(laterRetry, 4, "completed transcript", "auto", "en", false,
+                    original.id, false, true);
+        }
+
+        RecoveryStore.Entry reopened = new RecoveryStore(context).get(original.id);
+        assertNotNull(reopened);
+        assertEquals("policy reduction must keep the original recovery id", original.id, reopened.id);
+        assertEquals("policy reduction must not reset the capture timestamp",
+                original.createdAtEpochMillis, reopened.createdAtEpochMillis);
+        assertEquals("completed transcript", reopened.transcript);
+        assertEquals(4L, reopened.offset);
+        assertFalse("later caller opt-in cannot re-enable history", reopened.historyEnabled);
+    }
+
+    @Test public void historyPolicyCannotBeRestrictedWhileAnotherStoreOwnsOpenAudio() throws Exception {
+        RecoveryStore first = new RecoveryStore(context);
+        RecoveryStore second = new RecoveryStore(context);
+        RecoveryStore.Entry original;
+        try (PcmRecording source = recording("history-policy-open-owner", new byte[]{1, 0, 2, 0, 3, 0, 4, 0})) {
+            original = first.save(source, 0, "transcript", "auto", "en", false,
+                    null, false, true);
+        }
+
+        RecoveryStore.Entry staleSnapshot = first.get(original.id);
+        PcmRecording activeReader = first.open(staleSnapshot);
+        try {
+            try {
+                second.restrictHistoryPolicy(original.id);
+                fail("a different store must not change policy while retry audio is open");
+            } catch (IOException expected) {
+                // A restriction must not race a retry already using the prior policy snapshot.
+            }
+            assertTrue("rejected restriction must leave persisted policy enabled",
+                    second.get(original.id).historyEnabled);
+        } finally {
+            activeReader.close();
+        }
+
+        RecoveryStore.Entry restricted = second.restrictHistoryPolicy(original.id);
+        assertFalse(restricted.historyEnabled);
+        try {
+            first.open(staleSnapshot);
+            fail("an entry snapshot from before the restriction must be rejected as stale");
+        } catch (IOException expected) {
+            // Refresh the entry before retrying with the new policy.
+        }
+        try (PcmRecording refreshedReader = second.open(second.get(original.id))) {
+            assertEquals(0L, refreshedReader.positionBytes());
+        }
+    }
+
     @Test public void invalidRetryCheckpointKeepsTheExistingIdMetadataAndAudio() throws Exception {
         RecoveryStore store = new RecoveryStore(context);
         byte[] originalAudio = {11, 0, 22, 0, 33, 0, 44, 0};

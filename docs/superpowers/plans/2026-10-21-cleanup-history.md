@@ -47,7 +47,7 @@
 
 **Files:** new focused prompt/dictionary helpers, `CloudClient.java`, `Whisper.java`, settings and tests.
 
-**Interfaces:** `AiSettings.useBuiltInCleanupRules()`, `AiSettings.getReplacements()`, overload `CloudClient.enhance(String text, ProviderConfig config, String prompt, String vocabulary, boolean useBuiltInRules)`; existing four-argument call delegates to built-in mode. Existing saveSettings overload remains compatible; expanded overload appends `(boolean useBuiltInRules, String replacements)` after its current arguments. `DictionaryRules.apply(String text, String vocabulary, String replacements)` and `DictionaryRules.validate(String vocabulary, String replacements)` are pure Java; invalid rules fail settings validation. `EnhancementPrompt.system(String prompt, String vocabulary, boolean useBuiltInRules)` builds the system string.
+**Interfaces:** `AiSettings.useBuiltInCleanupRules()`, `AiSettings.getReplacements()`, overload `CloudClient.enhance(String text, ProviderConfig config, String prompt, String vocabulary, boolean useBuiltInRules)`; existing four-argument call delegates to built-in mode. Existing saveSettings overload remains compatible; expanded overload appends `(boolean useBuiltInRules, String replacements)` after its current arguments. `DictionaryRules.apply(String text, String replacements)` and `DictionaryRules.validate(String vocabulary, String replacements)` are pure Java; invalid rules fail settings validation. `EnhancementPrompt.system(String prompt, String vocabulary, boolean useBuiltInRules)` builds the system string.
 
 - [x] Record failing request assertions for clear task instructions, structured vocabulary and old-mode compatibility.
 - [x] Implement an original cleanup template, optional raw system mode, JSON-array vocabulary and transcript data isolation.
@@ -91,3 +91,10 @@ Application/test revision `f7b408e` passed Android build 39579565565 (attempt 2)
 - [x] Make shared `AGENTS.md` tracking intentional and remove stale hard-coded toolchain versions.
 - [x] Observe the new failing assertions in Actions, then isolate history failures, leave vocabulary as model guidance, and validate unsupported privacy choices at Save.
 - [ ] Review the complete correction, verify cloud gates, and record the final tested revision and APK.
+
+## Follow-up: persisted private-editor history permission
+
+- [x] Add a regression for a private editor's failed delivery followed by retry from a fresh default-enabled caller; cover conservative recovery metadata defaults. Actions 39587513087 reproduced five failures.
+- [x] Persist history permission during archival/checkpoints and honor it on explicit retries.
+- [ ] Verify the two-store ownership regression and serialize policy restriction with audio claims.
+- [ ] Remove the unused vocabulary argument, verify the cloud gates and resolve the remaining review threads.

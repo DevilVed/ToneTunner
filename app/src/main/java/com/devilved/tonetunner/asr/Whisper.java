@@ -132,11 +132,18 @@ public class Whisper {
                 if (retained == null) throw new IOException("The saved dictation is unavailable.");
                 requestedAction = retained.translate ? Recognizer.ACTION_TRANSLATE : Recognizer.ACTION_TRANSCRIBE;
                 requestedLanguage = retained.requestedLanguage;
+                if (!saveHistory && retained.historyEnabled) {
+                    // Persist a stricter choice before settings/provider checks can fail. A later
+                    // facade must not re-enable history after this retry opted out.
+                    retained = new RecoveryStore(context).restrictHistoryPolicy(retained.id);
+                }
+                saveHistory = saveHistory && retained.historyEnabled;
             } else if (recording != null && recording.lengthBytes() >= 2) {
                 // Always finish archival, even after cancellation, before checking the generation.
                 // Rename and atomic metadata/fsync run on this worker; no PCM copy is needed.
                 retained = new RecoveryStore(context).save(recording, 0, "", requestedLanguage,
-                        requestedLanguage, requestedAction == Recognizer.ACTION_TRANSLATE, null, false);
+                        requestedLanguage, requestedAction == Recognizer.ACTION_TRANSLATE, null,
+                        false, saveHistory);
             }
         } catch (IOException | RuntimeException e) {
             if (recording != null) {
@@ -206,16 +213,16 @@ public class Whisper {
         boolean overlap = session.overlap;
         try (TranscriptHistoryStore history = saveHistory ? new TranscriptHistoryStore(context) : null) {
             if (!isCurrent(token)) return;
-            // History is text-only and outlives audio recovery. Each store method closes its own
-            // database handles; I/O remains on this worker, outside the cancellation monitor.
-            if (history != null && !session.transcript.trim().isEmpty()) {
-                saveHistoryProgress(history, session.id, session.transcript, detectedLanguage);
-            }
             PcmRecording opened = new RecoveryStore(context).open(session);
             synchronized (Whisper.this) {
                 if (!isCurrent(token)) { opened.close(); return; }
                 activeRecording = opened;
                 input = opened;
+            }
+            // Validate and claim the recovery snapshot before copying any of its text to history.
+            // Database I/O remains on this worker, outside the cancellation monitor.
+            if (history != null && !session.transcript.trim().isEmpty()) {
+                saveHistoryProgress(history, session.id, session.transcript, detectedLanguage);
             }
             String inferenceLanguage = CloudClient.normalizeLanguage(requestedLanguage);
             boolean automaticLanguage = inferenceLanguage.isEmpty();

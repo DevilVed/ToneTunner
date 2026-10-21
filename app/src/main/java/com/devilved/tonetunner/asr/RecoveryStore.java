@@ -69,25 +69,43 @@ public final class RecoveryStore {
                                    String requestedLanguage, String detectedLanguage,
                                    boolean translate, String existingId, boolean overlap)
             throws IOException {
+        return saveLockedPolicy(recording, offset, transcript, requestedLanguage, detectedLanguage,
+                translate, existingId, overlap, null);
+    }
+
+    /** Saves a checkpoint and may further restrict (never broaden) history persistence. */
+    public synchronized Entry save(PcmRecording recording, long offset, String transcript,
+                                   String requestedLanguage, String detectedLanguage,
+                                   boolean translate, String existingId, boolean overlap,
+                                   boolean historyEnabled) throws IOException {
+        return saveLockedPolicy(recording, offset, transcript, requestedLanguage, detectedLanguage,
+                translate, existingId, overlap, historyEnabled);
+    }
+
+    private Entry saveLockedPolicy(PcmRecording recording, long offset, String transcript,
+                                   String requestedLanguage, String detectedLanguage,
+                                   boolean translate, String existingId, boolean overlap,
+                                   Boolean requestedHistoryEnabled) throws IOException {
         if (recording == null) throw new IllegalArgumentException("Recording is required.");
         // PcmRecording's methods lock the recording itself. Holding that monitor makes the length
         // check, the metadata snapshot and the rename one step that no close() can interleave.
         synchronized (recording) {
             return saveLocked(recording, offset, transcript, requestedLanguage, detectedLanguage,
-                    translate, existingId, overlap);
+                    translate, existingId, overlap, requestedHistoryEnabled);
         }
     }
 
     private Entry saveLocked(PcmRecording recording, long offset, String transcript,
                              String requestedLanguage, String detectedLanguage,
-                             boolean translate, String existingId, boolean overlap)
+                             boolean translate, String existingId, boolean overlap,
+                             Boolean requestedHistoryEnabled)
             throws IOException {
         if (offset < 0 || (offset & 1L) != 0 || offset > recording.lengthBytes()) {
             throw new IllegalArgumentException("Recovery offset must be an even byte position within the audio.");
         }
         if (existingId != null && !existingId.isEmpty()) {
             return updateExisting(recording, offset, transcript, requestedLanguage,
-                    detectedLanguage, translate, existingId, overlap);
+                    detectedLanguage, translate, existingId, overlap, requestedHistoryEnabled);
         }
 
         String id = UUID.randomUUID().toString();
@@ -97,7 +115,8 @@ public final class RecoveryStore {
         File audioFile = childFile(pendingDirectory, AUDIO_NAME);
         Entry entry = new Entry(id, clean(transcript), clean(requestedLanguage),
                 clean(detectedLanguage), translate, offset, overlap,
-                recording.lengthBytes(), recording.getCaptureWarning());
+                recording.lengthBytes(), recording.getCaptureWarning(),
+                Boolean.TRUE.equals(requestedHistoryEnabled));
         byte[] metadataBytes = null;
         IOException metadataError = null;
         try {
@@ -239,6 +258,27 @@ public final class RecoveryStore {
         }
     }
 
+    /** Permanently restrict an existing retry to omit text history, preserving all other metadata. */
+    public synchronized Entry restrictHistoryPolicy(String id) throws IOException {
+        validateId(id);
+        File directory = findDirectory(id);
+        if (directory == null) throw new IOException("Recovery entry is unavailable.");
+        File audioFile = childFile(directory, AUDIO_NAME);
+        if (!audioFile.isFile() || !isContained(directory, audioFile)) {
+            throw new IOException("Retained recording audio is unavailable.");
+        }
+        synchronized (METADATA_LOCK) {
+            Entry previous = readEntry(directory, id);
+            if (previous == null) throw new IOException("Recovery entry metadata is unavailable.");
+            if (!previous.historyEnabled) return previous;
+            Entry restricted = new Entry(previous.id, previous.transcript, previous.requestedLanguage,
+                    previous.detectedLanguage, previous.translate, previous.offset, previous.overlap,
+                    previous.lengthBytes, previous.captureWarning, false, previous.createdAtEpochMillis);
+            writeMetadataAtomically(directory, encodeMetadata(restricted));
+            return restricted;
+        }
+    }
+
     /** Claims an entry for delivery after successful inference; a claim survives reader close. */
     public synchronized void prepareDelivery(Entry entry) throws IOException {
         if (entry == null) throw new IllegalArgumentException("Recovery entry is required.");
@@ -289,7 +329,8 @@ public final class RecoveryStore {
 
     private Entry updateExisting(PcmRecording recording, long offset, String transcript,
                                  String requestedLanguage, String detectedLanguage,
-                                 boolean translate, String id, boolean overlap) throws IOException {
+                                 boolean translate, String id, boolean overlap,
+                                 Boolean requestedHistoryEnabled) throws IOException {
         validateId(id);
         File directory = findDirectory(id);
         if (directory == null) throw new IOException("Recovery entry is unavailable.");
@@ -301,13 +342,18 @@ public final class RecoveryStore {
         if ((length & 1L) != 0 || offset > length) {
             throw new IllegalArgumentException("Recovery offset must be within the retained audio.");
         }
-        Entry previous = readEntry(directory, id);
-        Entry updated = new Entry(id, clean(transcript), clean(requestedLanguage),
-                clean(detectedLanguage), translate, offset, overlap, length,
-                recording.getCaptureWarning(), previous == null
-                        ? Math.max(0L, audioFile.lastModified()) : previous.createdAtEpochMillis);
-        writeMetadataAtomically(directory, encodeMetadata(updated));
-        return updated;
+        String captureWarning = recording.getCaptureWarning();
+        synchronized (METADATA_LOCK) {
+            Entry previous = readEntry(directory, id);
+            boolean historyEnabled = previous != null && previous.historyEnabled
+                    && (requestedHistoryEnabled == null || requestedHistoryEnabled);
+            Entry updated = new Entry(id, clean(transcript), clean(requestedLanguage),
+                    clean(detectedLanguage), translate, offset, overlap, length,
+                    captureWarning, historyEnabled, previous == null
+                            ? Math.max(0L, audioFile.lastModified()) : previous.createdAtEpochMillis);
+            writeMetadataAtomically(directory, encodeMetadata(updated));
+            return updated;
+        }
     }
 
     private Entry readEntry(File directory, String id) throws IOException {
@@ -338,13 +384,15 @@ public final class RecoveryStore {
             }
             String warning = metadata.isNull("captureWarning")
                     ? null : metadata.optString("captureWarning", null);
+            Object rawHistoryEnabled = metadata.opt("historyEnabled");
+            boolean historyEnabled = rawHistoryEnabled instanceof Boolean && (Boolean) rawHistoryEnabled;
             return new Entry(id, clean(metadata.optString("transcript", "")),
                     clean(metadata.optString("requestedLanguage", "auto")),
                     clean(metadata.optString("detectedLanguage", "")),
                     metadata.optBoolean("translate", false),
                     offset,
                     metadata.optBoolean("overlap", false),
-                    length, warning, Math.max(0L,
+                    length, warning, historyEnabled, Math.max(0L,
                             metadata.optLong("createdAtEpochMillis", audioFile.lastModified())));
         } catch (JSONException | IOException | RuntimeException e) {
             // Keep the audio discoverable even when its metadata was interrupted or damaged.
@@ -353,7 +401,8 @@ public final class RecoveryStore {
     }
 
     private Entry fallbackEntry(String id, long length, long createdAt) {
-        return new Entry(id, "", "auto", "", false, 0L, false, length, null, Math.max(0L, createdAt));
+        return new Entry(id, "", "auto", "", false, 0L, false, length, null,
+                false, Math.max(0L, createdAt));
     }
 
     private File findDirectory(String id) throws IOException {
@@ -483,6 +532,7 @@ public final class RecoveryStore {
             metadata.put("overlap", entry.overlap);
             metadata.put("captureWarning", entry.captureWarning == null
                     ? JSONObject.NULL : entry.captureWarning);
+            metadata.put("historyEnabled", entry.historyEnabled);
         } catch (JSONException e) {
             throw new IOException("Unable to encode recovery metadata.");
         }
@@ -528,6 +578,7 @@ public final class RecoveryStore {
                 && first.translate == second.translate
                 && first.offset == second.offset
                 && first.overlap == second.overlap
+                && first.historyEnabled == second.historyEnabled
                 && first.lengthBytes == second.lengthBytes
                 && first.createdAtEpochMillis == second.createdAtEpochMillis
                 && (first.captureWarning == null
@@ -616,18 +667,21 @@ public final class RecoveryStore {
         public final boolean overlap;
         public final long lengthBytes;
         public final String captureWarning;
+        /** Whether the originating operation permits permanent transcript history. */
+        public final boolean historyEnabled;
         public final long createdAtEpochMillis;
 
         private Entry(String id, String transcript, String requestedLanguage,
                       String detectedLanguage, boolean translate, long offset,
-                      boolean overlap, long lengthBytes, String captureWarning) {
+                      boolean overlap, long lengthBytes, String captureWarning, boolean historyEnabled) {
             this(id, transcript, requestedLanguage, detectedLanguage, translate, offset,
-                    overlap, lengthBytes, captureWarning, System.currentTimeMillis());
+                    overlap, lengthBytes, captureWarning, historyEnabled, System.currentTimeMillis());
         }
 
         private Entry(String id, String transcript, String requestedLanguage,
                       String detectedLanguage, boolean translate, long offset,
-                      boolean overlap, long lengthBytes, String captureWarning, long createdAtEpochMillis) {
+                      boolean overlap, long lengthBytes, String captureWarning, boolean historyEnabled,
+                      long createdAtEpochMillis) {
             this.id = id;
             this.transcript = transcript;
             this.requestedLanguage = requestedLanguage;
@@ -637,6 +691,7 @@ public final class RecoveryStore {
             this.overlap = overlap;
             this.lengthBytes = lengthBytes;
             this.captureWarning = captureWarning;
+            this.historyEnabled = historyEnabled;
             this.createdAtEpochMillis = createdAtEpochMillis;
         }
     }
