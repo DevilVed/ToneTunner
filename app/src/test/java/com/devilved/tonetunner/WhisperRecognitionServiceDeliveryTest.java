@@ -97,15 +97,11 @@ public class WhisperRecognitionServiceDeliveryTest {
 
     private static RecognitionService.Callback callback(WhisperRecognitionService service,
             ListenerState state) throws Exception {
-        // API 28 also exposes a synthetic access constructor with an unused trailing $1 marker.
-        // Reflection order is unspecified; select the actual private constructor, not that bridge.
-        Constructor<?> constructor = null;
-        for (Constructor<?> candidate : RecognitionService.Callback.class.getDeclaredConstructors()) {
-            if (constructor == null || candidate.getParameterCount() < constructor.getParameterCount()) {
-                constructor = candidate;
-            }
-        }
-        if (constructor == null) throw new IllegalStateException("Recognition callback constructor unavailable");
+        // Select the API 28 constructor by its AOSP signature. Reflection also exposes an access
+        // bridge and Robolectric's empty instrumentation constructor; neither initializes mListener.
+        Class<?> listenerType = Class.forName("android.speech.IRecognitionListener");
+        Constructor<?> constructor = RecognitionService.Callback.class.getDeclaredConstructor(
+                RecognitionService.class, listenerType, int.class);
         constructor.setAccessible(true);
         Class<?>[] parameterTypes = constructor.getParameterTypes();
         Object[] arguments = new Object[parameterTypes.length];
