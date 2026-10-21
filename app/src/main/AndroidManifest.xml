@@ -49,6 +49,11 @@
             android:label="@string/dictation_ai_settings"
             android:theme="@style/Theme.Whisper.NoActionBar" />
 
+        <activity android:name=".TranscriptHistoryActivity"
+            android:exported="false"
+            android:label="@string/transcript_history_title"
+            android:theme="@style/Theme.Whisper.NoActionBar" />
+
         <activity
             android:name=".WhisperRecognizeActivity"
             android:exported="true"

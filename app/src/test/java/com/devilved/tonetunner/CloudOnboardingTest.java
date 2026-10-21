@@ -2,11 +2,13 @@ package com.devilved.tonetunner;
 
 import android.content.Context;
 import android.content.Intent;
+import android.os.Build;
 import android.os.Bundle;
 import android.text.InputType;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
+import android.widget.CompoundButton;
 import android.widget.EditText;
 import android.widget.TextView;
 import org.junit.Before;
@@ -56,6 +58,26 @@ public class CloudOnboardingTest {
             AiSettingsActivity activity = controller.get();
             assertTrue((activity.getWindow().getAttributes().flags
                     & WindowManager.LayoutParams.FLAG_SECURE) != 0);
+            assertEquals(2, checkCredentialViews(activity.findViewById(android.R.id.content)));
+        }
+    }
+
+    @Test
+    @Config(sdk = 30)
+    public void settingsExplicitlyExcludeCredentialInputsFromContentCaptureOnAndroid30() {
+        try (ActivityController<AiSettingsActivity> controller =
+                     Robolectric.buildActivity(AiSettingsActivity.class).setup()) {
+            AiSettingsActivity activity = controller.get();
+            assertEquals(2, checkCredentialViews(activity.findViewById(android.R.id.content)));
+        }
+    }
+
+    @Test
+    @Config(sdk = 29)
+    public void settingsOpensOnAndroid29WithoutApi30ContentCaptureCalls() {
+        try (ActivityController<AiSettingsActivity> controller =
+                     Robolectric.buildActivity(AiSettingsActivity.class).setup()) {
+            AiSettingsActivity activity = controller.get();
             assertEquals(2, checkCredentialViews(activity.findViewById(android.R.id.content)));
         }
     }
@@ -130,6 +152,43 @@ public class CloudOnboardingTest {
         }
     }
 
+    @Test public void replacementRulesRemainEditableWhenEnhancementIsDisabled() throws Exception {
+        try (ActivityController<AiSettingsActivity> controller =
+                     Robolectric.buildActivity(AiSettingsActivity.class).setup()) {
+            AiSettingsActivity activity = controller.get();
+            EditText replacements = (EditText) field(AiSettingsActivity.class, "replacementsInput")
+                    .get(activity);
+
+            assertTrue(replacements.isEnabled());
+            replacements.setText("heard => preferred");
+            assertEquals("heard => preferred", replacements.getText().toString());
+        }
+    }
+
+    @Test public void cleanupModeAndReplacementDraftSurviveConfigurationChange() throws Exception {
+        try (ActivityController<AiSettingsActivity> controller =
+                     Robolectric.buildActivity(AiSettingsActivity.class).setup()) {
+            AiSettingsActivity first = controller.get();
+            CompoundButton builtInRules = (CompoundButton) field(AiSettingsActivity.class, "useBuiltInRules")
+                    .get(first);
+            EditText replacements = (EditText) field(AiSettingsActivity.class, "replacementsInput")
+                    .get(first);
+            builtInRules.setChecked(false);
+            replacements.setText("heard => preferred");
+
+            controller.recreate();
+
+            AiSettingsActivity recreated = controller.get();
+            CompoundButton recreatedBuiltInRules = (CompoundButton) field(AiSettingsActivity.class, "useBuiltInRules")
+                    .get(recreated);
+            EditText recreatedReplacements = (EditText) field(AiSettingsActivity.class, "replacementsInput")
+                    .get(recreated);
+            assertFalse(recreatedBuiltInRules.isChecked());
+            assertEquals("heard => preferred", recreatedReplacements.getText().toString());
+            assertTrue(recreatedReplacements.isEnabled());
+        }
+    }
+
     private static Field field(Class<?> owner, String name) throws NoSuchFieldException {
         Field field = owner.getDeclaredField(name);
         field.setAccessible(true);
@@ -184,6 +243,10 @@ public class CloudOnboardingTest {
                     == InputType.TYPE_TEXT_VARIATION_PASSWORD) {
                 assertFalse(input.isSaveEnabled());
                 assertEquals("", input.getText().toString());
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    assertEquals(View.IMPORTANT_FOR_CONTENT_CAPTURE_NO_EXCLUDE_DESCENDANTS,
+                            input.getImportantForContentCapture());
+                }
                 count++;
             }
         }

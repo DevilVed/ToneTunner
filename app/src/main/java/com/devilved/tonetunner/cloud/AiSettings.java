@@ -24,7 +24,10 @@ public final class AiSettings {
     private static final String ENH_ZDR = "enhancement.require_zdr";
     private static final String ENH_PROMPT = "enhancement.prompt";
     private static final String ENH_VOCABULARY = "enhancement.vocabulary";
+    private static final String ENH_USE_BUILT_IN_RULES = "enhancement.use_built_in_rules";
+    private static final String ENH_REPLACEMENTS = "dictation.replacements";
     private static final String CLOUD_CONSENT = "cloud.consent";
+    private static final int MAX_CLEANUP_TEXT_LENGTH = 16000;
 
     private final Context appContext;
     private final SharedPreferences preferences;
@@ -37,7 +40,7 @@ public final class AiSettings {
     }
 
     public ProviderConfig getTranscriptionConfig() {
-        Provider provider = readProvider(TRANS_PROVIDER, Provider.GROQ);
+        Provider provider = readProvider(TRANS_PROVIDER, Provider.LOCAL);
         String endpoint = readEndpoint(TRANS_ENDPOINT, provider, true);
         String model = readModel(TRANS_MODEL, provider, true);
         String apiKey = readKey(provider, "transcription", endpoint);
@@ -48,7 +51,7 @@ public final class AiSettings {
     /** Provider/model settings without touching credential storage; safe for UI preflight. */
     public ProviderConfig getTranscriptionConfigWithoutKey() {
         return readConfigWithoutKey(TRANS_PROVIDER, TRANS_ENDPOINT, TRANS_MODEL, TRANS_ZDR,
-                Provider.GROQ, true);
+                Provider.LOCAL, true);
     }
 
     public ProviderConfig getEnhancementConfig() {
@@ -67,7 +70,7 @@ public final class AiSettings {
     }
 
     public boolean isCloudTranscription() {
-        return readProvider(TRANS_PROVIDER, Provider.GROQ) != Provider.LOCAL;
+        return readProvider(TRANS_PROVIDER, Provider.LOCAL) != Provider.LOCAL;
     }
 
     public boolean isEnhancementEnabled() {
@@ -85,14 +88,26 @@ public final class AiSettings {
      * uses Android Keystore. Returns 0 when ready, otherwise a safe user-facing message resource.
      */
     public int validateCloudCredentials() {
-        if (!isCloudTranscription() && !isEnhancementEnabled()) return 0;
-        if (!isCloudConsentGranted()) return R.string.entrypoint_cloud_consent_missing;
         try {
-            if (isCloudTranscription()) {
-                int error = validateCloudStage(getTranscriptionConfig(), true);
+            ProviderConfig transcriptionWithoutKey = getTranscriptionConfigWithoutKey();
+            boolean cloudTranscription = transcriptionWithoutKey.provider != Provider.LOCAL;
+            boolean enhancementEnabled = isEnhancementEnabled();
+            if (!cloudTranscription && !enhancementEnabled) return 0;
+            if (!isCloudConsentGranted()) return R.string.entrypoint_cloud_consent_missing;
+
+            if (cloudTranscription) {
+                if (transcriptionWithoutKey.provider == Provider.OPENROUTER
+                        && transcriptionWithoutKey.requireZdr) {
+                    return R.string.ai_openrouter_transcription_zdr_unsupported;
+                }
+                ProviderConfig transcription = new ProviderConfig(transcriptionWithoutKey.provider,
+                        transcriptionWithoutKey.endpoint, transcriptionWithoutKey.model,
+                        readKey(transcriptionWithoutKey.provider, "transcription",
+                                transcriptionWithoutKey.endpoint), transcriptionWithoutKey.requireZdr);
+                int error = validateCloudStage(transcription, true);
                 if (error != 0) return error;
             }
-            if (isEnhancementEnabled()) {
+            if (enhancementEnabled) {
                 int error = validateCloudStage(getEnhancementConfig(), false);
                 if (error != 0) return error;
             }
@@ -108,6 +123,14 @@ public final class AiSettings {
 
     public String getVocabulary() {
         return preferences.getString(ENH_VOCABULARY, "");
+    }
+
+    public boolean useBuiltInCleanupRules() {
+        return preferences.getBoolean(ENH_USE_BUILT_IN_RULES, true);
+    }
+
+    public String getReplacements() {
+        return preferences.getString(ENH_REPLACEMENTS, "");
     }
 
     /** A short, key-free summary suitable for the app's main settings screen. */
@@ -158,12 +181,42 @@ public final class AiSettings {
                                           String prompt,
                                           String vocabulary,
                                           boolean cloudConsent) throws IOException {
+        saveSettings(transcription, enhancementEnabled, enhancement, prompt, vocabulary, cloudConsent,
+                true, "");
+    }
+
+    /** Saves cleanup choices together with provider settings while retaining the previous signature. */
+    public synchronized void saveSettings(ProviderConfig transcription,
+                                          boolean enhancementEnabled,
+                                          ProviderConfig enhancement,
+                                          String prompt,
+                                          String vocabulary,
+                                          boolean cloudConsent,
+                                          boolean useBuiltInRules,
+                                          String replacements) throws IOException {
         if (transcription == null || enhancement == null || transcription.provider == null
                 || enhancement.provider == null) {
             throw new IllegalArgumentException("Choose a provider for each stage.");
         }
+        if (transcription.provider == Provider.OPENROUTER && transcription.requireZdr) {
+            throw new IllegalArgumentException(
+                    appContext.getString(R.string.ai_openrouter_transcription_zdr_unsupported));
+        }
         if (enhancementEnabled && enhancement.provider == Provider.LOCAL) {
             throw new IllegalArgumentException("Choose a cloud provider for enhancement.");
+        }
+
+        String safePrompt = safeString(prompt);
+        String safeVocabulary = safeString(vocabulary);
+        String safeReplacements = safeString(replacements);
+        validateCleanupTextLengths(safePrompt, safeVocabulary, safeReplacements);
+        if (enhancementEnabled && !useBuiltInRules && safePrompt.trim().isEmpty()) {
+            throw new IllegalArgumentException(appContext.getString(R.string.ai_raw_system_prompt_required));
+        }
+        try {
+            DictionaryRules.validate(safeVocabulary, safeReplacements);
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException(appContext.getString(R.string.ai_replacements_invalid));
         }
 
         boolean cloudEnabled = transcription.provider != Provider.LOCAL
@@ -188,11 +241,25 @@ public final class AiSettings {
                 .putString(ENH_ENDPOINT, safeString(enhancement.endpoint))
                 .putString(ENH_MODEL, safeString(enhancement.model))
                 .putBoolean(ENH_ZDR, enhancement.requireZdr)
-                .putString(ENH_PROMPT, safeString(prompt))
-                .putString(ENH_VOCABULARY, safeString(vocabulary))
+                .putString(ENH_PROMPT, safePrompt)
+                .putString(ENH_VOCABULARY, safeVocabulary)
+                .putBoolean(ENH_USE_BUILT_IN_RULES, useBuiltInRules)
+                .putString(ENH_REPLACEMENTS, safeReplacements)
                 .putBoolean(CLOUD_CONSENT, cloudConsent);
         if (!editor.commit()) {
             throw new IOException(appContext.getString(R.string.ai_settings_save_error));
+        }
+    }
+
+    private void validateCleanupTextLengths(String prompt, String vocabulary, String replacements) {
+        if (prompt.length() > MAX_CLEANUP_TEXT_LENGTH) {
+            throw new IllegalArgumentException(appContext.getString(R.string.ai_prompt_too_long));
+        }
+        if (vocabulary.length() > MAX_CLEANUP_TEXT_LENGTH) {
+            throw new IllegalArgumentException(appContext.getString(R.string.ai_vocabulary_too_long));
+        }
+        if (replacements.length() > MAX_CLEANUP_TEXT_LENGTH) {
+            throw new IllegalArgumentException(appContext.getString(R.string.ai_replacements_too_long));
         }
     }
 

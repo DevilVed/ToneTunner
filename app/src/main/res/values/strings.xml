@@ -49,4 +49,23 @@
     <string name="recovery_copy">Copy completed text</string>
     <string name="recovery_discard">Discard</string>
     <string name="recovery_storage_error">Saved dictations could not be accessed. Check available storage. Existing saved audio has not been deliberately discarded.</string>
+    <string name="transcript_history_title">Transcript history</string>
+    <string name="transcript_history_empty">No transcripts have been saved yet.</string>
+    <string name="transcript_history_load_more">Load more</string>
+    <string name="transcript_history_error">Transcript history could not be accessed. Check available storage and try again.</string>
+    <string name="transcript_history_detail">Transcript details</string>
+    <string name="transcript_history_copy_result">Copy final text</string>
+    <string name="transcript_history_copy_raw">Copy recognized text</string>
+    <string name="transcript_history_delete">Delete transcript</string>
+    <string name="transcript_history_delete_confirm">Delete this text history entry? Audio recovery files are stored separately and will not be changed.</string>
+    <string name="transcript_history_copied">Copied</string>
+    <string name="transcript_history_copy_failed">The clipboard could not accept the full transcript. Select and copy a smaller section from the text shown.</string>
+    <string name="transcript_history_result_label">Final text</string>
+    <string name="transcript_history_raw_label">Recognized text</string>
+    <string name="transcript_history_language">Language: %1$s</string>
+    <string name="transcript_history_warning">Note: %1$s</string>
+    <string name="transcript_history_incomplete">Recognition was interrupted. The recognized text is still available.</string>
+    <string name="transcript_history_row_header">%1$s · %2$s</string>
+    <string name="transcript_history_row_header_no_language">%1$s</string>
+    <string name="transcript_history_row_content">%1$s\n%2$s</string>
 </resources>

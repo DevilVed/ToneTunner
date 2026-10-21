@@ -53,6 +53,14 @@
                 android:contentDescription="@string/entrypoint_ai_settings" />
         </LinearLayout>
 
+        <Button
+            android:id="@+id/btnTranscriptHistory"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="8dp"
+            android:text="@string/transcript_history_title"
+            android:contentDescription="@string/transcript_history_title" />
+
         <!-- Shown only until the keyboard is enabled; Settings shows its status afterwards. -->
         <Button
             android:id="@+id/btnEnableKeyboard"

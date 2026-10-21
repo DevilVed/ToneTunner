@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fitsSystemWindows="true"
+    android:orientation="vertical"
+    android:padding="16dp">
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="8dp"
+        android:text="@string/transcript_history_title"
+        android:textSize="22sp" />
+
+    <ProgressBar
+        android:id="@+id/transcript_history_progress"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:indeterminate="true"
+        android:visibility="gone" />
+
+    <TextView
+        android:id="@+id/transcript_history_error"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:accessibilityLiveRegion="polite"
+        android:text="@string/transcript_history_error"
+        android:visibility="gone" />
+
+    <TextView
+        android:id="@+id/transcript_history_empty"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center"
+        android:text="@string/transcript_history_empty"
+        android:visibility="gone" />
+
+    <ListView
+        android:id="@+id/transcript_history_list"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:dividerHeight="1dp"
+        android:fastScrollEnabled="true" />
+
+    <Button
+        android:id="@+id/transcript_history_load_more"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/transcript_history_load_more"
+        android:visibility="gone" />
+</LinearLayout>

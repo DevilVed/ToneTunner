@@ -1,0 +1,294 @@
+# VoiceInk cleanup, vocabulary, and transcript history: engineering study
+
+Date: 21 October 2026. ToneTunner baseline: `791e86152fe025475bee7a987690951cde015f1e` on `beta-test-v1`. VoiceInk source: `Beingpax/VoiceInk` at `22e5ec5479b712797c3b338fcb875961e58800b6`, cloned into the maintainer's `inspiration folder`. This document is written before the implementation described below. Verification results will be appended after they exist.
+
+## 1. The intended behavior and the mismatch in beta
+
+The request is to understand and reproduce the useful parts of VoiceInk's cleanup algorithm: custom instructions belong in the enhancement model's system prompt; the transcript is input data; vocabulary supplies preferred spellings; and every recognized transcript remains available for later copying, including after successful insertion into another app. API keys should have appropriate Android protection.
+
+The beta implementation already sends cleanup instructions and vocabulary in a system message. It does not have successful-transcript history. Its `RecoveryStore` keeps audio and raw-text checkpoints until delivery is accepted, then deletes the recovery entry. The main screen's Saved dictations dialog therefore means "recover unfinished delivery," not "all previous dictations." Installing an APK with that behavior cannot satisfy the history requirement, even when every recovery test passes.
+
+The existing enhancement prompt is also much less specific than VoiceInk's. It describes generic punctuation/grammar editing, quotes the custom instructions as an additional string, and presents the entire vocabulary as another undifferentiated string. There is no deterministic dictionary correction. The algorithm must distinguish user-authored instructions, dictated source text, spelling hints, and explicit replacements.
+
+## 2. Source map and provenance
+
+The local clone is reference material and is excluded from ToneTunner's local Git status. It must not be vendored into the Android application or included in the PR. The following links pin the inspected version, rather than following a moving `main` branch:
+
+| Responsibility | Inspected VoiceInk source |
+|---|---|
+| Built-in cleanup rules | [AIPrompts.swift](https://github.com/Beingpax/VoiceInk/blob/22e5ec5479b712797c3b338fcb875961e58800b6/VoiceInk/Core/Enhancement/AIPrompts.swift#L1-L56) |
+| Wrapping versus verbatim custom prompts | [CustomPrompt.swift](https://github.com/Beingpax/VoiceInk/blob/22e5ec5479b712797c3b338fcb875961e58800b6/VoiceInk/Features/Enhancement/Models/CustomPrompt.swift#L42-L48) |
+| System message, vocabulary, and request construction | [AIEnhancementService.swift](https://github.com/Beingpax/VoiceInk/blob/22e5ec5479b712797c3b338fcb875961e58800b6/VoiceInk/Features/Enhancement/Workflows/AIEnhancementService.swift#L152-L267) |
+| Vocabulary retrieval | [CustomVocabularyService.swift](https://github.com/Beingpax/VoiceInk/blob/22e5ec5479b712797c3b338fcb875961e58800b6/VoiceInk/Features/Dictionary/Workflows/CustomVocabularyService.swift#L9-L24) |
+| Literal replacement algorithm | [WordReplacementService.swift](https://github.com/Beingpax/VoiceInk/blob/22e5ec5479b712797c3b338fcb875961e58800b6/VoiceInk/Features/Dictionary/Workflows/WordReplacementService.swift#L31-L91) |
+| Transcription/enhancement/delivery pipeline | [TranscriptionPipeline.swift](https://github.com/Beingpax/VoiceInk/blob/22e5ec5479b712797c3b338fcb875961e58800b6/VoiceInk/Features/Recording/Workflows/TranscriptionPipeline.swift#L104-L296) |
+| Pending record before processing | [VoiceInkEngine.swift](https://github.com/Beingpax/VoiceInk/blob/22e5ec5479b712797c3b338fcb875961e58800b6/VoiceInk/Features/Recording/Workflows/VoiceInkEngine.swift#L194-L206) |
+| Stored raw/enhanced text and request metadata | [Transcription.swift](https://github.com/Beingpax/VoiceInk/blob/22e5ec5479b712797c3b338fcb875961e58800b6/VoiceInk/Infrastructure/Persistence/Models/Transcription.swift#L11-L32) |
+| Which version the history copies | [Transcription+History.swift](https://github.com/Beingpax/VoiceInk/blob/22e5ec5479b712797c3b338fcb875961e58800b6/VoiceInk/Features/History/Models/Transcription+History.swift#L3-L49) |
+| History copy control | [HistoryComponents.swift](https://github.com/Beingpax/VoiceInk/blob/22e5ec5479b712797c3b338fcb875961e58800b6/VoiceInk/Features/History/Components/HistoryComponents.swift#L123-L130) |
+| Transcript-retention controls | [HistorySettingsPanel.swift](https://github.com/Beingpax/VoiceInk/blob/22e5ec5479b712797c3b338fcb875961e58800b6/VoiceInk/Features/History/Views/HistorySettingsPanel.swift#L39-L92) |
+| Separate audio cleanup | [AudioCleanupManager.swift](https://github.com/Beingpax/VoiceInk/blob/22e5ec5479b712797c3b338fcb875961e58800b6/VoiceInk/Infrastructure/Persistence/Cleanup/AudioCleanupManager.swift#L128-L145) |
+
+The behavioral design below is independently implemented in Java. VoiceInk is GPLv3, as is ToneTunner, but sharing a license does not remove attribution obligations when copying code. Existing ToneTunner licenses, credits, DevilVed identity, application ID, and `.jules` logs remain required.
+
+## 3. What the VoiceInk algorithm actually does
+
+```mermaid
+flowchart TD
+    A[Record audio and create pending history record] --> B[Speech-to-text provider]
+    B --> C[Filter and trim transcription]
+    C --> D[Optional paragraph formatting]
+    D --> E[Explicit dictionary replacements]
+    E --> F[Store base transcript on record]
+    F --> G{Enhancement enabled and configured?}
+    G -->|yes| H[Compose system prompt and separate transcript message]
+    H --> I[Text model and output filtering]
+    I --> J[Store enhanced text separately]
+    G -->|no| K[Choose base text]
+    J --> L[Choose enhanced text]
+    K --> M[Deliver and persist history]
+    L --> M
+    M --> N[History can copy text later]
+```
+
+This is an orchestration algorithm, not a new speech-recognition neural network. The speech provider supplies words. Deterministic preprocessing supplies exact replacement rules. A separate text model performs cleanup based on instructions. Persistence and delivery are independent responsibilities.
+
+### 3.1 The custom prompt becomes system-level instructions
+
+VoiceInk's selected `CustomPrompt` has task text and a `useSystemInstructions` setting. With that setting enabled, `finalPromptText` inserts the task text into the shared cleanup template. With it disabled, the task text itself is used as the system prompt. `AIEnhancementService` appends vocabulary and enabled context sections, then passes the resulting string to the provider abstraction as `systemPrompt`. The transcript goes through a separate user message.
+
+The wrapper establishes a transcription-editing contract. It covers meaning and language preservation, accidental repetitions and filler, spoken self-corrections, punctuation, readable paragraphs, numbers, and clear enumerations. It also tells the model to preserve spoken commands and questions as content instead of answering them. A sentence such as "tell me how to fix this error" should remain a sentence in a dictation, rather than cause the enhancer to troubleshoot the error.
+
+The user's cleanup instructions refine this editing task. "Use bullet points for my shopping list" is an instruction from settings. The same words inside the recording are source material unless the selected task explicitly interprets spoken formatting cues. Message roles and clear source boundaries help the model distinguish the two. They are not a mathematical guarantee against prompt injection or hallucination.
+
+For a concrete example, suppose the user saves `Use short paragraphs. Keep DevilVed unchanged.` and dictates `ask DevilVed to check the build`. The request has two roles. The system message contains the cleanup contract and that saved task text; the user message contains only the quoted source text and a source-data instruction. The API key belongs solely to the HTTPS authorization header. It is not part of either message, a dictionary entry, or a transcript-history record. If the user disables the built-in template, their saved task text becomes the system prompt itself, with any vocabulary section still appended separately.
+
+VoiceInk also has a special hosted Refine path that bypasses the ordinary custom-prompt request construction. Claims about the regular BYOK prompt algorithm should not be generalized to that provider path.
+
+### 3.2 Vocabulary is a spelling authority, not a replacement table
+
+The vocabulary service retrieves and sorts entries. The enhancer receives a separate vocabulary section explaining that entries are preferred proper nouns, acronyms, product names, and technical terms. It can correct a phonetic transcription mistake when the surrounding sentence supports that interpretation. It should not insert every vocabulary item into the output.
+
+For example, `ToneTunner` in vocabulary can help a model interpret "tone tuner" in a sentence about this application. It must not change an unrelated sentence about tuning a musical tone automatically. This remains a model judgment. Keeping `DevilVed` in the list also does not guarantee that a low-quality model will never rewrite it.
+
+### 3.3 Explicit replacements provide deterministic corrections
+
+VoiceInk has a distinct word-replacement service. It expands source variants, removes case-insensitive duplicates, and gives longer matches priority. For scripts with spaces it checks word boundaries; for some scripts without spaces it uses substring matching. The replacement is a literal string, not a regular-expression replacement program supplied by the user.
+
+This is the right tool for a known repeated error: a user can explicitly map `tone tuner` to `ToneTunner`. It also works without an enhancement model. A plain vocabulary item cannot supply all its possible misrecognitions; guessing a large phonetic mapping would introduce false corrections.
+
+### 3.4 History contains separate base and enhanced versions
+
+VoiceInk creates a pending SwiftData record before processing begins. Its pipeline later populates `text` with the filtered/formatted/replacement-corrected transcript. Successful AI output is stored separately as `enhancedText`, along with model/prompt names and request messages. The history's preferred copy text selects valid enhanced output if available and otherwise selects the base transcript. An enhancement error message is not copied as if it were the user's dictation.
+
+The inspected recording pipeline saves populated state after delivery returns. The pending record is already durable, but a pending row alone cannot preserve text that existed only in memory if the process dies before its later save. Android's implementation below deliberately saves recognized text before enhancement and saves final text before delivery.
+
+Transcript auto-delete is disabled by default. Audio cleanup is separate: deleting an audio recording need not delete its transcript. Therefore "recording recovery" and "copyable transcript history" must have separate lifetimes.
+
+### 3.5 Copy and paste are platform integration, not model work
+
+History copy selects the stored preferred text and writes it to the clipboard. VoiceInk's live delivery can paste into the focused macOS application through its system integration. Android should keep its existing entry-point contracts: the keyboard uses its input connection, recognition callers receive Android results, and the standalone app exposes Copy. History copy explicitly puts user-selected text onto Android's clipboard for later paste. It does not need to read the clipboard or surrounding app text.
+
+## 4. Android implementation design
+
+### 4.1 Prompt construction
+
+Extract prompt composition into a focused helper instead of burying policy in HTTP serialization. The normal mode uses an explicit cleanup template and inserts the saved custom instructions as instructions, not as a quoted transcript. A settings switch permits an advanced custom system prompt without the built-in cleanup template, matching VoiceInk's distinction. Transcript data remains a separate user message encoded as a JSON string so embedded markup cannot close its surrounding data structure.
+
+Vocabulary is parsed from the existing comma/newline form, trimmed, deduplicated, and serialized as a JSON array under an explicit spelling-authority section. Existing saved strings remain readable. Names already correctly spelled in source text should keep their spelling. The prompt explains phonetic correction, avoids forced matches, and never treats vocabulary entries as instructions. Default cleanup preserves meaning/language, resolves unambiguous self-corrections, and improves paragraphs/lists without answering the transcript.
+
+The advanced mode needs a nonempty custom prompt. It can legitimately request a shorter output, so the generic severe-shortening heuristic applies only to the built-in cleanup mode. Empty/refused/truncated/oversized responses still fail in either mode. The existing four-argument `CloudClient.enhance` remains compatible and uses built-in rules; the pipeline uses an overload carrying the selected mode.
+
+Long dictations retain bounded text windows. This limits model context: an instruction spanning distant windows may not be applied globally, and list numbering can restart. This PR must describe that limitation rather than claim whole-document parity. The raw full transcript stays available if any enhancement window fails.
+
+The local VoiceInk inspection confirms that ordinary cleanup sends the entire transcript in one user message; it does not split cleanup into text windows. Its audio-stream transport is a different mechanism. VoiceInk also strips specific reasoning-tag blocks from model output and has provider-specific reasoning controls. Those filters do not prove semantic fidelity or remove every possible assistant preamble. ToneTunner retains its bounded response validation and explicit truncation/refusal checks, rather than treating a tag filter as proof that an enhancement is correct.
+
+### 4.2 Predictable name corrections
+
+Add a separate explicit replacement field, one `heard text => preferred text` rule per line. It must be available with enhancement disabled. Match literal Unicode text, case-insensitively, with boundaries for letters/digits/combining marks; do not replace `Ann` inside `Annette`. Prefer longer rules, perform a single pass over the original text, and do not recursively replace generated output. Treat `$` and backslashes as ordinary replacement characters. Preserve unrecognized names instead of guessing.
+
+Apply explicit replacements once before enhancement, as in the inspected source. Repeating a rule such as `Ann => Dr. Ann` after enhancement can incorrectly produce `Dr. Dr. Ann`, and chained mappings can cascade across passes even when each individual pass is nonrecursive. Vocabulary remains model guidance, with surrounding context deciding whether a term is a name; it does not locally force casing. This avoids converting ordinary `will`, `may`, and `go` into title-case names. Explicit mappings are the deterministic spelling control. A model can still undo an explicit spelling correction; the system prompt and vocabulary guide it, while the original ASR text remains independently available for history and retry. This Java implementation need not reproduce every script heuristic in VoiceInk; its boundary behavior must be explicit and tested.
+
+### 4.3 Durable transcript history
+
+Create `TranscriptHistoryStore` with a SQLite database inside app-private `noBackupFilesDir`. A stable recovery/session ID identifies one dictation across retries. `saveRaw(id, rawText, language)` writes recognized progress; `saveResult(id, rawText, text, language, warning)` writes the completed final or fallback text. Upserts preserve original creation time and avoid a second row for an explicit retry. No API key, authorization header, or complete HTTP request is stored.
+
+Here "raw" means the joined recognition text before dictionary replacements and AI cleanup. Provider trimming, no-speech handling, and audio-window overlap joining have already occurred; it is not an unmodified HTTP body. The final field is the shared pipeline's output for that dictation, rather than the standalone screen's accumulated append-mode text. Unlike the reference app, this iteration does not keep per-entry model/prompt names or exact system/user request messages: it stores text, language, timestamps, completion state and safe warnings. The engineering document explains prompt composition, while an old history row alone cannot reconstruct the exact model/settings used.
+
+The pipeline checkpoints raw text in recovery as it does today, also mirrors nonempty recognized progress into history, then attempts to persist the final result before scheduling delivery. A history-storage failure must not prevent delivery: attach a visible warning and retain audio plus recognized text in recovery, even if the destination accepts the result. Always attempt the final history write after a failed progress write, so a transient failure can recover. Successful final persistence clears the history-failure condition. A later explicit retry can persist history without re-recognizing completed windows. The recovery checkpoint contains recognized text, so a failed final history save cannot guarantee retention of the exact AI-enhanced result. Empty recordings create no blank history. Cancelled processing retains any completed-window progress. Cancelling an active capture before recognition cannot save words that have not been recognized.
+
+A separate Transcript history screen lists recent entries in pages, opens the full stored text, and offers Copy result, Copy raw transcript when different, and Delete with confirmation. Text remains until explicit deletion or uninstall. Successful delivery deletes recovery audio when final history persistence succeeded or history was intentionally disabled; that does not delete history. Deleting text history does not silently discard a separately recoverable audio entry. A later explicit retry may create that text again.
+
+List queries return small summaries/previews, not complete text bodies. Full raw and final strings are stored as bounded Unicode-safe chunks in a child table and reconstructed for detail/copy, avoiding Android's device-dependent SQLite cursor-row size limit. A transaction replaces metadata and all text chunks together. Paging reloads from the start after deletion/refresh. The keyboard snapshots a no-history choice for editors marked `IME_FLAG_NO_PERSONALIZED_LEARNING`; password fields remain ineligible for dictation. That avoids adding a new permanent history copy in a private editor, while existing audio-recovery policy remains separate.
+
+The history database is app-private and excluded from backup, but it is not separately encrypted by this iteration. Device encryption and Android sandboxing are the baseline, as for existing recovery data. Root access, an authorized debugger on a debug APK, or a compromised app process are outside that confidentiality guarantee. Copy deliberately exposes selected text to the system clipboard and target application.
+
+### 4.4 API-key storage and privacy corrections
+
+The baseline already has AES-GCM encryption under an Android Keystore key, randomized nonces, authenticated provider/stage/full-endpoint identity, atomic file writes, and no-backup storage. Existing tests cover tampering, key separation, no plaintext preferences, and the production Keystore. Replacing it with another preferences library is not a security improvement by itself.
+
+Keep this storage architecture. Explicitly exclude key input from Android Content Capture as well as autofill/saved view state, retaining password masking, no-personalized-learning, and `FLAG_SECURE`. Current automatic capture heuristics appear to exclude the programmatic field, so this is hardening against future UI/framework changes, not a demonstrated current leak. Hardware backing is device-dependent; the app must not promise StrongBox on all phones or claim that encrypted storage prevents an already compromised process from using credentials. Biometric prompts per request would disrupt recognition-service workflows and are not introduced.
+
+The reference app's credential behavior is not a reason to replace the Android store: VoiceInk uses Apple Data Protection Keychain with synchronizable items by default, whereas ToneTunner intentionally keeps keys local and excluded from transfer. VoiceInk stores prompt messages in history without authorization headers, but those messages can contain clipboard/selected/window context. ToneTunner's history deliberately stores recognized text and the final pipeline result, including rejected deliveries, without collecting that surrounding content. The reference code also has inconsistent historical copy shortcuts and cancellation handling; this implementation uses a single valid-text selection rule and keeps errors in a separate warning field.
+
+The merged history audit found two more concrete bugs. First, an absent AI provider preference defaults to Groq, stranding existing local users behind cloud consent; an upgrade should retain local behavior. Second, OpenRouter documents that transcription does not support the chat endpoint's per-request routing/data-policy controls. ToneTunner must reject OpenRouter transcription with required ZDR before uploading audio, rather than send an ignored `provider.zdr` field and claim protection. Users can explicitly opt out of that requirement under a truthful disclosure. Chat enhancement keeps its documented ZDR routing. Provider-discovery network/authentication errors must also be distinguished from local secure-storage failures.
+
+## 5. Alternatives and why this design was selected
+
+| Option | Benefit | Limitation / decision |
+|---|---|---|
+| Only strengthen the prompt | Small change | Does not create history or deterministic name fixes; insufficient |
+| Keep recovery entries forever | Reuses storage | Retains large audio, mixes retry with ordinary copy, loses separate raw/final semantics; rejected |
+| New durable text history, existing audio recovery | Bounded list queries, separate lifetimes, raw/final views | Adds a small database/UI; selected |
+| Copy the entire VoiceInk subsystem | Similar feature set | Swift/macOS dependencies and unnecessary source/license coupling; independent Java implementation selected |
+| Cloud history/account sync | Cross-device access | New service, privacy and credentials; outside the requested local feature |
+
+## 6. Verification and acceptance boundary
+
+All Android compilation, executable tests, lint, emulator runs, and APK assembly use GitHub Actions. The development Mac has no Android SDK. New regression assertions should first fail against the beta behavior, then pass after repairs. The final PR targets `beta-test-v1`, with no release tag or version bump.
+
+The required checks cover prompt message roles and exact custom text, JSON vocabulary/data separation, Unicode and metacharacter replacements, collision boundaries and non-cascading rules, raw/final history durability across reopening, retry upsert, deletion, paging, history persistence after accepted/rejected delivery, enhancement fallback and cancellation, content-capture exclusion, local defaults, and rejecting unenforceable ZDR before a request. Existing ownership/recovery suites remain part of the gate. Runtime tests open the history/settings screens on the existing API matrix.
+
+These controlled tests establish application behavior, not speech/model quality. No paid provider calls or user keys are needed. Real-phone/editor behavior, noisy audio, phonetic vocabulary accuracy, and instruction adherence across long text windows still need user acceptance. An enhancement prompt is not a guarantee of verbatim fidelity.
+
+## 7. Commit review since the previous Codex work
+
+The previous chat ended around `084cd96`. All 19 following commits through merge `791e861` were inspected, including test-only and documentation commits. The full-merge history was preserved.
+
+| Commit | Result |
+|---|---|
+| `11eda74` | Corrected recognition delivery callback fixture |
+| `554b1ee` | Added deliberately failing audio/lifecycle/provider regressions |
+| `01bd79c` | Corrected credential-thread and translation fixtures |
+| `85e9ba1` | Repaired recording ownership, recovery, lifecycle, cloud settings and native setup |
+| `943e0e6` | Corrected missing-ABI fixture |
+| `c5a3d16` | Preserved gesture intent, serialized settings writes, archived service capture |
+| `ea6fc60` | Corrected detected language and cancellation/recovery messages |
+| `5c25c1d` | Corrected first-run JVM fixtures and recorder seam |
+| `3a04b5f` | Skipped invalid short cloud-audio tails; fixed singular count |
+| `78a1722` | Recorded review dispositions and verified integration |
+| `3314598` | Recorded beta PR target |
+| `a0462fb` | Addressed CodeQL ownership/stream/bounds findings |
+| `0213369` | Corrected variable collision introduced by that cleanup |
+| `3b3af85` | Recorded CodeQL verification |
+| `8a5e140` | Added emulator reproduction for Android 15 settings crash |
+| `c520747` | Fixed settings crash/insets and added API 36 |
+| `b629a43` | Added central Settings screen |
+| `97b6899` | Repaired model-screen navigation; documented Android 15/16 |
+| `791e861` | Full merge into `beta-test-v1` |
+
+Some older README/PR verification text attributes API 36 coverage to `0213369`, before that matrix entry existed. The later full beta application run is [39544604048 on `97b6899`](https://github.com/DevilVed/ToneTunner/actions/runs/39544604048), with [Code checks 39544603934](https://github.com/DevilVed/ToneTunner/actions/runs/39544603934). New evidence must be attached to the actual tested revision rather than inherited from those historical green badges.
+
+## 8. Implementation and verification record
+
+At document creation, implementation had not started. The engineering design was committed first, then a tests-only checkpoint was pushed. [Actions run 39575842568](https://github.com/DevilVed/ToneTunner/actions/runs/39575842568) compiled and ran 272 JVM/Robolectric tests: 15 failed, with zero execution errors or skips. The assertions reproduced absent text history after accepted delivery, absent dictionary APIs, the weak system prompt and missing advanced mode, local users defaulting to Groq, missing explicit Content Capture exclusion, discovery error misclassification, and unenforced transcription ZDR. The Android/emulator/APK jobs were skipped because this gate failed, as intended. No Android executable tests ran on the development Mac.
+
+After the user requested a replacement PR, the early draft was closed and this unmerged work moved onto a generic branch. The regression evidence remains tied to its original tested revision; rewriting the new branch's descriptive commits does not constitute another test run. The implementation uses the same regression files, and final green evidence will identify the integrated revision.
+
+An initial integration review changed the proposed double replacement pass to a single pre-enhancement pass plus final vocabulary casing. A later PR review removed deterministic vocabulary casing altogether, as recorded below. The regression `literalCorrectionsRunOnceAndHistoryKeepsTheOriginalRecognition` covers the `Ann => Dr. Ann` case and separate raw/final values. These are correctness repairs to the design, not a promise that a model will always preserve names.
+
+The first integrated review checkpoint, [run 39577986767](https://github.com/DevilVed/ToneTunner/actions/runs/39577986767) on `0a14d9c`, ran 297 tests with 18 failures. Most shared one root cause: Android's older `SQLiteQueryBuilder` rejects the `limit OFFSET offset` string accepted by SQLite itself. History paging now uses its supported `offset,limit` form. Two UI assertions and several store/pipeline assertions were failing because that query could not return data; saving raw/final text itself had succeeded.
+
+The independent source reviewer also found that a same-ID retry's first `saveRaw` erased a previous completed result before the retry succeeded. The added store regression failed at the completion-state assertion. Progress upserts now preserve an existing completed row, including its final text, warning, language and timestamps, until `saveResult` can atomically replace it. Incomplete first attempts still checkpoint recognized progress normally. This intentionally chooses the last completed result over a new incomplete retry in permanent history; newer retry progress remains in audio recovery.
+
+The PR's five automated review comments were checked against the source. The Content Capture call and constant require API 30, but the first implementation guarded at API 29; the guard now uses API 30 and separate SDK 29/30 tests cover the boundary. History metadata/row rendering now uses separate TextViews and resource placeholders for localization. SQL DDL now includes explicit spacing. Other failed assertions came from fixtures that still assumed Groq was the default, a one-item vocabulary fixture expecting two items, and an old warning-text assertion. The fixes make cloud scenarios choose Groq explicitly and assert the current warning contract; they do not revert the local-default or cleanup behavior.
+
+The new connected test opens history through the real main-screen button, loads a persisted fixture, and draws the page. It is scheduled on API 28, 34, 35 with 16 KB pages, and 36. A separate pipeline fixture obstructs the history directory to establish that storage failure retains audio and completed text for retry instead of silently claiming successful history persistence. Neither case has been counted as passing until the new reports are inspected.
+
+[Run 39578926861](https://github.com/DevilVed/ToneTunner/actions/runs/39578926861) on `e895fa1` ran 299 JVM/Robolectric tests: 298 passed and one UI fixture failed because it read the latest dialog before Android dispatched the previous dialog's click listener. The fixture now drains the main looper before selecting the confirmation dialog. All store, dictionary, pipeline, privacy/default, history-storage failure and retry-retention assertions passed in that report. The accompanying [Code checks run 39578926891](https://github.com/DevilVed/ToneTunner/actions/runs/39578926891) cleared Android lint and CodeQL, and GitHub automatically resolved all five inline review threads. Those results do not substitute for the next complete suite and emulator run.
+
+## 9. Verified implementation result
+
+The first fully verified application/test revision was PR head `f7b408ebfc8ad12003b85c820123f5502e61bc6a`. [Android build 39579565565](https://github.com/DevilVed/ToneTunner/actions/runs/39579565565) passed every job; [Code checks 39579565551](https://github.com/DevilVed/ToneTunner/actions/runs/39579565551) passed lint, CodeQL and dependency-graph submission. The PR build checked out synthetic merge `e458cc8`, which accounts for that suffix in the APK artifact name. The next commit `758e8e9` changed documentation only; a subsequent pagination review correction is recorded separately below.
+
+| Gate | Inspected result |
+|---|---|
+| JVM / Robolectric | 299 tests, 37 suites; zero failures, errors or skips |
+| Android lint | Zero errors; 20 warnings |
+| CodeQL | Successful workflow job; five reported inline threads automatically resolved |
+| API 28 / 4 KB pages | 11 reported tests: 10 passed, one intentional skip |
+| API 34 / 4 KB pages | 11 passed; zero failures/errors/skips |
+| API 35 / 16 KB pages | 11 passed on the isolated rerun; zero failures/errors/skips |
+| API 36 / 4 KB pages | 11 passed; zero failures/errors/skips |
+| Native dependency validation | Passed |
+| Debug and unsigned release packaging | Passed |
+| Final ELF / APK ZIP alignment | Passed |
+
+The API 28 skip is `boundRecognitionServiceStartsMicrophoneAndWaitsForSpeechOnModernAndroid`, whose modern-platform condition is intentionally unmet there. The new `transcriptHistoryOpensFromMainScreenAndDrawsPersistedEntry` test passed on all four APIs. The large-Unicode history test round-tripped raw and final text larger than 2 MiB and verified bounded list previews. Pipeline fixtures covered accepted/rejected delivery, stable-ID retry, enhancement fallback, partial recognition, no-history snapshotting, and recovery after history storage failure.
+
+The first API 35 job failed during emulator startup: after boot, `adb shell input keyevent 82` reported a broken pipe and exited before Gradle/app tests began. No test report was produced for that attempt. The single job was rerun without application changes, then all 11 tests and the downstream packaging gate passed. This is recorded as an infrastructure failure followed by an actual successful runtime run, not as a passing first attempt.
+
+The [verified debug APK artifact](https://github.com/DevilVed/ToneTunner/actions/runs/39579565565/artifacts/12336054877) is `ToneTunner-agents-transcript-history-cleanup-e458cc8-debug`; its compressed artifact is 69,359,375 bytes. That number is the ZIP archive size, not the extracted APK size. No signed release or release tag was created. The replacement pull request is [#136](https://github.com/DevilVed/ToneTunner/pull/136), targeting `beta-test-v1`.
+
+The final source review found one material issue, the completed-history overwrite on retry, which was reproduced and repaired as recorded above. The documentation review corrected the scope of private-editor guarantees to the voice keyboard and distinguished recognition text from deterministic-correction fallback. Automated tests establish these application contracts, not live-provider accuracy, physical-phone microphone/Bluetooth behavior, semantic fidelity of arbitrary model outputs, or full parity with the reference app. Persistent history is local and not separately encrypted; per-entry model/prompt provenance and cloud sync are not implemented.
+
+## 10. Follow-up review: history pagination after dictating elsewhere
+
+A sixth PR review comment identified a lifecycle gap in the history screen. Loading twenty newest rows, dictating in another app, and returning left the original cached list in place. A new newest row shifts the offset used by **Load more**, repeating an older row and leaving the new row absent until the screen is recreated. A fresh page-zero load on resume is appropriate for this flow; a new database pagination contract is unnecessary for the reported lifecycle bug.
+
+The tests-only checkpoint `4ac18dd` adds `resumeRefreshesFirstPageBeforeLoadingAnotherPage`, checking the new first row and all twenty-four distinct IDs after the next page. [Actions run 39583303068](https://github.com/DevilVed/ToneTunner/actions/runs/39583303068) ran 300 JVM tests with exactly one failure: the new first row was expected to be `zz-new`, but the stale list still began with `entry-22`. The remaining 299 tests passed. A second deterministic regression blocks the history executor, queues a page request, pauses the Activity, inserts a newer row, resumes while I/O is active, and then releases the worker. This covers the case where merely ignoring a refresh while `loading` would retain the offset bug.
+
+The correction starts the initial load in `onResume`, requests page zero on later resumes, and coalesces refresh requests during active I/O. An obsolete page response is discarded before appending, then one fresh first-page query runs. Detail completion also honors a pending refresh; successful deletion already refreshes, while a failed deletion retains its error notice if a refresh was requested. An independent source review found no material defect in this correction. It intentionally drops an in-flight detail dialog when returning requires a refresh; the user can select the refreshed row again. [Actions run 39583797580](https://github.com/DevilVed/ToneTunner/actions/runs/39583797580) on `96bac0c` passed 301 JVM tests across 37 suites, including both pagination regressions, with zero failures/errors/skips. Lint had zero errors and twenty warnings. All four emulator jobs passed. [Code checks 39583797678](https://github.com/DevilVed/ToneTunner/actions/runs/39583797678) passed lint, CodeQL and dependency submission. Further review changes are recorded separately below.
+
+## 11. Follow-up review: failure tolerance, vocabulary and settings validation
+
+Four later review comments required checking behavior and shared repository guidance. The history failure path had been designed to stop delivery while retaining recovery. That preserves data but can trap otherwise successful dictation behind an unavailable history database on every retry. The revised contract delivers the result with a fixed warning and keeps the recovery copy until history is saved or the user discards it. It does not silently claim persistence, weaken private-editor history opt-out, or promise the exact enhanced result can be recovered after its final history write failed.
+
+Vocabulary entries such as `Will`, `May`, and `Go` may also be ordinary words. A generic local casing pass cannot decide their meaning, so vocabulary now remains contextual model guidance. Explicit `heard => preferred` mappings still provide deterministic correction and run once. The prompt explicitly asks the model to preserve ordinary word sense. Tests cover the reported sentence and the actual pipeline with explicit name mappings while checking untouched raw history.
+
+OpenRouter transcription with required ZDR must be rejected on Settings Save, before storing a newly entered key or changing preferences, in addition to existing credential/request preflight checks. Existing and absent ZDR preferences continue to default to required; only an explicit opt-out or provider change unblocks Save. Enhancement retains its independent ZDR choice. The README includes this upgrade note. This avoids presenting a privacy guarantee the transcription endpoint cannot enforce without silently opting existing users out.
+
+`AGENTS.md` is intentionally public shared project guidance, as requested by the maintainer. It is no longer ignored: both uppercase and lowercase ignore entries must be removed on the case-insensitive development filesystem. Machine-specific credentials and private paths stay outside it, and its build section points to the current source/workflow configuration rather than hard-coding versions that the separate toolchain PR will change.
+
+The tests-only checkpoint `f2e03b6` ran in [Actions 39585134168](https://github.com/DevilVed/ToneTunner/actions/runs/39585134168): 306 tests, eight failures, zero execution errors or skips. The failures were the blocked history delivery, ordinary words being capitalized in the helper and actual pipeline, unchanged-name spelling, missing contextual prompt instruction, and Save accepting unsupported ZDR or reporting a missing key first. The other 298 tests passed. Production repairs isolate history writes from processing errors, make recovery cleanup conditional on final history persistence, remove the final local vocabulary pass, and validate the privacy choice before any key or preference writes. Integrated JVM/static-check evidence follows.
+
+[Actions 39586391157](https://github.com/DevilVed/ToneTunner/actions/runs/39586391157) on `8f2d593` passed all 306 JVM tests across 37 suites with zero failures/errors/skips, including every assertion above. Lint had zero errors and twenty warnings. [Code checks 39586391135](https://github.com/DevilVed/ToneTunner/actions/runs/39586391135) passed its workflow jobs, but CodeQL posted a quality finding for the now-unused vocabulary argument. The subsequent cleanup removes that argument from the new dictionary helper and its call sites instead of retaining an unnecessary compatibility overload. The behavioral review threads for these three fixes were resolved after inspecting the passing report.
+
+## 12. Follow-up review: private history policy across recovery retries
+
+A later privacy review found that an operation-only history flag was insufficient. A dictation started in a voice-keyboard editor requesting no personalized learning skipped history, but rejected delivery left a recovery entry without that policy. Retrying it from the main screen used a new `Whisper` instance whose default enabled history. Recovery must retain the original no-history decision so changing entry points cannot make a private transcript permanent.
+
+Store an explicit history permission with recovery metadata, preserve it through checkpoints and reopen, and intersect it with the current caller's permission on retry. A missing or malformed permission, unrecoverable metadata fallback, or imported orphan defaults to no permanent history. A valid snapshot restored from an AtomicFile backup retains its recovered permission. New ordinary captures explicitly permit history; private captures explicitly forbid it. Recovery audio and intact recognized-text checkpoints remain available under the existing recovery lifetime, and a successful private retry may delete that recovery entry without ever creating permanent history. Regression evidence and the final integrated result are recorded below.
+
+The regression checkpoint `111feff` also removes the unused vocabulary parameter. [Actions 39587513087](https://github.com/DevilVed/ToneTunner/actions/runs/39587513087) ran 309 JVM tests, with five failures and zero errors/skips. The actual new-facade retry wrote history despite the original private opt-out; fallback-root, orphan-import, missing-policy and string-valued-policy checks also failed. The remaining 304 tests passed, including the previous delivery, vocabulary, settings and paging regressions. A JSON string `"true"` must not be coerced into permission: only a JSON Boolean true can opt a retained entry in.
+
+The metadata implementation preserves the stored permission through old checkpoint overloads and only permits policy-aware updates to restrict it. Global metadata locking covers each read/merge/write, preventing stale checkpoints from restoring true. A stricter retry permission is saved before settings/provider validation can fail. Snapshot equality includes the permission, and the first history copy occurs only after the recovery snapshot is validated and claimed.
+
+Independent review then identified an ownership race in the new restriction method: an already-active worker could retain true in memory while another facade changed stored permission to false. The focused two-store regression holds one recovery reader open, requires the other store's restriction to fail without changing permission, then closes the reader and verifies restriction plus stale-snapshot rejection. The ownership correction takes the audio lock before the metadata lock and combines snapshot validation with the audio claim.
+
+[Actions 39588803707](https://github.com/DevilVed/ToneTunner/actions/runs/39588803707) on `4f860d7` ran 311 tests: 310 passed, and only the two-store ownership regression failed because a busy entry's policy could be changed. All five original privacy regressions, strict malformed-policy handling, and the new monotonic-checkpoint test passed. The final correction validates and reserves a snapshot under `AUDIO_LOCK` then `METADATA_LOCK`, and uses the same order to reject policy changes while audio is open or being delivered. Independent review found no lock-order inversion or material defect in this correction. The complete matrix result is recorded next.
+
+## 13. Final verification after PR review fixes
+
+Application/test revision `264ae0a92d97c239231a8fa579f126374778646d` passed [Android build 39589466270](https://github.com/DevilVed/ToneTunner/actions/runs/39589466270), completed successfully on attempt 3, and [Code checks 39589466305](https://github.com/DevilVed/ToneTunner/actions/runs/39589466305). The tested PR merge checkout was `3fd9e2e2b9b746f0dcb8c1aed591daa4c4b9f9eb`, against `beta-test-v1` base `791e861`. The final README/record/plan update changes documentation only.
+
+| Gate | Inspected final result |
+|---|---|
+| JVM / Robolectric | 311 tests, 37 suites; zero failures, errors or skips |
+| Android lint | Zero errors; 20 warnings |
+| CodeQL / dependency submission | Passed |
+| API 28 / 4 KB pages | Ten passed; one intentional API 34+ assumption; job passed |
+| API 34 / 4 KB pages | Eleven passed; zero failures/errors/skips |
+| API 35 / 16 KB pages | Eleven passed on isolated rerun; zero failures/errors/skips |
+| API 36 / 4 KB pages | Eleven passed; zero failures/errors/skips |
+| Native validation / debug and unsigned-release assembly | Passed |
+| Final ELF and APK ZIP alignment | Passed |
+| PR review | Sixteen inline threads resolved; latest automated code review on `264ae0a` completed with no findings |
+
+The passing JVM suite includes the formerly failing history-delivery/recovery, ordinary-word vocabulary, unsupported-ZDR Save, lifecycle pagination, original private-editor retry, strict metadata-policy, monotonic opt-out, and cross-store ownership cases. The connected history-screen test passed on all four APIs. API 28's UTP XML labels its expected `AssumptionViolatedException` as a failure element; the condition explicitly requires API 34+, and Gradle's successful exit treats it as an intentional omission. This record distinguishes that known report formatting from a failing application assertion.
+
+API 35's first attempt completed six tests before `system_server` crashed with SIGSEGV during the long microphone test. Its report contained an interrupted test with no application assertion, followed by missing package-service and disconnected-storage errors. An unchanged-code rerun passed all eleven tests. Packaging then failed while installing NDK 27.2.12479018 with `Error on ZipFile unknown archive`, before APK assembly; rerunning only that job completed both assemblies and alignment checks. These failed attempts remain part of the evidence rather than being counted as successful first runs.
+
+The [verified debug APK artifact](https://github.com/DevilVed/ToneTunner/actions/runs/39589466270/artifacts/12359629556) is `ToneTunner-agents-transcript-history-cleanup-3fd9e2e-debug`; its compressed ZIP archive is 69,401,879 bytes, not the extracted APK size. [PR #136](https://github.com/DevilVed/ToneTunner/pull/136) targets `beta-test-v1`; its title and description use generic inspiration wording. Test calls used mock providers rather than paid requests or user API keys. No signed public release or tag was created, and PR #136 remains unmerged. Physical-phone behavior, live-provider adherence and F-Droid readiness remain unverified. History remains app-private plaintext outside backup, and failed final history persistence retains recognized text in recovery without guaranteeing the exact enhanced result.
+
+## 14. Integration with the updated beta toolchain
+
+While the final record was being published, `beta-test-v1` advanced to `154550c862194badf45d6822f6d8647c92acc009`, the merged toolchain-hardening PR #137. Feature-branch merge `0ad31b743d3a8e91c70cbfe132f656af3acc1443` brings that update in cleanly. The eight inherited changes affect build configuration, CI workflows and their remediation record; `git diff 264ae0a..0ad31b7 -- app/src` is empty. No application logic or test sources were changed by the merge.
+
+The current configuration uses Gradle 9.7.1, AGP 9.4.1, Build Tools 36.0.0 and JDK 17. Java 11 source level, compile/target SDK 35, minimum SDK 28 and NDK 27.2.12479018 stay unchanged. The new `verifySecurityDependencies` gate checks the resolved root buildscript classpath against its declared baseline; it does not claim to audit Gradle distribution internals or APK runtime dependencies. Independent integration review found no material source compatibility conflict. Current README/build-recipe commands were updated, including API 36, and shared agent guidance now identifies the actual AGP declaration in the root `build.gradle`.
+
+[Android build 39635929624](https://github.com/DevilVed/ToneTunner/actions/runs/39635929624) verifies the merged revision. Its dependency-security baseline passed, and the downloaded JVM report contains 311 tests across 37 suites with zero failures, errors or skips. Lint reports zero errors and 20 warnings. [Code checks 39635929617](https://github.com/DevilVed/ToneTunner/actions/runs/39635929617) completed successfully on attempt 2: its lint job initially failed during NDK installation with `Error on ZipFile unknown archive`, before lint ran, then passed on an isolated rerun without source changes. CodeQL and dependency submission passed.
+
+API 28 passed ten tests with the same intentional modern-platform assumption described in section 13. API 34 and API 36 passed all eleven tests. API 35's first attempt lost `system_server` to SIGSEGV in Android's accessibility `ProxyManager.getFirstDeviceIdForUidLocked`, followed by activity-start and dead-system errors. The native crash frames were in the Android guest framework; this evidence identifies the immediate failure without proving that app activity could never trigger a platform defect. A fresh-runner rerun preserved the API 35 / 16 KB configuration and passed all eleven tests with zero failures, errors or skips and Gradle exit code 0. Packaging ran only after this complete runtime matrix passed.
+
+The complete Android build succeeded on attempt 2. The gated packaging job assembled debug and unsigned-release APKs, checked each APK with Build Tools 36 `zipalign`, and validated ten 64-bit native libraries in each with the project's ELF checker. Its checkout was synthetic PR merge `1bb110955ff4337198e5e1050fdecb44e72ce938`, merging feature head `0ad31b7` into beta base `154550c`. The [current-toolchain debug APK](https://github.com/DevilVed/ToneTunner/actions/runs/39635929624/artifacts/12363292178) is artifact `ToneTunner-agents-transcript-history-cleanup-1bb1109-debug`; its ZIP archive is 69,401,880 bytes. This supersedes section 13's older-base APK for phone testing. All sixteen inline review threads remain resolved. The final update to shared guidance, README, build recipe, this record and the implementation plan changes documentation only. PR #136 remains open against `beta-test-v1`; no release tag, signing or merge was performed. The evidence limits in section 13 still apply.

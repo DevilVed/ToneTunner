@@ -20,11 +20,22 @@
     <string name="ai_model_discovery_empty">This provider returned no usable models.</string>
     <string name="ai_zdr_label">Require OpenRouter Zero Data Retention</string>
     <string name="ai_zdr_explanation">When enabled, OpenRouter must confirm ZDR filtering for each request. A request fails if that guarantee is unavailable.</string>
+    <string name="ai_zdr_transcription_explanation">OpenRouter transcription cannot enforce per-request ZDR. When this requirement is enabled, ToneTunner blocks transcription before sending audio. Turn it off only if you accept that ZDR cannot be guaranteed for transcription.</string>
+    <string name="ai_openrouter_transcription_zdr_unsupported">OpenRouter transcription cannot enforce the required ZDR guarantee. Turn off this requirement or choose another transcription provider.</string>
     <string name="ai_enhancement_enabled">Enable transcript enhancement</string>
     <string name="ai_prompt">Cleanup instructions</string>
     <string name="ai_prompt_default">Polish the transcript for clarity and punctuation. Preserve its meaning and language. Return only the edited text.</string>
+    <string name="ai_use_built_in_rules">Use built-in cleanup rules</string>
+    <string name="ai_use_built_in_rules_hint">When enabled, these instructions are added to ToneTunner’s cleanup prompt. When disabled, this text is used directly as system instructions; vocabulary remains a separate spelling-data section. The transcript stays separate input data.</string>
     <string name="ai_vocabulary">Vocabulary and names to preserve</string>
     <string name="ai_vocabulary_hint">Optional terms, names, and spellings, separated by commas or lines</string>
+    <string name="ai_replacements">Exact replacements</string>
+    <string name="ai_replacements_hint">One literal correction per line in the form heard =&gt; preferred. Replacements also apply when enhancement is off.</string>
+    <string name="ai_replacements_invalid">Each correction must contain one nonempty heard =&gt; preferred rule.</string>
+    <string name="ai_prompt_too_long">Cleanup instructions must be 16,000 characters or fewer.</string>
+    <string name="ai_vocabulary_too_long">Vocabulary must be 16,000 characters or fewer.</string>
+    <string name="ai_replacements_too_long">Replacements must be 16,000 characters or fewer.</string>
+    <string name="ai_raw_system_prompt_required">Enter system instructions before enabling enhancement without the built-in cleanup rules.</string>
     <string name="ai_cost_notice">Cloud providers bill your own account according to their pricing. ToneTunner does not include provider credits.</string>
     <string name="ai_privacy_notice">For direct providers, privacy and retention settings are governed by your own provider account. ToneTunner cannot enforce those account settings.</string>
     <string name="ai_cloud_consent">I understand that Save enables the selected cloud stages to send recorded audio for transcription and transcript text for enhancement.</string>

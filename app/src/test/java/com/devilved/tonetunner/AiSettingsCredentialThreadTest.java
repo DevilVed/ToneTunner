@@ -84,7 +84,8 @@ public class AiSettingsCredentialThreadTest {
 
     @Test public void acceptedSavesSurviveRotationAndCommitInUserSubmissionOrder() throws Exception {
         RuntimeEnvironment.getApplication().getSharedPreferences("ai_settings", Context.MODE_PRIVATE)
-                .edit().putBoolean("cloud.consent", true).commit();
+                .edit().putString("transcription.provider", Provider.GROQ.name())
+                .putBoolean("cloud.consent", true).commit();
         SecretStoreShadow.blockFirstCredentialRead = true;
         try (ActivityController<AiSettingsActivity> controller =
                      Robolectric.buildActivity(AiSettingsActivity.class).setup()) {

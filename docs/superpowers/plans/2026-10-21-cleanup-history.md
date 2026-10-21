@@ -1,0 +1,106 @@
+# Cleanup and transcript history implementation plan
+
+> **For agentic workers:** Use scoped parallel implementation and independent branch review. Execute tests and Android builds in GitHub Actions.
+
+**Goal:** Make cleanup instructions explicit system prompts and retain every recognized transcript for later copy/paste.
+
+**Architecture:** Separate prompt composition, literal dictionary corrections, durable text history, and existing audio recovery. Save recognition progress before enhancement and the final result before delivery.
+
+**Tech stack:** Java 11, Android SDK 35 / minSdk 28, SQLite, existing OkHttp and Android Keystore. Current beta CI uses Gradle 9.7.1, AGP 9.4.1, Build Tools 36.0.0 and JDK 17.
+
+**Spec:** [Engineering study](../../2026-10-21-voiceink-cleanup-history-engineering.md).
+
+## Global constraints
+
+- PR base: `beta-test-v1`; starting commit `791e861`.
+- Preserve DevilVed identity, `org.DevilVed.whisperplus`, licensing, credits, and `.jules` history.
+- No local Android builds or executable tests, provider charges, secrets in output, or reference-clone files in commits.
+- Keep audio recovery and successful text history independent; no automatic text expiry.
+
+## Review focus
+
+- Cancellation and failed delivery preserve completed recognized text.
+- Enhancement failure never turns an error message or partial output into the copy target.
+- Replacement collisions, Unicode boundaries, dollar signs/backslashes, and retries do not corrupt words.
+- Reopened history paginates and copies full stored text, with independent deletion.
+- Unenforceable transcription ZDR fails before network I/O; existing local users remain local.
+
+## Task 1: Record the engineering design before implementation
+
+- [x] Inspect the merged commit history and pin the cloned VoiceInk source.
+- [x] Write the engineering study, including exact system/user roles, history lifecycle, differences, alternatives, and limitations.
+- [x] Commit the study before product implementation.
+
+## Task 2: Durable text history
+
+**Files:** new `asr/TranscriptHistoryStore.java`, new `TranscriptHistoryActivity.java`, main screen/layout/manifest and tests.
+
+**Interfaces:** `TranscriptHistoryStore(Context)`, `void saveRaw(String id, String rawText, String language) throws IOException`, `void saveResult(String id, String rawText, String text, String language, String warning) throws IOException`, `Entry get(String id) throws IOException`, `List<Summary> list(int limit, int offset) throws IOException`, `void delete(String id) throws IOException`. Entry fields: `id`, `rawText`, `text`, `language`, `warning`, `createdAt`, `updatedAt`. Summaries contain bounded previews and metadata only. `text` falls back to raw for incomplete entries. Empty raw text is ignored. Stable IDs and creation timestamps survive upserts. Store body strings in bounded Unicode-safe child-table chunks and update atomically to avoid CursorWindow limits. Implement store AutoCloseable or close all handles per operation. Keyboard private-editor history flag is snapshotted per operation; root owns that integration.
+
+- [x] Add a regression on existing Whisper delivery proving successful text must remain saved independently of recovery.
+- [x] Add store tests for reopening, raw/final separation, stable-ID retry, ordering/pagination, Unicode, deletion and safe errors.
+- [x] Implement SQLite storage in `noBackupFilesDir` and a paged, non-exported history Activity with explicit Copy result, Copy raw and confirmed Delete.
+- [x] Connect a Transcript history control from the main screen; keep Saved dictations as recovery.
+- [x] Root integrates saveRaw at each recognition checkpoint and saveResult before delivery. A history failure delivers text with a warning while preserving recovery.
+
+## Task 3: Cleanup instructions and exact dictionary corrections
+
+**Files:** new focused prompt/dictionary helpers, `CloudClient.java`, `Whisper.java`, settings and tests.
+
+**Interfaces:** `AiSettings.useBuiltInCleanupRules()`, `AiSettings.getReplacements()`, overload `CloudClient.enhance(String text, ProviderConfig config, String prompt, String vocabulary, boolean useBuiltInRules)`; existing four-argument call delegates to built-in mode. Existing saveSettings overload remains compatible; expanded overload appends `(boolean useBuiltInRules, String replacements)` after its current arguments. `DictionaryRules.apply(String text, String replacements)` and `DictionaryRules.validate(String vocabulary, String replacements)` are pure Java; invalid rules fail settings validation. `EnhancementPrompt.system(String prompt, String vocabulary, boolean useBuiltInRules)` builds the system string.
+
+- [x] Record failing request assertions for clear task instructions, structured vocabulary and old-mode compatibility.
+- [x] Implement an original cleanup template, optional raw system mode, JSON-array vocabulary and transcript data isolation.
+- [x] Implement literal longest-first single-pass corrections, contextual model vocabulary guidance, Unicode word boundaries, malformed-rule validation and no cascades.
+- [x] Apply explicit corrections once before enhancement without forcing vocabulary casing; retain original ASR text in history/recovery. Disable severe-shortening guard only for explicit raw-system mode.
+- [x] Settings expose wrapper choice and a separate replacement field usable without enhancement, preserve old preferences, reject empty advanced prompts and over-limit inputs on Save.
+
+## Task 4: Focused settings/privacy repairs
+
+**Files:** `AiSettings.java`, `AiSettingsActivity.java`, `CloudClient.java`, strings and tests.
+
+- [x] Add failing regressions for the local default, content-capture exclusion, ZDR preflight and safe discovery error categories.
+- [x] Keep absent provider choice local, add explicit Content Capture exclusion on supported API levels, and retain existing encrypted store.
+- [x] Reject OpenRouter transcription with required ZDR before upload; preserve chat privacy routing and explain transcription limitation in UI.
+- [x] Separate credential-read failures from model discovery network/provider failures.
+
+## Task 5: Cloud verification, review, and pull request
+
+- [x] Push regression checkpoint and inspect the failing Actions assertions before production repairs.
+- [x] Run the full Actions JVM/lint/emulator/APK gates on the integrated revision; fix observed failures.
+- [x] Obtain a fresh source review of the complete branch, implement material corrections, and verify again when changed.
+- [x] Update engineering record and README with actual evidence and remaining limits.
+- [x] Create and attach a PR targeting `beta-test-v1` with a usable verified APK link when available.
+
+## Execution record
+
+The user authorized research, engineering documentation first, implementation, and a PR in this session. The document-first milestone is complete. Work uses scoped parallel agents with root-owned integration and no repeated approval gates for the authorized work.
+
+The first fully verified application/test revision `f7b408e` passed Android build 39579565565 (attempt 2) and Code checks 39579565551. Later PR review corrections are recorded below. Final application/test revision `264ae0a` passed Android build 39589466270 (attempt 3) and Code checks 39589466305: 311 JVM tests, all four runtime jobs, packaging and alignment checks. Section 13 of the engineering study records exact reports, infrastructure reruns and the verified APK. The final README/record/plan update changes no application or test sources.
+
+## Follow-up: pagination review comment
+
+- [x] Inspect the reported insert-while-away flow and add idle-resume and in-flight-load regressions.
+- [x] Observe the idle-resume regression fail in Actions before pushing the production correction.
+- [x] Refresh from page zero on resume, coalesce refreshes during I/O, and discard stale page results.
+- [x] Verify the JVM/lint gates and both regressions before resolving the review thread; all four emulator jobs also passed on `96bac0c`.
+
+## Follow-up: later review findings
+
+- [x] Reproduce the history-delivery, ordinary-word vocabulary and unsupported-ZDR Save cases in focused regression tests.
+- [x] Make shared `AGENTS.md` tracking intentional and remove stale hard-coded toolchain versions.
+- [x] Observe the new failing assertions in Actions, then isolate history failures, leave vocabulary as model guidance, and validate unsupported privacy choices at Save.
+- [x] Review the complete correction, verify cloud gates, and record the final tested revision and APK.
+
+## Follow-up: persisted private-editor history permission
+
+- [x] Add a regression for a private editor's failed delivery followed by retry from a fresh default-enabled caller; cover conservative recovery metadata defaults. Actions 39587513087 reproduced five failures.
+- [x] Persist history permission during archival/checkpoints and honor it on explicit retries.
+- [x] Reproduce the two-store ownership regression and serialize policy restriction with audio claims. Actions 39588803707 passed 310 tests with only that focused failure.
+- [x] Remove the unused vocabulary argument, verify the cloud gates and resolve the remaining review threads. All sixteen inline threads are resolved.
+
+## Updated beta toolchain integration
+
+- [x] Merge beta base `154550c` (toolchain-hardening PR #137) into the feature branch; merge commit `0ad31b7` has no application-logic changes.
+- [x] Update current build documentation and the shared guide's AGP source path.
+- [x] Verify the dependency-security baseline, JVM/lint/static checks, runtime matrix and APK on the updated base; record its tested revision and artifact. Merged revision `0ad31b7` passed Android build 39635929624 (attempt 2) and Code checks 39635929617 (attempt 2), including all 311 JVM tests and all four runtime jobs. Section 14 of the engineering study records the current APK and infrastructure reruns. The final guide/README/record/plan update changes documentation only.

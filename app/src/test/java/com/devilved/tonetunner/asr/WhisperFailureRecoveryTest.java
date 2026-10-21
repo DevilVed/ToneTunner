@@ -2,6 +2,8 @@ package com.devilved.tonetunner.asr;
 
 import android.content.Context;
 import android.content.ContextWrapper;
+import android.database.Cursor;
+import android.database.sqlite.SQLiteDatabase;
 import android.os.Looper;
 import com.devilved.tonetunner.cloud.CloudClient;
 import com.devilved.tonetunner.cloud.ProviderConfig;
@@ -61,7 +63,12 @@ public class WhisperFailureRecoveryTest {
                 .putString("transcription.provider", "LOCAL").putBoolean("cloud.consent", true).commit();
         FailingEnhancement.calls = 0;
         deleteTree(new File(context.getNoBackupFilesDir(), "dictation-recovery"));
-        whisper = new Whisper(context, ignored -> new Whisper.LocalTranscriber() {
+        deleteTree(new File(context.getNoBackupFilesDir(), "transcript-history"));
+        whisper = createWhisper();
+    }
+
+    private Whisper createWhisper() {
+        Whisper created = new Whisper(context, ignored -> new Whisper.LocalTranscriber() {
             public CloudClient.Transcript transcribe(byte[] pcm, String language, Recognizer.Action action)
                     throws IOException, InterruptedException {
                 languages.add(language);
@@ -80,7 +87,7 @@ public class WhisperFailureRecoveryTest {
             }
             public void close() { }
         });
-        whisper.setListener(new Whisper.WhisperListener() {
+        created.setListener(new Whisper.WhisperListener() {
             public void onUpdateReceived(String message) {
                 if (throwingProgress) throw new IllegalStateException("Synthetic progress destination failure");
             }
@@ -98,6 +105,7 @@ public class WhisperFailureRecoveryTest {
                 if (throwingErrors) throw new IllegalStateException("Synthetic error destination failure");
             }
         });
+        return created;
     }
 
     @After public void tearDown() {
@@ -105,6 +113,7 @@ public class WhisperFailureRecoveryTest {
         whisper.unloadModel();
         Shadows.shadowOf(Looper.getMainLooper()).idle();
         deleteTree(new File(context.getNoBackupFilesDir(), "dictation-recovery"));
+        deleteTree(new File(context.getNoBackupFilesDir(), "transcript-history"));
     }
 
     @Test public void enhancementFailureDeliversTheWholeRawTranscript() throws Exception {
@@ -115,7 +124,8 @@ public class WhisperFailureRecoveryTest {
         assertEquals(rawText, result.getResult());
         assertEquals(0, errors);
         assertEquals(1, FailingEnhancement.calls);
-        assertTrue(result.getWarning().contains("raw transcript"));
+        assertTrue(result.getWarning().contains("Enhancement failed"));
+        assertTrue(result.getWarning().contains("without AI cleanup"));
     }
 
     @Test public void laterEnhancementFailureDoesNotDeliverAnEnhancedPrefix() throws Exception {
@@ -167,6 +177,32 @@ public class WhisperFailureRecoveryTest {
         assertEquals("part-1 part-2 part-4", result.getResult());
         assertTrue("successful delivery removes the retained recording", store.list().isEmpty());
         assertEquals(1, errors);
+    }
+
+    @Test public void acceptedDeliveryPersistsTranscriptInIndependentHistoryAfterRecoveryIsRemoved()
+            throws Exception {
+        startAndDrain(recording(1, 2048));
+
+        assertNotNull("the result must be accepted before checking retained history", result);
+        assertEquals(rawText, result.getResult());
+        assertTrue("successful delivery must still remove audio recovery", new RecoveryStore(context).list().isEmpty());
+
+        File historyDatabase = new File(context.getNoBackupFilesDir(), "transcript-history/history.db");
+        assertTrue("accepted delivery must leave an independent app-private history database", historyDatabase.isFile());
+        try (SQLiteDatabase database = SQLiteDatabase.openDatabase(
+                     historyDatabase.getPath(), null, SQLiteDatabase.OPEN_READONLY);
+             Cursor transcripts = database.rawQuery("SELECT * FROM transcripts", null)) {
+            assertTrue("accepted delivery must leave a saved history row", transcripts.moveToFirst());
+            boolean foundTranscript = false;
+            do {
+                for (int column = 0; column < transcripts.getColumnCount(); column++) {
+                    if (!transcripts.isNull(column) && rawText.equals(transcripts.getString(column))) {
+                        foundTranscript = true;
+                    }
+                }
+            } while (transcripts.moveToNext());
+            assertTrue("the independent history row must retain the delivered transcript", foundTranscript);
+        }
     }
 
     @Test public void failedRetryCheckpointsNewProgressWithoutReplacingTheOriginalAudio() throws Exception {
@@ -413,6 +449,141 @@ public class WhisperFailureRecoveryTest {
         startAndDrain(recording);
         assertEquals(List.of(2000, 4700, 7500), firstSamples);
         for (int length : windowSizes) assertTrue(length <= 896_000);
+    }
+
+    @Test public void literalCorrectionsRunOnceAndHistoryKeepsTheOriginalRecognition() throws Exception {
+        rawText = "Ann will go if you may ask tone tuner.";
+        context.getSharedPreferences("ai_settings", Context.MODE_PRIVATE).edit()
+                .putString("enhancement.vocabulary", "Will, May, Go, ToneTunner")
+                .putString("dictation.replacements", "Ann => Dr. Ann\ntone tuner => ToneTunner").commit();
+        startAndDrain(recording(1, 2048));
+        assertNotNull(result);
+        assertEquals("Dr. Ann will go if you may ask ToneTunner.", result.getResult());
+        try (TranscriptHistoryStore history = new TranscriptHistoryStore(context)) {
+            assertEquals(1, history.list(10, 0).size());
+            TranscriptHistoryStore.Entry entry = history.get(history.list(10, 0).get(0).id);
+            assertEquals(rawText, entry.rawText);
+            assertEquals(result.getResult(), entry.text);
+            assertTrue(entry.isComplete);
+        }
+    }
+
+    @Test public void acceptedAndRejectedDeliveryBothKeepTheirTextHistory() throws Exception {
+        acceptDelivery = false;
+        startAndDrain(recording(1, 2048));
+        assertNull(result);
+        RecoveryStore.Entry retained = new RecoveryStore(context).list().get(0);
+        try (TranscriptHistoryStore history = new TranscriptHistoryStore(context)) {
+            assertEquals(rawText, history.get(retained.id).text);
+            acceptDelivery = true;
+            whisper.retrySaved(retained.id);
+            drainWorker();
+            assertNotNull(result);
+            assertTrue(new RecoveryStore(context).list().isEmpty());
+            assertEquals(1, history.list(10, 0).size());
+            assertEquals(rawText, history.get(retained.id).text);
+        }
+    }
+
+    @Test public void enhancementFailureHistoryContainsTextAndWarningInsteadOfAnErrorAsText() throws Exception {
+        context.getSharedPreferences("ai_settings", Context.MODE_PRIVATE).edit()
+                .putBoolean("enhancement.enabled", true).commit();
+        startAndDrain(recording(1, 2048));
+        assertNotNull(result);
+        try (TranscriptHistoryStore history = new TranscriptHistoryStore(context)) {
+            TranscriptHistoryStore.Entry entry = history.get(history.list(10, 0).get(0).id);
+            assertEquals(rawText, entry.rawText);
+            assertEquals(rawText, entry.text);
+            assertTrue(entry.warning.contains("Enhancement failed"));
+        }
+    }
+
+    @Test public void failedLaterWindowLeavesRecognizedProgressInHistory() throws Exception {
+        failAt = 2;
+        startAndDrain(recording(60, 2048));
+        assertNull(result);
+        try (TranscriptHistoryStore history = new TranscriptHistoryStore(context)) {
+            TranscriptHistoryStore.Entry entry = history.get(history.list(10, 0).get(0).id);
+            assertEquals("part-1", entry.rawText);
+            assertEquals(entry.rawText, entry.text);
+            assertFalse(entry.isComplete);
+        }
+    }
+
+    @Test public void historyStorageFailureKeepsAudioAndCompletedTextRecoverable() throws Exception {
+        File historyDirectory = new File(context.getNoBackupFilesDir(), "transcript-history");
+        Files.write(historyDirectory.toPath(), new byte[]{1});
+        startAndDrain(recording(1, 2048));
+        assertEquals("history storage failure must not block accepted delivery", 0, errors);
+        assertNotNull("recognized text must still be delivered", result);
+        assertEquals(rawText, result.getResult());
+        assertTrue(result.getWarning().contains(
+                "Transcript history could not be saved. Audio and recognized text remain in Saved dictations for recovery."));
+        RecoveryStore store = new RecoveryStore(context);
+        assertEquals(1, store.list().size());
+        RecoveryStore.Entry saved = store.list().get(0);
+        assertEquals(rawText, saved.transcript);
+        // Removing the simulated obstruction permits an explicit retry without re-recognition.
+        assertTrue(historyDirectory.delete());
+        int recognizedCalls = calls;
+        whisper.retrySaved(saved.id);
+        drainWorker();
+        assertNotNull(result);
+        assertEquals(recognizedCalls, calls);
+        assertFalse(result.getWarning().contains("Transcript history could not be saved."));
+        try (TranscriptHistoryStore history = new TranscriptHistoryStore(context)) {
+            TranscriptHistoryStore.Entry entry = history.get(saved.id);
+            assertNotNull("the retry must persist the completed transcript", entry);
+            assertEquals(rawText, entry.rawText);
+            assertEquals(rawText, entry.text);
+            assertTrue(entry.isComplete);
+        }
+        assertTrue(store.list().isEmpty());
+    }
+
+    @Test public void privateEditorHistoryChoiceIsSnapshottedBeforeProcessing() throws Exception {
+        whisper.setHistoryEnabled(false);
+        whisper.start(recording(1, 2048));
+        // A later setting change must not enable history for this already-started operation.
+        whisper.setHistoryEnabled(true);
+        drainWorker();
+        assertNotNull(result);
+        try (TranscriptHistoryStore history = new TranscriptHistoryStore(context)) {
+            assertTrue(history.list(10, 0).isEmpty());
+        }
+    }
+
+    @Test public void privateEditorHistoryOptOutSurvivesRejectedDeliveryAndNewFacadeRetry() throws Exception {
+        whisper.setHistoryEnabled(false);
+        acceptDelivery = false;
+        startAndDrain(recording(1, 2048));
+        assertNull("the simulated closed editor rejects the result", result);
+        RecoveryStore store = new RecoveryStore(context);
+        RecoveryStore.Entry saved = store.list().get(0);
+        assertEquals(rawText, saved.transcript);
+        assertEquals(32_000L, saved.offset);
+
+        File metadata = new File(context.getNoBackupFilesDir(),
+                "dictation-recovery/" + saved.id + "/entry.json");
+        org.json.JSONObject persisted = new org.json.JSONObject(
+                new String(Files.readAllBytes(metadata.toPath()), java.nio.charset.StandardCharsets.UTF_8));
+
+        int recognizedCalls = calls;
+        whisper.unloadModel();
+        whisper = createWhisper(); // A new facade defaults to history enabled.
+        acceptDelivery = true;
+        whisper.retrySaved(saved.id);
+        drainWorker();
+        assertNotNull("the retry still delivers recognized text", result);
+        assertEquals(rawText, result.getResult());
+        assertEquals("a completed private recording must not be transcribed again", recognizedCalls, calls);
+        assertTrue(store.list().isEmpty());
+        try (TranscriptHistoryStore history = new TranscriptHistoryStore(context)) {
+            assertTrue("retry must honor the original private-editor opt-out", history.list(10, 0).isEmpty());
+        }
+        assertTrue("recovery metadata must record the original private-editor history choice",
+                persisted.has("historyEnabled"));
+        assertFalse(persisted.optBoolean("historyEnabled", true));
     }
 
     private PcmRecording recording(int seconds, int amplitude) throws Exception {

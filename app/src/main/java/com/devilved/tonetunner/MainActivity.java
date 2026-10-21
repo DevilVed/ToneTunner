@@ -71,6 +71,7 @@ public class MainActivity extends AppCompatActivity {
     private Button btnEnableKeyboard;
     private Button btnCancelProcessing;
     private Button btnSavedDictations;
+    private Button btnTranscriptHistory;
     private final ExecutorService recoveryFiles = Executors.newSingleThreadExecutor();
     private final ExecutorService entrypointTasks = Executors.newSingleThreadExecutor();
     private LinearLayout layoutModeChinese;
@@ -127,6 +128,8 @@ public class MainActivity extends AppCompatActivity {
         btnCancelProcessing = findViewById(R.id.btnCancelProcessing);
         btnSavedDictations = findViewById(R.id.btnSavedDictations);
         btnSavedDictations.setOnClickListener(view -> showSavedDictations());
+        btnTranscriptHistory = findViewById(R.id.btnTranscriptHistory);
+        btnTranscriptHistory.setOnClickListener(view -> openTranscriptHistory());
         fabCopy = findViewById(R.id.fabCopy);
 
         modeTTS.setOnCheckedChangeListener((compoundButton, isChecked) -> {
@@ -649,6 +652,7 @@ public class MainActivity extends AppCompatActivity {
         // the pending start before the worker opens the microphone.
         btnRecord.setEnabled(!processing);
         if (btnSavedDictations != null) btnSavedDictations.setEnabled(!busy);
+        if (btnTranscriptHistory != null) btnTranscriptHistory.setEnabled(!busy);
         btnCancelProcessing.setVisibility(busy ? View.VISIBLE : View.GONE);
         btnCancelProcessing.setEnabled(busy);
         btnRecord.setBackgroundResource(recording
@@ -660,6 +664,11 @@ public class MainActivity extends AppCompatActivity {
     private void updateRecordingScreen() {
         if (recording || processing || validating) getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         else getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+    }
+
+    void openTranscriptHistory() {
+        if (recording || processing || validating) return;
+        startActivity(new Intent(this, TranscriptHistoryActivity.class));
     }
 
     private void showSavedDictations() {

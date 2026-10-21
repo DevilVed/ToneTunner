@@ -2,6 +2,7 @@ package com.devilved.tonetunner;
 
 import android.content.Intent;
 import android.graphics.Typeface;
+import android.os.Build;
 import android.os.Bundle;
 import android.text.Editable;
 import android.text.InputType;
@@ -53,9 +54,11 @@ public final class AiSettingsActivity extends AppCompatActivity {
     private StageViews transcription;
     private StageViews enhancement;
     private MaterialSwitch enhancementEnabled;
+    private MaterialSwitch useBuiltInRules;
     private LinearLayout enhancementFields;
     private TextInputEditText promptInput;
     private TextInputEditText vocabularyInput;
+    private TextInputEditText replacementsInput;
     private CheckBox cloudConsent;
     private Button saveButton;
     private TextView storageStatus;
@@ -80,7 +83,7 @@ public final class AiSettingsActivity extends AppCompatActivity {
             transcriptionConfig = settings.getTranscriptionConfigWithoutKey();
             enhancementConfig = settings.getEnhancementConfigWithoutKey();
         } catch (RuntimeException e) {
-            transcriptionConfig = defaultConfig(Provider.GROQ, true);
+            transcriptionConfig = defaultConfig(Provider.LOCAL, true);
             enhancementConfig = defaultConfig(Provider.OPENROUTER, false);
             storageUnavailable = true;
         }
@@ -156,6 +159,11 @@ public final class AiSettingsActivity extends AppCompatActivity {
                 EditorInfo.IME_ACTION_NONE, true);
         promptInput.setMinLines(3);
         promptInput.setGravity(Gravity.TOP | Gravity.START);
+        useBuiltInRules = new MaterialSwitch(this);
+        useBuiltInRules.setText(R.string.ai_use_built_in_rules);
+        useBuiltInRules.setChecked(settings.useBuiltInCleanupRules());
+        enhancementFields.addView(useBuiltInRules, matchWrap());
+        enhancementFields.addView(smallText(R.string.ai_use_built_in_rules_hint), matchWrap());
         vocabularyInput = addTextInput(enhancementFields, R.string.ai_vocabulary,
                 settings.getVocabulary(), InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE,
                 EditorInfo.IME_ACTION_NONE, true);
@@ -166,6 +174,14 @@ public final class AiSettingsActivity extends AppCompatActivity {
         enhancementCardBody.addView(enhancementFields, matchWrap());
         enhancementCard.addView(enhancementCardBody);
         content.addView(enhancementCard, cardParams());
+
+        replacementsInput = addTextInput(content, R.string.ai_replacements, settings.getReplacements(),
+                InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE,
+                EditorInfo.IME_ACTION_NONE, true);
+        replacementsInput.setMinLines(3);
+        replacementsInput.setGravity(Gravity.TOP | Gravity.START);
+        content.addView(smallText(R.string.ai_replacements_hint), matchWrap());
+
         enhancementEnabled.setOnCheckedChangeListener((button, checked) -> setEnhancementFieldsEnabled(checked));
         setEnhancementFieldsEnabled(enhancementOn);
 
@@ -210,10 +226,11 @@ public final class AiSettingsActivity extends AppCompatActivity {
 
     private SettingsDraft captureDraft() {
         if (transcription == null || enhancement == null || enhancementEnabled == null
-                || promptInput == null || vocabularyInput == null || cloudConsent == null) return null;
+                || promptInput == null || vocabularyInput == null || useBuiltInRules == null
+                || replacementsInput == null || cloudConsent == null) return null;
         return new SettingsDraft(transcription.captureDraft(), enhancement.captureDraft(),
                 enhancementEnabled.isChecked(), textOf(promptInput), textOf(vocabularyInput),
-                cloudConsent.isChecked());
+                useBuiltInRules.isChecked(), textOf(replacementsInput), cloudConsent.isChecked());
     }
 
     private void restoreDraft(SettingsDraft draft) {
@@ -222,6 +239,8 @@ public final class AiSettingsActivity extends AppCompatActivity {
         enhancementEnabled.setChecked(draft.enhancementEnabled);
         promptInput.setText(draft.prompt);
         vocabularyInput.setText(draft.vocabulary);
+        useBuiltInRules.setChecked(draft.useBuiltInRules);
+        replacementsInput.setText(draft.replacements);
         cloudConsent.setChecked(draft.cloudConsent);
         setEnhancementFieldsEnabled(draft.enhancementEnabled);
     }
@@ -241,6 +260,8 @@ public final class AiSettingsActivity extends AppCompatActivity {
         ProviderConfig enhancementConfig = enhancement.currentConfig();
         String prompt = textOf(promptInput);
         String vocabulary = textOf(vocabularyInput);
+        boolean builtInRules = useBuiltInRules.isChecked();
+        String replacements = textOf(replacementsInput);
         boolean consent = cloudConsent.isChecked();
         int generation = ++saveGeneration;
         saving = true;
@@ -252,7 +273,7 @@ public final class AiSettingsActivity extends AppCompatActivity {
                 boolean succeeded = true;
                 try {
                     settings.saveSettings(transcriptionConfig, enabled, enhancementConfig,
-                            prompt, vocabulary, consent);
+                            prompt, vocabulary, consent, builtInRules, replacements);
                 } catch (IllegalArgumentException e) {
                     succeeded = false;
                     errorMessage = e.getMessage();
@@ -332,23 +353,27 @@ public final class AiSettingsActivity extends AppCompatActivity {
         modelExecutor.execute(() -> {
             List<CloudClient.Model> models = null;
             int failure = 0;
-            try {
-                String key = config.apiKey == null ? "" : config.apiKey.trim();
-                if (key.isEmpty()) {
+            String key = config.apiKey == null ? "" : config.apiKey.trim();
+            if (key.isEmpty()) {
+                try {
                     key = secretStore.getKey(config.provider,
                             stage.transcription ? "transcription" : "enhancement", config.endpoint);
+                } catch (IOException | RuntimeException e) {
+                    failure = R.string.ai_secure_storage_error;
                 }
+            }
+            if (failure == 0) {
                 if (key == null || key.trim().isEmpty()) {
                     failure = R.string.ai_missing_api_key;
                 } else {
                     ProviderConfig requestConfig = new ProviderConfig(config.provider, config.endpoint,
                             config.model, key, config.requireZdr);
-                    models = client.models(requestConfig, stage.transcription);
+                    try {
+                        models = client.models(requestConfig, stage.transcription);
+                    } catch (IOException | RuntimeException e) {
+                        failure = R.string.ai_model_discovery_failed;
+                    }
                 }
-            } catch (IOException e) {
-                failure = R.string.ai_secure_storage_error;
-            } catch (RuntimeException e) {
-                failure = R.string.ai_model_discovery_failed;
             }
             List<CloudClient.Model> result = models;
             int failureResource = failure;
@@ -480,6 +505,10 @@ public final class AiSettingsActivity extends AppCompatActivity {
             apiKey.setSaveEnabled(false);
             apiKey.setFreezesText(false);
             apiKey.setImportantForAutofill(View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                apiKey.setImportantForContentCapture(
+                        View.IMPORTANT_FOR_CONTENT_CAPTURE_NO_EXCLUDE_DESCENDANTS);
+            }
             keyLayout.addView(apiKey, matchWrap());
             body.addView(keyLayout, inputParams());
 
@@ -502,7 +531,8 @@ public final class AiSettingsActivity extends AppCompatActivity {
             zdr.setText(R.string.ai_zdr_label);
             zdr.setChecked(config.requireZdr);
             body.addView(zdr, matchWrap());
-            zdrNote = smallText(R.string.ai_zdr_explanation);
+            zdrNote = smallText(transcription ? R.string.ai_zdr_transcription_explanation
+                    : R.string.ai_zdr_explanation);
             body.addView(zdrNote, matchWrap());
 
             setupLocal = new Button(AiSettingsActivity.this);
@@ -877,15 +907,20 @@ public final class AiSettingsActivity extends AppCompatActivity {
         final boolean enhancementEnabled;
         final String prompt;
         final String vocabulary;
+        final boolean useBuiltInRules;
+        final String replacements;
         final boolean cloudConsent;
 
         SettingsDraft(StageDraft transcription, StageDraft enhancement, boolean enhancementEnabled,
-                      String prompt, String vocabulary, boolean cloudConsent) {
+                      String prompt, String vocabulary, boolean useBuiltInRules, String replacements,
+                      boolean cloudConsent) {
             this.transcription = transcription;
             this.enhancement = enhancement;
             this.enhancementEnabled = enhancementEnabled;
             this.prompt = prompt;
             this.vocabulary = vocabulary;
+            this.useBuiltInRules = useBuiltInRules;
+            this.replacements = replacements;
             this.cloudConsent = cloudConsent;
         }
     }
