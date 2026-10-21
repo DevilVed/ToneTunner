@@ -140,31 +140,33 @@ public class RecorderMicrophoneTest {
     private PcmRecording record() throws Exception {
         BlockingQueue<String> messages = new ArrayBlockingQueue<>(8);
         java.util.concurrent.CountDownLatch done = new java.util.concurrent.CountDownLatch(1);
+        // Robolectric asks the provider for a source on every read, so one source keeps the count.
+        ShadowAudioRecord.AudioRecordSource source = new ShadowAudioRecord.AudioRecordSource() {
+            int reads;
+            @Override public int readInByteArray(byte[] audio, int offset, int size, boolean blocking) {
+                if (reads == 0) scoDuringCapture.set(audioManager.isBluetoothScoOn());
+                if (reads++ >= READS) {
+                    done.countDown();
+                    try { Thread.sleep(5); } catch (InterruptedException ignored) { }
+                }
+                for (int i = 0; i + 1 < size; i += 2) {
+                    int n = (reads * size + i) / 2;
+                    // Quiet voiced sound around -40 dBFS with a 4 Hz syllable rhythm.
+                    double v = 330 * (0.6 + 0.4 * Math.sin(2 * Math.PI * 4 * n / 16000.0))
+                            * Math.sin(2 * Math.PI * 200 * n / 16000.0);
+                    short s = (short) Math.round(v);
+                    audio[offset + i] = (byte) s;
+                    audio[offset + i + 1] = (byte) (s >> 8);
+                }
+                synchronized (delivered) {
+                    delivered.add(Arrays.copyOfRange(audio, offset, offset + size));
+                }
+                return size;
+            }
+        };
         ShadowAudioRecord.setSourceProvider(record -> {
             microphone.set(record);
-            return new ShadowAudioRecord.AudioRecordSource() {
-                int reads;
-                @Override public int readInByteArray(byte[] audio, int offset, int size, boolean blocking) {
-                    if (reads == 0) scoDuringCapture.set(audioManager.isBluetoothScoOn());
-                    if (reads++ >= READS) {
-                        done.countDown();
-                        try { Thread.sleep(5); } catch (InterruptedException ignored) { }
-                    }
-                    for (int i = 0; i + 1 < size; i += 2) {
-                        int n = (reads * size + i) / 2;
-                        // Quiet voiced sound around -40 dBFS with a 4 Hz syllable rhythm.
-                        double v = 330 * (0.6 + 0.4 * Math.sin(2 * Math.PI * 4 * n / 16000.0))
-                                * Math.sin(2 * Math.PI * 200 * n / 16000.0);
-                        short s = (short) Math.round(v);
-                        audio[offset + i] = (byte) s;
-                        audio[offset + i + 1] = (byte) (s >> 8);
-                    }
-                    synchronized (delivered) {
-                        delivered.add(Arrays.copyOfRange(audio, offset, offset + size));
-                    }
-                    return size;
-                }
-            };
+            return source;
         });
         Recorder recorder = new Recorder(app());
         recorder.setListener(messages::offer);
