@@ -67,5 +67,12 @@ class AlignmentTest(unittest.TestCase):
                     output.writestr(f"lib/{abi}/library.so", payload)
             self.assertEqual(2, verify_archive(archive, required_abis=abis))
 
+            incomplete = Path(directory) / "missing-x86.apk"
+            with zipfile.ZipFile(incomplete, "w") as output:
+                for abi in abis:
+                    if abi == "x86":
+                        continue
+                    payload = elf() if abi in {"arm64-v8a", "x86_64"} else b"32-bit ELF is not parsed here"
+                    output.writestr(f"lib/{abi}/library.so", payload)
             with self.assertRaisesRegex(ValueError, "x86"):
-                verify_archive(archive, required_abis=("armeabi-v7a", "arm64-v8a", "x86_64"))
+                verify_archive(incomplete, required_abis=abis)
