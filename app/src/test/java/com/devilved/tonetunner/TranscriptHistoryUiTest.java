@@ -25,6 +25,10 @@ import org.robolectric.annotation.Config;
 import org.robolectric.annotation.LooperMode;
 import org.robolectric.shadows.ShadowDialog;
 import java.io.File;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 import static org.junit.Assert.*;
@@ -109,6 +113,40 @@ public class TranscriptHistoryUiTest {
         assertEquals(android.view.View.GONE, more.getVisibility());
     }
 
+    @Test public void resumeRefreshesFirstPageBeforeLoadingAnotherPage() throws Exception {
+        Set<String> expectedIds = new HashSet<>();
+        for (int i = 0; i < 23; i++) {
+            String id = "entry-" + i;
+            expectedIds.add(id);
+            store.saveResult(id, "raw " + i, "final " + i, "en", null);
+        }
+        controller = Robolectric.buildActivity(TranscriptHistoryActivity.class).setup();
+        TranscriptHistoryActivity activity = controller.get();
+        drain(activity);
+        ListView list = activity.findViewById(R.id.transcript_history_list);
+        assertEquals(20, list.getAdapter().getCount());
+        assertEquals(20, new HashSet<>(visibleIds(list)).size());
+
+        controller.pause();
+        store.saveResult("zz-new", "new raw", "new final", "en", null);
+        expectedIds.add("zz-new");
+        controller.resume();
+        drain(activity);
+
+        assertEquals("resuming must refresh the first page", 20, list.getAdapter().getCount());
+        assertEquals("the new item must be at the top after refresh", "zz-new", visibleIds(list).get(0));
+        Button more = activity.findViewById(R.id.transcript_history_load_more);
+        assertEquals(android.view.View.VISIBLE, more.getVisibility());
+        more.performClick();
+        drain(activity);
+
+        List<String> allVisibleIds = visibleIds(list);
+        assertEquals("all 24 entries should be reachable across the refreshed pages", 24, allVisibleIds.size());
+        assertEquals("offset pagination must not duplicate entries after a new insert",
+                allVisibleIds.size(), new HashSet<>(allVisibleIds).size());
+        assertEquals(expectedIds, new HashSet<>(allVisibleIds));
+    }
+
     @Test public void historyActivityIsNotExported() throws Exception {
         ActivityInfo info = context.getPackageManager().getActivityInfo(
                 new ComponentName(context, TranscriptHistoryActivity.class), 0);
@@ -129,6 +167,16 @@ public class TranscriptHistoryUiTest {
     private void openFirstEntry(TranscriptHistoryActivity activity, ListView list) throws Exception {
         list.performItemClick(list.getAdapter().getView(0, null, list), 0, list.getAdapter().getItemId(0));
         drain(activity);
+    }
+
+    private static List<String> visibleIds(ListView list) {
+        List<String> ids = new ArrayList<>();
+        for (int i = 0; i < list.getAdapter().getCount(); i++) {
+            TranscriptHistoryStore.Summary entry =
+                    (TranscriptHistoryStore.Summary) list.getAdapter().getItem(i);
+            ids.add(entry.id);
+        }
+        return ids;
     }
 
     private String clipboardText() {
