@@ -490,6 +490,8 @@ public class EntryPointTranslationPreflightTest {
         @Implementation protected void setListener(Recorder.RecorderListener listener) {
             RecorderShadow.listener = listener;
         }
+        // Auto mode loads the native WebRTC VAD, which the JVM test runtime cannot link.
+        @Implementation protected void initVad() { }
         @Implementation protected void start() { started = true; }
         @Implementation protected boolean isInProgress() { return started; }
         @Implementation protected void stop() { started = false; }

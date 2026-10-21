@@ -58,7 +58,7 @@ public class Recorder {
 
     private volatile boolean shouldStartRecording = false;
     private boolean useVAD = false;
-    private VadWebRTC vad = null;
+    private SpeechClassifier vad = null;
     private static final int VAD_FRAME_SIZE = 480;
 
     private final Thread workerThread;
@@ -95,14 +95,24 @@ public class Recorder {
         }
     }
 
+    /** Classifies one 30 ms PCM16 frame; tests substitute the native WebRTC model. */
+    interface SpeechClassifier {
+        boolean isSpeech(byte[] frame);
+        void close();
+    }
+
     public void initVad(){
-        vad = Vad.builder()
+        VadWebRTC webRtc = Vad.builder()
                 .setSampleRate(SampleRate.SAMPLE_RATE_16K)
                 .setFrameSize(FrameSize.FRAME_SIZE_480)
                 .setMode(Mode.VERY_AGGRESSIVE)
                 .setSilenceDurationMs(800)
                 .setSpeechDurationMs(200)
                 .build();
+        vad = new SpeechClassifier() {
+            @Override public boolean isSpeech(byte[] frame) { return webRtc.isSpeech(frame); }
+            @Override public void close() { webRtc.close(); }
+        };
         useVAD = true;
         Log.d(TAG, "VAD initialized");
     }

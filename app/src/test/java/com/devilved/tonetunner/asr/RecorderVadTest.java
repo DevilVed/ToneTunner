@@ -3,8 +3,6 @@ package com.devilved.tonetunner.asr;
 import android.Manifest;
 import android.media.AudioRecord;
 
-import com.konovalov.vad.webrtc.VadWebRTC;
-
 import org.junit.After;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -12,9 +10,6 @@ import org.robolectric.RobolectricTestRunner;
 import org.robolectric.RuntimeEnvironment;
 import org.robolectric.Shadows;
 import org.robolectric.annotation.Config;
-import org.robolectric.annotation.Implementation;
-import org.robolectric.annotation.Implements;
-import org.robolectric.shadow.api.Shadow;
 import org.robolectric.shadows.ShadowAudioRecord;
 
 import java.lang.reflect.Field;
@@ -28,8 +23,7 @@ import static org.junit.Assert.*;
 
 /** Drives the real recorder's post-speech stop branch without loading a native classifier. */
 @RunWith(RobolectricTestRunner.class)
-@Config(sdk = 28, shadows = RecorderVadTest.Classifier.class,
-        instrumentedPackages = {"com.konovalov.vad.webrtc"})
+@Config(sdk = 28)
 public class RecorderVadTest {
     @After public void clearSource() { ShadowAudioRecord.clearSource(); }
 
@@ -63,7 +57,7 @@ public class RecorderVadTest {
         useVad.setBoolean(recorder, true);
         Field vad = Recorder.class.getDeclaredField("vad");
         vad.setAccessible(true);
-        vad.set(recorder, Shadow.newInstanceOf(VadWebRTC.class));
+        vad.set(recorder, new Classifier());
         PcmRecording captured = null;
         try {
             recorder.start();
@@ -85,12 +79,11 @@ public class RecorderVadTest {
         }
     }
 
-    @Implements(value = VadWebRTC.class, isInAndroidSdk = false)
-    public static class Classifier {
+    /** Reports 36 seconds of speech, then silence; Robolectric cannot instrument the Kotlin VAD. */
+    static final class Classifier implements Recorder.SpeechClassifier {
         static volatile int calls;
         static volatile boolean closed;
-        @Implementation protected static void __staticInitializer__() { }
-        @Implementation public boolean isSpeech(byte[] frame) { return ++calls <= 1200; }
-        @Implementation public void close() { closed = true; }
+        @Override public boolean isSpeech(byte[] frame) { return ++calls <= 1200; }
+        @Override public void close() { closed = true; }
     }
 }

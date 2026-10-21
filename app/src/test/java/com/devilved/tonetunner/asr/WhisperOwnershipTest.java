@@ -120,14 +120,22 @@ public class WhisperOwnershipTest {
         RecordingFixture recording = completedRecording("cancelled");
         CallbackCounter callbacks = new CallbackCounter();
         whisper.setListener(callbacks);
+        int savedBefore = new RecoveryStore(context).list().size();
 
         whisper.start(recording.recording);
         assertTrue(whisper.isInProgress());
         whisper.stop();
-        assertClosedAndDeleted(recording);
+        // Cancellation never abandons an accepted capture: the queued archive still moves it
+        // into Saved dictations on the worker, and only then does the cancelled task stop.
         drainWorker(whisper);
         Shadows.shadowOf(Looper.getMainLooper()).idle();
 
+        assertClosedAndDeleted(recording);
+        List<RecoveryStore.Entry> saved = new RecoveryStore(context).list();
+        assertEquals(savedBefore + 1, saved.size());
+        boolean archived = false;
+        for (RecoveryStore.Entry entry : saved) archived |= entry.lengthBytes == 4L;
+        assertTrue("The cancelled capture should remain in Saved dictations", archived);
         assertFalse(whisper.isInProgress());
         assertEquals(0, callbacks.updates);
         assertEquals(0, callbacks.results);
