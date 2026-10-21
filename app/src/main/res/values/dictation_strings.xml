@@ -12,5 +12,6 @@
     <string name="dictation_transcribing">Transcribing…</string>
     <string name="dictation_enhancing">Enhancing…</string>
     <string name="dictation_inserted">Text inserted.</string>
-    <string name="dictation_editor_closed">The text field is no longer available. Dictate again in the intended field.</string>
+    <string name="dictation_editor_closed">The text field is no longer available. The text is in Saved dictations in the ToneTunner app.</string>
+    <string name="dictation_cancelled_saved">Dictation cancelled. The recording is in Saved dictations in the ToneTunner app.</string>
 </resources>

@@ -135,8 +135,10 @@ public class Whisper {
                 try { recording.retainForRecoveryFailure(); } catch (IOException ignored) { }
             }
             synchronized (this) { if (gate.isCurrent(token)) archiving = false; }
-            if (gate.isCurrent(token)) error(token,
-                    "Could not prepare saved dictation storage. Free storage and open Saved dictations before trying again.");
+            // Retry lookups fail with fixed RecoveryStore messages (e.g. an entry already discarded).
+            String message = explicitRetry && e instanceof IOException ? e.getMessage()
+                    : "Could not prepare saved dictation storage. Free storage and open Saved dictations before trying again.";
+            if (gate.isCurrent(token)) error(token, message);
             return;
         } finally {
             closeRecording(recording);

@@ -20,6 +20,9 @@
     <string name="entrypoint_processing_error">Could not process this recording. Review AI settings and try again.</string>
     <string name="entrypoint_cancel_processing">Cancel</string>
     <string name="entrypoint_cancelled">Processing cancelled</string>
+    <string name="entrypoint_cancelled_saved">Processing cancelled. The recording is in Saved dictations.</string>
+    <string name="entrypoint_interrupted_saved">Interrupted when ToneTunner left the screen. The recording is in Saved dictations.</string>
+    <string name="entrypoint_interrupted_capture">Recording stopped when ToneTunner left the screen.</string>
     <string name="entrypoint_permission_denied">Microphone permission is required to record.</string>
     <string name="entrypoint_recognition_auto_stop">Stop recognition automatically after silence</string>
     <string name="entrypoint_recognition_auto_stop_help">Turn this off to keep listening through thinking pauses until the calling app sends Stop listening. This applies only to apps using ToneTunner’s voice input service.</string>

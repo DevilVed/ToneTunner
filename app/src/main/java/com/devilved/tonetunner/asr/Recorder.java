@@ -287,16 +287,8 @@ public class Recorder {
                         : captureWarning + " " + PcmRecording.STORAGE_FAILURE_WARNING;
                 recording.finishAfterCaptureFailure(captureWarning);
             }
-            if (!released && storageWriteFailed
-                    && recording.lengthBytes() < PcmRecording.BYTES_PER_SAMPLE) {
-                try {
-                    // Keep even an unusable capture recognizable for later recovery inspection;
-                    // closing an owned spool would otherwise erase the evidence of storage failure.
-                    recording.retainForRecoveryFailure();
-                } catch (IOException e) {
-                    Log.w(TAG, "Unable to retain the failed recording spool for recovery", e);
-                }
-            }
+            // A failed capture without one complete PCM16 sample has nothing to recover; it is
+            // closed below rather than kept as an empty Saved dictation the user can never use.
             synchronized (this) {
                 if (!released && speechTimedOut) {
                     terminalMessage = MSG_SPEECH_TIMEOUT;

@@ -68,6 +68,8 @@ public class WhisperInputMethodService extends InputMethodService {
     private boolean inputActive;
     private boolean acceptRecording;
     private boolean processing;
+    // True once Whisper owns the finished capture: it is archived and survives cancellation.
+    private boolean submitted;
     private boolean validating;
     private final RecordingGesture recordingGesture = new RecordingGesture();
     private final Runnable repeatDelete = new Runnable() {
@@ -183,8 +185,10 @@ public class WhisperInputMethodService extends InputMethodService {
             startActivity(settings);
         });
         view.findViewById(R.id.btnCancelDictation).setOnClickListener(v -> {
+            boolean wasSubmitted = submitted;
             cancelDictation();
-            showStatus(getString(R.string.dictation_cancelled));
+            showStatus(getString(wasSubmitted ? R.string.dictation_cancelled_saved
+                    : R.string.dictation_cancelled));
         });
 
         btnDel.setOnClickListener(v -> sendKey(KeyEvent.KEYCODE_DEL));
@@ -433,6 +437,7 @@ public class WhisperInputMethodService extends InputMethodService {
         ++validationGeneration;
         acceptRecording = false;
         processing = false;
+        submitted = false;
         validating = false;
         updateInputViewKeepScreenOn();
         if (mRecorder != null) { mRecorder.release(); mRecorder = null; }
@@ -470,6 +475,7 @@ public class WhisperInputMethodService extends InputMethodService {
             public void onError(String message) {
                 if (mWhisper != requestWhisper || requestEditorGeneration != editorGeneration || !inputActive) return;
                 processing = false;
+                submitted = false;
                 updateInputViewKeepScreenOn();
                 processingBar.setIndeterminate(false);
                 processingBar.setProgress(0);
@@ -486,11 +492,15 @@ public class WhisperInputMethodService extends InputMethodService {
                 if (mWhisper != requestWhisper || requestEditorGeneration != editorGeneration || !inputActive
                         || activeInputConnection != getCurrentInputConnection()) return false;
                 processing = false;
+                submitted = false;
                 updateInputViewKeepScreenOn();
-                AiSettings settings = new AiSettings(WhisperInputMethodService.this);
-                if (!eligibleEditor(settings.isCloudTranscription() || settings.isEnhancementEnabled())) return false;
                 processingBar.setIndeterminate(false);
                 processingBar.setProgress(0);
+                AiSettings settings = new AiSettings(WhisperInputMethodService.this);
+                if (!eligibleEditor(settings.isCloudTranscription() || settings.isEnhancementEnabled())) {
+                    showStatus(getString(R.string.dictation_editor_closed));
+                    return false;
+                }
                 String result = whisperResult.getResult();
                 if ("zh".equals(whisperResult.getLanguage())) {
                     result = sp.getBoolean("simpleChinese", false)
@@ -527,6 +537,7 @@ public class WhisperInputMethodService extends InputMethodService {
             String langCode = sp.getString("language", "auto");
             Log.d("WhisperIME","default langCode " + langCode);
             mWhisper.setLanguage(langCode);
+            submitted = true;
             mWhisper.start(mRecorder == null ? null : mRecorder.takeRecording());
         }
     }

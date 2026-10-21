@@ -57,6 +57,8 @@ public class WhisperRecognizeActivity extends AppCompatActivity {
     private final RecordingGesture recordingGesture = new RecordingGesture();
     private final ExecutorService entrypointTasks = Executors.newSingleThreadExecutor();
     private boolean processing;
+    // True once Whisper owns the finished capture: it is archived and survives cancellation.
+    private boolean submitted;
     private boolean validating;
     private long sessionGeneration;
     private String langCode = "auto";
@@ -349,6 +351,7 @@ public class WhisperRecognizeActivity extends AppCompatActivity {
         processingBar.setIndeterminate(true);
         mWhisper.setAction(ACTION_TRANSCRIBE);
         mWhisper.setLanguage(langCode);
+        submitted = true;
         mWhisper.start(mRecorder == null ? null : mRecorder.takeRecording());
     }
 
@@ -388,6 +391,7 @@ public class WhisperRecognizeActivity extends AppCompatActivity {
         sessionActive = false;
         recording = false;
         processing = false;
+        submitted = false;
         validating = false;
         updateRecordingScreen();
         releaseRecorder();
@@ -405,6 +409,7 @@ public class WhisperRecognizeActivity extends AppCompatActivity {
         sessionActive = false;
         recording = false;
         processing = false;
+        submitted = false;
         validating = false;
         setStatusText(safeMessage);
         updateRecordingScreen();
@@ -432,7 +437,10 @@ public class WhisperRecognizeActivity extends AppCompatActivity {
         sessionActive = false;
         recording = false;
         processing = false;
+        submitted = false;
         validating = false;
+        // Stop/transcription disabled the button; a cancelled session must leave it usable.
+        if (btnRecord != null) btnRecord.setEnabled(true);
         updateRecordingScreen();
         if (processingBar != null) {
             processingBar.setIndeterminate(false);
@@ -487,7 +495,13 @@ public class WhisperRecognizeActivity extends AppCompatActivity {
 
     @Override
     protected void onPause() {
+        boolean hadActiveSession = sessionActive || recording || processing || validating;
+        boolean wasSubmitted = submitted;
         cancelCurrentSession();
+        if (hadActiveSession && !isFinishing() && !isDestroyed()) {
+            setStatus(wasSubmitted ? R.string.entrypoint_interrupted_saved
+                    : R.string.entrypoint_interrupted_capture);
+        }
         super.onPause();
     }
 

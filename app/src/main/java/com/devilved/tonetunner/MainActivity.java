@@ -44,6 +44,7 @@ import com.devilved.tonetunner.asr.RecordingGesture;
 import com.devilved.tonetunner.asr.Whisper;
 import com.devilved.tonetunner.asr.WhisperResult;
 import com.devilved.tonetunner.cloud.AiSettings;
+import com.devilved.tonetunner.cloud.CloudClient;
 import com.devilved.tonetunner.utils.HapticFeedback;
 import com.devilved.tonetunner.utils.LanguagePairAdapter;
 import com.devilved.tonetunner.utils.ThemeUtils;
@@ -51,6 +52,7 @@ import com.devilved.tonetunner.voice_translation.neural_networks.voice.Recognize
 import com.github.houbb.opencc4j.util.ZhConverterUtil;
 import com.google.android.material.floatingactionbutton.FloatingActionButton;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -92,6 +94,8 @@ public class MainActivity extends AppCompatActivity {
     private boolean sessionTranslateRequested;
     private final RecordingGesture recordingGesture = new RecordingGesture();
     private boolean processing;
+    // True once Whisper owns the finished capture: it is archived and survives cancellation.
+    private boolean submitted;
     private boolean validating;
     private boolean pendingStartAfterPermission;
     private int providerSummaryGeneration;
@@ -251,9 +255,11 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onPause() {
         boolean hadActiveSession = sessionActive || recording || processing || validating;
+        boolean wasSubmitted = submitted;
         cancelCurrentSession(null);
         if (hadActiveSession && !isFinishing() && !isDestroyed()) {
-            tvStatus.setText(R.string.entrypoint_ready);
+            tvStatus.setText(wasSubmitted ? R.string.entrypoint_interrupted_saved
+                    : R.string.entrypoint_interrupted_capture);
         }
         super.onPause();
     }
@@ -526,6 +532,7 @@ public class MainActivity extends AppCompatActivity {
         setControlsForState();
         mWhisper.setAction(action);
         mWhisper.setLanguage(langCode);
+        submitted = true;
         mWhisper.start(mRecorder == null ? null : mRecorder.takeRecording());
     }
 
@@ -540,12 +547,17 @@ public class MainActivity extends AppCompatActivity {
 
         long timeTaken = System.currentTimeMillis() - startTime;
         boolean isTranscription = whisperResult.getTask() == ACTION_TRANSCRIBE;
-        tvStatus.setText(getString(R.string.processing_done) + timeTaken + "\u2009ms" + "\n"
-                + getString(R.string.language) + " "
-                + new Locale(whisperResult.getLanguage()).getDisplayLanguage() + " "
+        // "auto" is a request mode, not a language; show a language only when one was reported.
+        String languageCode = CloudClient.normalizeDetectedLanguage(whisperResult.getLanguage());
+        String status = getString(R.string.processing_done) + timeTaken + "\u2009ms" + "\n";
+        if (!languageCode.isEmpty()) {
+            status += getString(R.string.language) + " "
+                    + new Locale(languageCode).getDisplayLanguage() + " ";
+        }
+        tvStatus.setText(status
                 + (isTranscription ? getString(R.string.mode_transcription) : getString(R.string.mode_translation)));
 
-        if ("zh".equals(whisperResult.getLanguage()) && isTranscription) {
+        if ("zh".equals(languageCode) && isTranscription) {
             layoutModeChinese.setVisibility(View.VISIBLE);
             boolean simpleChinese = sp.getBoolean("simpleChinese", false);
             text = simpleChinese ? ZhConverterUtil.toSimple(text) : ZhConverterUtil.toTraditional(text);
@@ -575,6 +587,7 @@ public class MainActivity extends AppCompatActivity {
         sessionActive = false;
         recording = false;
         processing = false;
+        submitted = false;
         processingBar.setIndeterminate(false);
         processingBar.setProgress(0);
         setControlsForState();
@@ -585,6 +598,7 @@ public class MainActivity extends AppCompatActivity {
         sessionActive = false;
         recording = false;
         processing = false;
+        submitted = false;
         validating = false;
         updateRecordingScreen();
         processingBar.setIndeterminate(false);
@@ -598,6 +612,10 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void cancelCurrentSession(Integer statusString) {
+        if (submitted && statusString != null && statusString == R.string.entrypoint_cancelled) {
+            statusString = R.string.entrypoint_cancelled_saved;
+        }
+        submitted = false;
         sessionGeneration++;
         sessionActive = false;
         recording = false;
@@ -689,7 +707,7 @@ public class MainActivity extends AppCompatActivity {
                             .setItems(labels, (dialog, which) -> showSavedDictation(entries.get(which)))
                             .setNegativeButton(android.R.string.cancel, null).show();
                 });
-            } catch (Exception e) { showRecoveryStorageError(); }
+            } catch (Exception e) { showRecoveryStorageError(null); }
         });
     }
 
@@ -703,10 +721,18 @@ public class MainActivity extends AppCompatActivity {
                     if (clipboard != null && !entry.transcript.isEmpty()) clipboard.setPrimaryClip(
                             ClipData.newPlainText(getString(R.string.model_output), entry.transcript));
                 })
-                .setNegativeButton(R.string.recovery_discard, (dialog, which) -> recoveryFiles.execute(() -> {
-                    try { new RecoveryStore(this).delete(entry.id); }
-                    catch (Exception e) { showRecoveryStorageError(); }
-                })).show();
+                .setNegativeButton(R.string.recovery_discard, (dialog, which) -> {
+                    try {
+                        recoveryFiles.execute(() -> {
+                            // RecoveryStore only reports fixed, app-authored messages (never dictated text).
+                            try { new RecoveryStore(this).delete(entry.id); }
+                            catch (IOException e) { showRecoveryStorageError(e.getMessage()); }
+                            catch (RuntimeException e) { showRecoveryStorageError(null); }
+                        });
+                    } catch (java.util.concurrent.RejectedExecutionException ignored) {
+                        // The Activity is being destroyed; the saved dictation is left unchanged.
+                    }
+                }).show();
     }
 
     private void resumeSavedDictation(String id) {
@@ -715,17 +741,22 @@ public class MainActivity extends AppCompatActivity {
         sessionActive = true;
         processing = true;
         recording = false;
+        submitted = true;
         startTime = System.currentTimeMillis();
         setControlsForState();
         ensureWhisper(token);
         mWhisper.retrySaved(id);
     }
 
-    private void showRecoveryStorageError() {
+    private void showRecoveryStorageError(String safeMessage) {
         runOnUiThread(() -> {
             if (isFinishing() || isDestroyed()) return;
             setControlsForState();
-            Toast.makeText(this, R.string.recovery_storage_error, Toast.LENGTH_LONG).show();
+            if (TextUtils.isEmpty(safeMessage)) {
+                Toast.makeText(this, R.string.recovery_storage_error, Toast.LENGTH_LONG).show();
+            } else {
+                Toast.makeText(this, safeMessage, Toast.LENGTH_LONG).show();
+            }
         });
     }
 
