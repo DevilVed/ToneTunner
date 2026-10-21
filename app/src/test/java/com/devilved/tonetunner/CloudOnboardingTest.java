@@ -2,6 +2,7 @@ package com.devilved.tonetunner;
 
 import android.content.Context;
 import android.content.Intent;
+import android.os.Build;
 import android.os.Bundle;
 import android.text.InputType;
 import android.view.View;
@@ -56,6 +57,16 @@ public class CloudOnboardingTest {
             AiSettingsActivity activity = controller.get();
             assertTrue((activity.getWindow().getAttributes().flags
                     & WindowManager.LayoutParams.FLAG_SECURE) != 0);
+            assertEquals(2, checkCredentialViews(activity.findViewById(android.R.id.content)));
+        }
+    }
+
+    @Test
+    @Config(sdk = 30)
+    public void settingsExplicitlyExcludeCredentialInputsFromContentCaptureOnAndroid30() {
+        try (ActivityController<AiSettingsActivity> controller =
+                     Robolectric.buildActivity(AiSettingsActivity.class).setup()) {
+            AiSettingsActivity activity = controller.get();
             assertEquals(2, checkCredentialViews(activity.findViewById(android.R.id.content)));
         }
     }
@@ -184,6 +195,10 @@ public class CloudOnboardingTest {
                     == InputType.TYPE_TEXT_VARIATION_PASSWORD) {
                 assertFalse(input.isSaveEnabled());
                 assertEquals("", input.getText().toString());
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    assertEquals(View.IMPORTANT_FOR_CONTENT_CAPTURE_NO_EXCLUDE_DESCENDANTS,
+                            input.getImportantForContentCapture());
+                }
                 count++;
             }
         }
