@@ -76,7 +76,7 @@
 
 The user authorized research, engineering documentation first, implementation, and a PR in this session. The document-first milestone is complete. Work uses scoped parallel agents with root-owned integration and no repeated approval gates for the authorized work.
 
-Application/test revision `f7b408e` passed Android build 39579565565 (attempt 2) and Code checks 39579565551. The engineering study records the 299 JVM tests, four runtime matrices, intentional API 28 skip, API 35 startup rerun, reviewed fixes and verified APK. The final documentation commit does not modify application or test sources.
+The first fully verified application/test revision `f7b408e` passed Android build 39579565565 (attempt 2) and Code checks 39579565551. Later PR review corrections are recorded below. Final application/test revision `264ae0a` passed Android build 39589466270 (attempt 3) and Code checks 39589466305: 311 JVM tests, all four runtime jobs, packaging and alignment checks. Section 13 of the engineering study records exact reports, infrastructure reruns and the verified APK. The final README/record/plan update changes no application or test sources.
 
 ## Follow-up: pagination review comment
 
@@ -90,11 +90,11 @@ Application/test revision `f7b408e` passed Android build 39579565565 (attempt 2)
 - [x] Reproduce the history-delivery, ordinary-word vocabulary and unsupported-ZDR Save cases in focused regression tests.
 - [x] Make shared `AGENTS.md` tracking intentional and remove stale hard-coded toolchain versions.
 - [x] Observe the new failing assertions in Actions, then isolate history failures, leave vocabulary as model guidance, and validate unsupported privacy choices at Save.
-- [ ] Review the complete correction, verify cloud gates, and record the final tested revision and APK.
+- [x] Review the complete correction, verify cloud gates, and record the final tested revision and APK.
 
 ## Follow-up: persisted private-editor history permission
 
 - [x] Add a regression for a private editor's failed delivery followed by retry from a fresh default-enabled caller; cover conservative recovery metadata defaults. Actions 39587513087 reproduced five failures.
 - [x] Persist history permission during archival/checkpoints and honor it on explicit retries.
 - [x] Reproduce the two-store ownership regression and serialize policy restriction with audio claims. Actions 39588803707 passed 310 tests with only that focused failure.
-- [ ] Remove the unused vocabulary argument, verify the cloud gates and resolve the remaining review threads.
+- [x] Remove the unused vocabulary argument, verify the cloud gates and resolve the remaining review threads. All sixteen inline threads are resolved.
