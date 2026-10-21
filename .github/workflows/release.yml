@@ -72,14 +72,19 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Set up Gradle 8.14.5
+      - name: Set up Gradle 9.7.1
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: "8.14.5"
+          gradle-version: "9.7.1"
           cache-read-only: true
 
       - name: Point the build at the runner's Android SDK
-        run: echo "sdk.dir=$ANDROID_HOME" > local.properties
+        run: |
+          echo "sdk.dir=$ANDROID_HOME" > local.properties
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "build-tools;36.0.0"
+
+      - name: Verify build-tool dependency security baseline
+        run: gradle verifySecurityDependencies --stacktrace
 
       - name: Build release APK
         run: gradle assembleRelease --stacktrace
@@ -90,7 +95,7 @@ jobs:
           RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
           RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
         run: |
-          build_tools="$ANDROID_HOME/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1)"
+          build_tools="$ANDROID_HOME/build-tools/36.0.0"
           keystore="$RUNNER_TEMP/release.keystore"
           echo "$RELEASE_KEYSTORE_B64" | base64 -d > "$keystore"
           mkdir -p dist

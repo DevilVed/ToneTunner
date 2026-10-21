@@ -5,6 +5,7 @@ plugins {
 android {
     namespace 'com.devilved.tonetunner'
     compileSdk 35
+    buildToolsVersion '36.0.0'
 
     lint {
         disable 'MissingTranslation'
