@@ -135,6 +135,7 @@ Android builds and tests run in GitHub Actions (`android-build.yml`); since 22 O
 | [39584979793](https://github.com/DevilVed/ToneTunner/actions/runs/39584979793) | `7a5e79d` | 336 unit tests, **7 failed**, all in `RecorderMicrophoneTest` (timed out at `done.await`). Lint: 0 errors. |
 | [39588021085](https://github.com/DevilVed/ToneTunner/actions/runs/39588021085) | `a587137` | **All 7 jobs passed.** 336 unit tests in 44 suites, 0 failures, 0 skipped. Lint: 0 errors, 25 warnings. Instrumented tests on emulators API 28, 34, 35 (16 KB pages) and 36: 0 failures. |
 | [39590466278](https://github.com/DevilVed/ToneTunner/actions/runs/39590466278) | `27fd603` | **All 7 jobs passed.** 336 unit tests, 0 failures. Lint: 0 errors, 20 warnings (none in new code). Instrumented tests on API 28, 34, 35 and 36: 0 failures. |
+| Build server, `testDebugUnitTest lintDebug` | `4673a3e` (review fixes) | **Build successful** in 3 min. 347 unit tests in 44 suites, 0 failures, 0 skipped. Lint: 0 errors, the same 20 warnings. |
 
 **Run 1 failure.** Robolectric's `ShadowAudioRecord` asks the audio-source provider for a source on *every* read. The test's provider returned a new source each time, so the per-source read counter restarted, the scripted end of input never arrived and the recorder never stopped. The fix creates one source per test and has the provider return it. Production code was unchanged.
 
