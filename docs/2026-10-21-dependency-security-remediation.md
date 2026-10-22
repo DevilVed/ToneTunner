@@ -62,3 +62,17 @@ Gradle 8.14.5 also contributed an older Netty path. These are build-tool librari
 ## Residual risk
 
 This is a build-tool upgrade, not a runtime security fix. It removes vulnerable code from the build environment and reduces supply-chain exposure. It does not change the APK's endpoint validation, credential storage, microphone permission model, or recovery retention. Those require separate application-level work and are tracked outside this dependency PR.
+
+## Follow-up — 22 October 2026 (before the 1.5-beta.1 pre-release)
+
+Seven alerts were still open on the default branch after the remediation above, all again build-tool dependencies reported through `settings.gradle`:
+
+| Package | Alerts | Severity | First fixed version | Action |
+|---|---|---|---|---|
+| `org.bouncycastle:bcprov-jdk18on` | #69, #71, #72 | 1 critical, 1 high, 1 medium | `1.85` | Already forced to `1.86` above; closes when `beta-test-v1` reaches `master`. |
+| `org.bouncycastle:bcpkix-jdk18on` | #68 | medium | `1.84` | Already forced to `1.86`. |
+| `org.apache.commons:commons-lang3` | #74 | medium | `3.18.0` | Forced to `3.18.0`; added to the baseline check. |
+| `org.apache.httpcomponents:httpclient` | #73 | medium | `4.5.13` | Forced to `4.5.14`; added to the baseline check. |
+| `org.jetbrains.kotlin:kotlin-gradle-plugin` | #62 | medium | `2.4.20-Beta1` | **Accepted for now.** The only fix is a pre-release Kotlin toolchain. The advisory concerns deserializing entries from a Kotlin build cache; this project uses no shared or remote Kotlin build cache, and CI caches are written only by this repository's own workflows. Revisit when a stable Kotlin release contains the fix. |
+
+Secrets check before the release: tracked files and every commit on all 21 refs were searched for provider keys (OpenAI, OpenRouter, Groq, Hugging Face, Google, GitHub, AWS), private keys and keystore passwords: none found. No keystore, `local.properties` or `.env` file is tracked. The build defines no `buildConfigField`, `resValue` or manifest placeholder, so no key can be compiled into the APK. User-entered API keys are stored only on the device, as AES-GCM ciphertext under a key held in Android Keystore.
