@@ -1,9 +1,14 @@
 name: Release
 
 # Publishes a signed APK to GitHub Releases, where anyone can download it.
-# To release: bump versionCode and versionName in app/build.gradle, merge to master, then tag a master commit:
+# The tag must equal "v" + versionName in app/build.gradle, otherwise the run fails before building.
+#
+# Stable release: bump versionCode and versionName (e.g. "1.5"), merge to master, then tag a master commit:
 #   git tag v1.5 && git push origin v1.5
-# The tag must equal "v" + versionName and point to a commit on master, otherwise the run fails before building.
+# Beta pre-release: versionName with a "-beta.N" suffix (e.g. "1.5-beta.1") and its own versionCode,
+# tagged on a commit of beta-test-v1 (or master). It is published as a pre-release, never as "latest":
+#   git tag v1.5-beta.1 && git push origin v1.5-beta.1
+# A beta and the stable release that follows it must have different versionCodes, so beta users get the update.
 # Optional release notes: fastlane/metadata/android/en-US/changelogs/<versionCode>.txt
 #
 # Dry run (builds and signs, uploads the APK as a private artifact, publishes nothing):
@@ -36,13 +41,25 @@ jobs:
           # Full history so the tagged commit can be checked against master.
           fetch-depth: 0
 
-      - name: Check that the tagged commit is on master
+      - name: Check that the tagged commit is on its release branch
+        id: channel
         if: env.DRY_RUN != 'true'
         run: |
-          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/master; then
-            echo "::error::Tag $TAG points to $GITHUB_SHA, which is not on master. Merge to master first, then tag a master commit."
+          if [[ "$TAG" =~ ^v[0-9]+(\.[0-9]+)+$ ]]; then
+            branches="master"
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          elif [[ "$TAG" =~ ^v[0-9]+(\.[0-9]+)+-beta\.[0-9]+$ ]]; then
+            branches="master beta-test-v1"
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::Tag $TAG is neither a stable (v1.5) nor a beta (v1.5-beta.1) release tag."
             exit 1
           fi
+          for branch in $branches; do
+            if git merge-base --is-ancestor "$GITHUB_SHA" "origin/$branch"; then exit 0; fi
+          done
+          echo "::error::Tag $TAG points to $GITHUB_SHA, which is not on: $branches. Merge first, then tag a commit of that branch."
+          exit 1
 
       - name: Check that the tag matches versionName
         id: version
@@ -124,10 +141,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION_CODE: ${{ steps.version.outputs.code }}
+          PRERELEASE: ${{ steps.channel.outputs.prerelease }}
         run: |
+          channel=()
+          if [ "$PRERELEASE" = "true" ]; then channel=(--prerelease --latest=false); fi
           notes="fastlane/metadata/android/en-US/changelogs/$VERSION_CODE.txt"
           if [ -f "$notes" ]; then
-            gh release create "$TAG" dist/* --title "ToneTunner $TAG" --notes-file "$notes"
+            gh release create "$TAG" dist/* --title "ToneTunner $TAG" --notes-file "$notes" "${channel[@]}"
           else
-            gh release create "$TAG" dist/* --title "ToneTunner $TAG" --generate-notes
+            gh release create "$TAG" dist/* --title "ToneTunner $TAG" --generate-notes "${channel[@]}"
           fi
