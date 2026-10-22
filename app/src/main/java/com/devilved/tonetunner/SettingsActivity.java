@@ -73,6 +73,7 @@ public class SettingsActivity extends AppCompatActivity {
         @Override
         public void onCreatePreferences(Bundle savedInstanceState, String rootKey) {
             setPreferencesFromResource(R.xml.settings_root, rootKey);
+            open("dashboard", new Intent(requireContext(), DashboardActivity.class));
             open("ai_settings", new Intent(requireContext(), AiSettingsActivity.class));
             open("local_model", new Intent(requireContext(), SetupActivity.class));
             open("keyboard", new Intent(Settings.ACTION_INPUT_METHOD_SETTINGS));

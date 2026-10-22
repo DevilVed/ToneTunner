@@ -36,6 +36,7 @@ public class SettingsScreenTest {
             PreferenceFragmentCompat fragment = (PreferenceFragmentCompat)
                     activity.getSupportFragmentManager().findFragmentById(R.id.settings_container);
             assertNotNull(fragment);
+            assertOpens(activity, fragment, "dashboard", DashboardActivity.class.getName());
             assertOpens(activity, fragment, "ai_settings", AiSettingsActivity.class.getName());
             assertOpens(activity, fragment, "local_model", SetupActivity.class.getName());
             assertOpens(activity, fragment, "voice_input", WhisperRecognitionServiceSettingsActivity.class.getName());
@@ -44,6 +45,21 @@ public class SettingsScreenTest {
             Preference version = fragment.findPreference("version");
             assertNotNull(version);
             assertFalse(String.valueOf(version.getSummary()).isEmpty());
+        }
+    }
+
+    @Test public void microphoneDefaultsToThePhoneWithMaximumNoiseCancellationAndBoost() {
+        try (ActivityController<SettingsActivity> controller = Robolectric.buildActivity(SettingsActivity.class).setup()) {
+            PreferenceFragmentCompat fragment = (PreferenceFragmentCompat)
+                    controller.get().getSupportFragmentManager().findFragmentById(R.id.settings_container);
+            assertNotNull(fragment);
+            assertEquals("builtin", ((androidx.preference.ListPreference) fragment.findPreference("micInput")).getValue());
+            assertEquals("maximum", ((androidx.preference.ListPreference) fragment.findPreference("micNoiseReduction")).getValue());
+            assertEquals("maximum", ((androidx.preference.ListPreference) fragment.findPreference("micBoost")).getValue());
+            com.devilved.tonetunner.asr.MicSettings mic = com.devilved.tonetunner.asr.MicSettings.read(controller.get());
+            assertEquals(com.devilved.tonetunner.asr.MicRouter.Mode.BUILTIN, mic.input);
+            assertEquals(com.devilved.tonetunner.asr.MicSettings.NoiseReduction.MAXIMUM, mic.noiseReduction);
+            assertEquals(com.devilved.tonetunner.asr.MicProcessor.Boost.MAXIMUM, mic.boost);
         }
     }
 

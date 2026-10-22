@@ -153,7 +153,9 @@ jobs:
           profile: pixel_6
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -no-boot-anim -camera-back none -camera-front none
           disable-animations: true
-          script: gradle connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.expectedPageSize=${{ matrix.page_size }} --stacktrace
+          script: |
+            gradle connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.expectedPageSize=${{ matrix.page_size }} --stacktrace
+            bash tools/ci/check_keyboard_install.sh
       - name: Upload Android runtime reports
         if: always()
         uses: actions/upload-artifact@v4

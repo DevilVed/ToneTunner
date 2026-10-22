@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_category_microphone">Microphone</string>
+    <string name="settings_mic_input_title">Microphone to record from</string>
+    <string name="settings_mic_noise_title">Noise cancellation</string>
+    <string name="settings_mic_boost_title">Microphone boost</string>
+    <string name="settings_mic_note">Changes apply from the next recording. If transcription gets worse on your phone, set noise cancellation to Standard.</string>
+
+    <string-array name="mic_input_entries">
+        <item>Phone microphone only (default; Bluetooth is never used)</item>
+        <item>Bluetooth headset (falls back to the phone)</item>
+        <item>Wired or USB headset (falls back to the phone)</item>
+        <item>Automatic (Android decides)</item>
+    </string-array>
+    <string-array name="mic_input_values" translatable="false">
+        <item>builtin</item>
+        <item>bluetooth</item>
+        <item>wired</item>
+        <item>automatic</item>
+    </string-array>
+
+    <string-array name="mic_noise_entries">
+        <item>Maximum: call-grade noise cancellation, noise suppressor and rumble filter</item>
+        <item>Standard: noise suppressor and rumble filter</item>
+        <item>Off: unprocessed microphone</item>
+    </string-array>
+    <string-array name="mic_noise_values" translatable="false">
+        <item>maximum</item>
+        <item>standard</item>
+        <item>off</item>
+    </string-array>
+
+    <string-array name="mic_boost_entries">
+        <item>Maximum: up to +30 dB, never clipped</item>
+        <item>Medium: up to +12 dB</item>
+        <item>Off</item>
+    </string-array>
+    <string-array name="mic_boost_values" translatable="false">
+        <item>maximum</item>
+        <item>medium</item>
+        <item>off</item>
+    </string-array>
+</resources>

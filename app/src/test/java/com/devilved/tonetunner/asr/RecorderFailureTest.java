@@ -44,6 +44,10 @@ public class RecorderFailureTest {
     @Before public void grantRecordingPermission() {
         Shadows.shadowOf(RuntimeEnvironment.getApplication())
                 .grantPermissions(Manifest.permission.RECORD_AUDIO);
+        // These tests compare salvaged bytes with the source; RecorderMicrophoneTest covers processing.
+        androidx.preference.PreferenceManager.getDefaultSharedPreferences(RuntimeEnvironment.getApplication())
+                .edit().putString(MicSettings.KEY_NOISE_REDUCTION, "off")
+                .putString(MicSettings.KEY_BOOST, "off").commit();
     }
 
     @After public void resetAudioSource() {

@@ -39,6 +39,25 @@ Legacy Android language codes and ISO three-letter aliases are normalized; three
 
 Translation to English is available with supported transcription models. ToneTunner checks support before cloud consent/key validation and microphone capture in the app and voice keyboard. Groq Whisper Turbo, OpenRouter, custom cloud routes, and the default OpenAI mini model are not supported translation routes; use Groq `whisper-large-v3`, OpenAI `whisper-1`, or local Whisper instead. Unsupported combinations report an error rather than silently transcribing the wrong task. Android's standard `RECOGNIZE_SPEECH` Activity always transcribes to honor the caller's speech-recognition contract.
 
+## Microphone
+
+**Settings → Microphone** chooses the input and how it is processed. Changes apply from the next recording.
+
+- **Microphone to record from:** *Phone microphone only* is the default. A connected Bluetooth headset is ignored and its call-quality (SCO) link is never opened. *Bluetooth headset* and *Wired or USB headset* fall back to the phone microphone when that kind of microphone is not connected. *Automatic* leaves the choice to Android.
+- **Noise cancellation:** *Maximum* (default) records with Android's call-grade capture, which turns on the phone's multi-microphone noise cancellation, then adds the platform noise suppressor where the phone has one and an 80 Hz rumble filter. *Standard* keeps the plain voice-recognition capture with the suppressor and filter. *Off* is the unprocessed microphone. Call processing can soften very quiet consonants on some phones; if transcription gets worse, choose Standard.
+- **Microphone boost:** *Maximum* (default) is an automatic gain of up to +30 dB that raises quiet speech toward −18 dBFS. It only rises on speech, so pauses and background noise are not pumped up, and it limits every peak to −1 dBFS so the audio is never clipped. *Medium* allows up to +12 dB.
+
+Auto-stop listens to the raw microphone, so the boost does not change when hands-free mode stops. The near-silence filter described above sees the boosted audio.
+
+## Usage dashboard
+
+**Settings → Usage dashboard** shows, for today, 7 days, 30 days, this year or all time: dictations, words, audio recorded, time saved (typing at 40 words per minute versus speaking), API cost, tokens, cache hits, processing speed, on-device model load time, cloud request latency, peak hours, per-model usage and the microphone used. Tap a bar to read its value.
+
+- Costs use the usage each provider reports. OpenRouter reports the amount it charged and that amount is shown as is. Other costs multiply the reported usage by built-in prices (checked on 21 October 2026). Groq bills at least 10 seconds per transcription request. Tap a model to change its price; models without a price are counted and labelled instead of being shown as free.
+- When a chat provider does not report token usage, tokens are estimated at four characters per token and the card says so.
+- Failed dictations and cancelled ones that already made paid requests count toward cost and reliability, not toward words.
+- The data stays on the phone in a private database that is excluded from backup. It holds counts and timings only, never transcript text. **Clear usage data** deletes it.
+
 ## Data handling
 
 Cloud transcription sends recorded audio to the chosen provider. Enhancement sends the transcript, cleanup instructions, and vocabulary to its provider; it does not read or upload screen contents, surrounding app text, or the clipboard. Local Whisper with enhancement disabled processes speech on the phone.
@@ -72,4 +91,4 @@ ToneTunner began as a fork of [whisperIMEplus](https://github.com/woheller69/whi
 - It uses [ONNX Runtime and ONNX Runtime Extensions](https://github.com/microsoft/onnxruntime-extensions), published under MIT license; the upstream Extensions license is also included in the APK's license assets
 - It uses [Opencc4j](https://github.com/houbb/opencc4j), for Chinese conversions, published under Apache-2.0 license
 - It uses [FreeDroidWarn](https://github.com/DevilVed/FreeDroidWarn), DevilVed's fork of woheller69's library, published under Apache-2.0 license
-- The optional local Whisper model is downloaded from [HuggingFace](https://huggingface.co/DocWolle/whisperOnnx) and is published under MIT license
+- The optional local Whisper model is downloaded from [realSauron/ToneTunner-whisper-onnx](https://huggingface.co/realSauron/ToneTunner-whisper-onnx) on Hugging Face, a byte-for-byte mirror of the model from [DocWolle/whisperOnnx](https://huggingface.co/DocWolle/whisperOnnx), and is published under Apache-2.0 license

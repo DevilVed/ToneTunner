@@ -57,7 +57,7 @@ public class SetupActivity extends AppCompatActivity {
 
      public void downloadModel(View v){
          Toast.makeText(this,"Download",Toast.LENGTH_SHORT).show();
-         startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("https://huggingface.co/DocWolle/whisperOnnx/blob/main/whisper_small_int8.zip")));
+         startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("https://huggingface.co/realSauron/ToneTunner-whisper-onnx/blob/main/whisper_small_int8.zip")));
      }
     public void installModel(View v){
         Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);

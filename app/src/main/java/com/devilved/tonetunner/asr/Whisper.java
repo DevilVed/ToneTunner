@@ -8,6 +8,9 @@ import com.devilved.tonetunner.cloud.AiSettings;
 import com.devilved.tonetunner.cloud.CloudClient;
 import com.devilved.tonetunner.cloud.Provider;
 import com.devilved.tonetunner.cloud.ProviderConfig;
+import com.devilved.tonetunner.metrics.SessionMeter;
+import com.devilved.tonetunner.metrics.SessionMetric;
+import com.devilved.tonetunner.metrics.UsageStore;
 import com.devilved.tonetunner.voice_translation.neural_networks.NeuralNetworkApi;
 import com.devilved.tonetunner.voice_translation.neural_networks.voice.Recognizer;
 import com.devilved.tonetunner.voice_translation.neural_networks.voice.RecognizerListener;
@@ -57,7 +60,13 @@ public class Whisper {
         CloudClient.Transcript transcribe(byte[] pcm, String language, Recognizer.Action action)
                 throws IOException, InterruptedException;
         void close();
+        /** System.nanoTime() when loading started, for the dashboard; 0 when unknown. */
+        default long createdAtNanos() { return 0; }
+        /** System.nanoTime() when the model became ready; 0 while loading or unknown. */
+        default long readyAtNanos() { return 0; }
     }
+    /** Name shown on the dashboard for the on-device model. */
+    static final String LOCAL_MODEL_NAME = "Whisper Small (on device)";
     interface LocalEngineFactory {
         LocalTranscriber create(Context context) throws IOException, InterruptedException;
     }
@@ -116,6 +125,9 @@ public class Whisper {
 
     private void prepareAndProcess(long token, PcmRecording recording, String savedId,
                                    Recognizer.Action initialAction, String initialLanguage) {
+        long startedNanos = System.nanoTime();
+        long startedAt = System.currentTimeMillis();
+        MicCapture micCapture = recording == null ? null : recording.getMicCapture();
         RecoveryStore.Entry retained = null;
         Recognizer.Action requestedAction = initialAction;
         String requestedLanguage = initialLanguage;
@@ -182,7 +194,13 @@ public class Whisper {
                     session.overlap, message, android.speech.SpeechRecognizer.ERROR_SERVER);
             return;
         }
+        SessionMeter meter = new SessionMeter(startedAt, transcription.provider.name(),
+                transcription.provider == Provider.LOCAL ? LOCAL_MODEL_NAME : transcription.model,
+                enhance ? enhancement.provider.name() : null, enhance ? enhancement.model : null);
+        meter.setMicCapture(micCapture);
+        boolean recorded = false;
         CloudClient client = new CloudClient();
+        client.setUsageListener(meter);
         synchronized (this) {
             if (!isCurrent(token)) return;
             cloud = client;
@@ -202,6 +220,7 @@ public class Whisper {
                 activeRecording = opened;
                 input = opened;
             }
+            meter.setAudioMs(opened.lengthBytes() * 1000L / (PcmRecording.SAMPLE_RATE * PcmRecording.BYTES_PER_SAMPLE));
             String inferenceLanguage = CloudClient.normalizeLanguage(requestedLanguage);
             boolean automaticLanguage = inferenceLanguage.isEmpty();
             if (automaticLanguage) inferenceLanguage = CloudClient.normalizeDetectedLanguage(detectedLanguage);
@@ -227,10 +246,16 @@ public class Whisper {
                                 engine = candidate;
                             }
                         }
-                        CloudClient.Transcript part = engine == null
-                                ? client.transcribe(chunk, transcription, inferenceLanguage,
-                                        requestedAction == Recognizer.ACTION_TRANSLATE)
-                                : engine.transcribe(chunk, inferenceLanguage, requestedAction);
+                        CloudClient.Transcript part;
+                        if (engine == null) {
+                            part = client.transcribe(chunk, transcription, inferenceLanguage,
+                                    requestedAction == Recognizer.ACTION_TRANSLATE);
+                        } else {
+                            boolean firstWindow = engine.readyAtNanos() == 0;
+                            long callStart = System.nanoTime();
+                            part = engine.transcribe(chunk, inferenceLanguage, requestedAction);
+                            measureLocal(meter, engine, firstWindow, callStart);
+                        }
                         if (engine != null && part.text != null && "[(und)]".equals(part.text.trim())) {
                             throw new IOException("The local model could not decode this audio window. The dictation can be retried.");
                         }
@@ -284,6 +309,9 @@ public class Whisper {
             WhisperResult result = new WhisperResult(text,
                     detectedLanguage == null ? requestedLanguage : detectedLanguage, requestedAction, warning);
             new RecoveryStore(context).prepareDelivery(session);
+            // Recorded once the outcome is final: a failure above records this attempt as failed.
+            recordUsage(meter, SessionMetric.COMPLETED, text, startedNanos);
+            recorded = true;
             closeRecording(input);
             input = null;
             main.post(() -> {
@@ -324,13 +352,36 @@ public class Whisper {
                     resumeOffset = 0;
                     overlap = false;
                 }
+                if (!recorded) recordUsage(meter, SessionMetric.FAILED, null, startedNanos);
+                recorded = true;
                 preserveAndReport(token, input, session, resumeOffset, transcript.toString(),
                         requestedLanguage, detectedLanguage, requestedAction, overlap, message, code);
             }
         } finally {
+            // A cancelled dictation still counts any provider requests it already paid for.
+            if (!recorded && meter.hasRequests()) recordUsage(meter, SessionMetric.CANCELLED, null, startedNanos);
             closeLocal(engine);
             closeRecording(input);
             synchronized (Whisper.this) { if (cloud == client) cloud = null; }
+        }
+    }
+
+    private static void measureLocal(SessionMeter meter, LocalTranscriber engine, boolean firstWindow,
+                                     long callStart) {
+        long end = System.nanoTime();
+        long ready = engine.readyAtNanos();
+        meter.onLocalInference((end - Math.max(callStart, ready)) / 1_000_000L);
+        if (firstWindow && ready > 0 && engine.createdAtNanos() > 0) {
+            meter.onLocalModelLoaded((ready - engine.createdAtNanos()) / 1_000_000L);
+        }
+    }
+
+    private void recordUsage(SessionMeter meter, String status, String text, long startedNanos) {
+        try {
+            UsageStore.get(context).insert(
+                    meter.finish(status, text, (System.nanoTime() - startedNanos) / 1_000_000L));
+        } catch (RuntimeException e) {
+            android.util.Log.w("ToneTunner", "Could not record usage metrics");
         }
     }
 
@@ -453,6 +504,8 @@ public class Whisper {
         private final AtomicBoolean closing = new AtomicBoolean();
         private volatile boolean loadFailed;
         private volatile LocalRequest pending;
+        private final long createdAt = System.nanoTime();
+        private volatile long readyAt;
 
         LocalEngine(Context context) throws IOException, InterruptedException {
             if (!isModelInstalled(context)) {
@@ -461,7 +514,10 @@ public class Whisper {
             memoryLease = LOCAL_MODEL_MEMORY.acquire();
             try {
             recognizer = new Recognizer(context, false, new NeuralNetworkApi.InitListener() {
-                @Override public void onInitializationFinished() { ready.countDown(); }
+                @Override public void onInitializationFinished() {
+                    readyAt = System.nanoTime();
+                    ready.countDown();
+                }
                 @Override public void onError(int[] reasons, long value) {
                     loadFailed = true;
                     ready.countDown();
@@ -510,6 +566,8 @@ public class Whisper {
         @Override public void close() {
             if (closing.compareAndSet(false, true)) recognizer.destroy(memoryLease::close);
         }
+        @Override public long createdAtNanos() { return createdAt; }
+        @Override public long readyAtNanos() { return readyAt; }
     }
     private static final class LocalRequest {
         final CountDownLatch done = new CountDownLatch(1);

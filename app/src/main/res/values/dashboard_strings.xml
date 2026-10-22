@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="dashboard_period_today">Today</string>
+    <string name="dashboard_period_week">7 days</string>
+    <string name="dashboard_period_month">30 days</string>
+    <string name="dashboard_period_year">This year</string>
+    <string name="dashboard_period_all">All time</string>
+    <string name="dashboard_loading">Loading usage…</string>
+    <string name="dashboard_privacy">Measured on this phone only. No transcript text is stored, and nothing is sent anywhere.</string>
+    <string name="dashboard_no_data">No dictations in this period</string>
+
+    <string name="dashboard_tile_dictations">Dictations</string>
+    <string name="dashboard_tile_words">Words</string>
+    <string name="dashboard_tile_audio">Audio recorded</string>
+    <string name="dashboard_tile_saved">Time saved</string>
+    <string name="dashboard_tile_cost">API cost</string>
+    <string name="dashboard_tile_tokens">Tokens</string>
+
+    <string name="dashboard_words_title">Words dictated</string>
+    <string name="dashboard_words_detail">Time saved compares typing at 40 words per minute with the time spent speaking. You speak at about %1$s words per minute.</string>
+    <string name="dashboard_cost_title">API cost</string>
+    <string name="dashboard_cost_detail">%1$s in total · %2$s per dictation · %3$s per hour of audio</string>
+    <plurals name="dashboard_cost_unpriced">
+        <item quantity="one">%1$d dictation used a model without a price. Set its price under Models.</item>
+        <item quantity="other">%1$d dictations used a model without a price. Set its price under Models.</item>
+    </plurals>
+    <string name="dashboard_cost_note">OpenRouter costs are the amounts it reports. Other costs are usage multiplied by the prices under Models.</string>
+    <string name="dashboard_tokens_title">Tokens and cache</string>
+    <string name="dashboard_tokens_detail">Prompt %1$s · Output %2$s · Transcription %3$s</string>
+    <string name="dashboard_cache_rate">Cache hits: %1$s of prompt tokens were served from the provider\'s cache.</string>
+    <string name="dashboard_cache_none">Cache hits: no prompt tokens in this period.</string>
+    <string name="dashboard_tokens_estimated">Some providers did not report usage; those tokens are estimated at four characters per token.</string>
+    <string name="dashboard_series_input">Input</string>
+    <string name="dashboard_series_cached">Cached input</string>
+    <string name="dashboard_series_output">Output</string>
+    <string name="dashboard_speed_title">Speed and inference</string>
+    <string name="dashboard_speed_processing">Average processing time per dictation</string>
+    <string name="dashboard_speed_factor">Speed (audio length ÷ transcription time)</string>
+    <string name="dashboard_speed_load">Average on-device model load</string>
+    <string name="dashboard_speed_cloud">Average cloud transcription request</string>
+    <string name="dashboard_speed_enhance">Average enhancement request</string>
+    <string name="dashboard_times_realtime">%1$s× real time</string>
+    <string name="dashboard_peak_title">Peak hours</string>
+    <string name="dashboard_peak_detail">You dictate most between %1$s and %2$s.</string>
+    <string name="dashboard_peak_series">Peak two hours</string>
+    <string name="dashboard_models_title">Models</string>
+    <string name="dashboard_models_hint">Tap a model to change its price.</string>
+    <string name="dashboard_model_transcription">Transcription</string>
+    <string name="dashboard_model_enhancement">Enhancement</string>
+    <plurals name="dashboard_model_detail">
+        <item quantity="one">%1$d dictation · %2$s · %3$s tokens · %4$s · %5$s per request</item>
+        <item quantity="other">%1$d dictations · %2$s · %3$s tokens · %4$s · %5$s per request</item>
+    </plurals>
+    <string name="dashboard_model_unpriced">no price</string>
+    <string name="dashboard_mic_title">Microphone</string>
+    <string name="dashboard_mic_builtin">Phone</string>
+    <string name="dashboard_mic_bluetooth">Bluetooth</string>
+    <string name="dashboard_mic_wired">Wired or USB</string>
+    <string name="dashboard_mic_other">Other</string>
+    <string name="dashboard_mic_automatic">Chosen by Android</string>
+    <plurals name="dashboard_mic_fallbacks">
+        <item quantity="one">Fell back to the phone microphone %1$d time</item>
+        <item quantity="other">Fell back to the phone microphone %1$d times</item>
+    </plurals>
+    <string name="dashboard_mic_level">Average speech level before boost</string>
+    <string name="dashboard_mic_peak">Loudest peak</string>
+    <string name="dashboard_mic_gain">Average boost</string>
+    <string name="dashboard_mic_clipping">Microphone overload (clipped samples)</string>
+    <string name="dashboard_reliability_title">Reliability</string>
+    <string name="dashboard_reliability_detail">Completed: %1$d · Failed: %2$d · Cancelled after paid requests: %3$d</string>
+    <string name="dashboard_clear">Clear usage data</string>
+    <string name="dashboard_clear_confirm">Delete all usage measurements from this phone? Your dictations and settings are not affected.</string>
+    <string name="dashboard_clear_action">Delete</string>
+    <string name="dashboard_cancel">Cancel</string>
+
+    <string name="dashboard_price_title">Price for %1$s</string>
+    <string name="dashboard_price_input">Input, USD per 1M tokens</string>
+    <string name="dashboard_price_cached">Cached input, USD per 1M tokens</string>
+    <string name="dashboard_price_output">Output, USD per 1M tokens</string>
+    <string name="dashboard_price_audio">Audio, USD per hour</string>
+    <string name="dashboard_price_save">Save</string>
+    <string name="dashboard_price_reset">Use built-in price</string>
+    <string name="dashboard_price_invalid">Enter numbers of zero or more.</string>
+    <string name="dashboard_none">—</string>
+</resources>

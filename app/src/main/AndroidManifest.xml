@@ -44,6 +44,11 @@
             android:label="@string/settings_title"
             android:theme="@style/Theme.Whisper.ActionBar" />
 
+        <activity android:name=".DashboardActivity"
+            android:exported="false"
+            android:label="@string/settings_dashboard_title"
+            android:theme="@style/Theme.Whisper.ActionBar" />
+
         <activity android:name=".AiSettingsActivity"
             android:exported="false"
             android:label="@string/dictation_ai_settings"

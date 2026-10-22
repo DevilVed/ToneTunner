@@ -67,12 +67,21 @@ public final class CloudClient {
     private final OkHttpClient httpClient;
     private final AtomicBoolean cancelled = new AtomicBoolean(false);
     private final AtomicReference<Call> activeCall = new AtomicReference<>();
+    /** The last call the provider answered with success, seen before OkHttp applies cancellation. */
+    private final AtomicReference<Call> answeredCall = new AtomicReference<>();
+    private volatile Usage.Listener usageListener;
 
     public CloudClient() {
         this(new OkHttpClient.Builder());
     }
 
     CloudClient(OkHttpClient.Builder clientBuilder) {
+        // Outermost, so a success is noticed even when a cancellation then discards the response.
+        clientBuilder.interceptors().add(0, chain -> {
+            Response response = chain.proceed(chain.request());
+            if (response.isSuccessful()) answeredCall.set(chain.call());
+            return response;
+        });
         this.httpClient = clientBuilder
                 .followRedirects(false)
                 .followSslRedirects(false)
@@ -82,6 +91,11 @@ public final class CloudClient {
                 .readTimeout(READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
                 .callTimeout(CALL_TIMEOUT_SECONDS, TimeUnit.SECONDS)
                 .build();
+    }
+
+    /** Receives the usage of each successful request, including ones whose result is then rejected. */
+    public void setUsageListener(Usage.Listener listener) {
+        usageListener = listener;
     }
 
     public Transcript transcribe(byte[] pcm, ProviderConfig config, String language, boolean translate)
@@ -122,9 +136,16 @@ public final class CloudClient {
                 .post(requestBody)
                 .build();
 
-        byte[] response = execute(request, false);
+        long started = System.nanoTime();
+        double audioSeconds = pcm.length / (double) (16_000 * 2);
+        byte[] response = execute(request, false, false, body -> reportTranscription(
+                Usage.fromTranscription(json(body)), elapsedMs(started), audioSeconds));
+        long elapsedMs = elapsedMs(started);
+        boolean reported = false;
         try {
             JSONObject json = new JSONObject(new String(response, StandardCharsets.UTF_8));
+            reportTranscription(Usage.fromTranscription(json), elapsedMs, audioSeconds);
+            reported = true;
             String text = stringValue(json, "text");
             if (text == null) {
                 throw safe(INVALID_RESPONSE);
@@ -139,6 +160,7 @@ public final class CloudClient {
             checkNotCancelled();
             return new Transcript(text.trim(), detectedLanguage);
         } catch (JSONException e) {
+            if (!reported) reportTranscription(Usage.fromTranscription(null), elapsedMs, audioSeconds);
             throw safe(INVALID_RESPONSE);
         }
     }
@@ -185,8 +207,17 @@ public final class CloudClient {
                 .post(RequestBody.create(JSON_MEDIA_TYPE, payload.toString().getBytes(StandardCharsets.UTF_8)))
                 .build();
 
-        byte[] response = execute(request, true);
-        String enhanced = parseEnhancementResponse(response);
+        long started = System.nanoTime();
+        int inputCharacters = payload.toString().length();
+        byte[] response = execute(request, true, false,
+                body -> reportEnhancement(body, elapsedMs(started), inputCharacters, 0));
+        long elapsedMs = elapsedMs(started);
+        String enhanced = null;
+        try {
+            enhanced = parseEnhancementResponse(response);
+        } finally {
+            reportEnhancement(response, elapsedMs, inputCharacters, enhanced == null ? 0 : enhanced.length());
+        }
         checkNotCancelled();
         rejectSevereShortening(text, enhanced);
         return enhanced;
@@ -221,7 +252,7 @@ public final class CloudClient {
                 .header("Accept", "application/json")
                 .get()
                 .build();
-        byte[] response = execute(request, false, true);
+        byte[] response = execute(request, false, true, null);
         List<Model> models = parseModels(response, config.provider, transcription);
         checkNotCancelled();
         return models;
@@ -510,11 +541,53 @@ public final class CloudClient {
         return null;
     }
 
-    private byte[] execute(Request request, boolean enhancement) throws IOException {
-        return execute(request, enhancement, false);
+    private void reportTranscription(Usage usage, long elapsedMs, double audioSeconds) {
+        Usage.Listener listener = usageListener;
+        if (listener == null) return;
+        try {
+            listener.onTranscription(usage, elapsedMs, audioSeconds);
+        } catch (RuntimeException ignored) {
+            // Metrics must never fail a dictation.
+        }
     }
 
-    private byte[] execute(Request request, boolean enhancement, boolean modelCatalog) throws IOException {
+    private void reportEnhancement(byte[] response, long elapsedMs, int inputCharacters, int outputCharacters) {
+        Usage.Listener listener = usageListener;
+        if (listener == null) return;
+        try {
+            // Missing or unparseable responses are still counted as one request with estimated tokens.
+            listener.onEnhancement(Usage.fromChat(json(response)), elapsedMs, inputCharacters, outputCharacters);
+        } catch (RuntimeException ignored) {
+            // Metrics must never fail a dictation.
+        }
+    }
+
+    /** Counts a request the provider answered successfully but whose result is not returned. */
+    private interface UndeliveredSuccess {
+        /** @param body the response body, or null when it could not be read */
+        void report(byte[] body);
+    }
+
+    private static JSONObject json(byte[] body) {
+        if (body == null) return null;
+        try {
+            return new JSONObject(new String(body, StandardCharsets.UTF_8));
+        } catch (JSONException e) {
+            return null;
+        }
+    }
+
+    private static long elapsedMs(long startedNanos) {
+        return (System.nanoTime() - startedNanos) / 1_000_000L;
+    }
+
+    /**
+     * Runs one request and returns its successful body. When the provider answered with success but
+     * the body is then not returned (cancellation, an oversized or unreadable body), the request may
+     * already be billed, so {@code undelivered} is told once before the exception propagates.
+     */
+    private byte[] execute(Request request, boolean enhancement, boolean modelCatalog,
+                           UndeliveredSuccess undelivered) throws IOException {
         checkNotCancelled();
         Call call = httpClient.newCall(request);
         if (!activeCall.compareAndSet(null, call)) {
@@ -523,27 +596,35 @@ public final class CloudClient {
         if (cancelled.get()) {
             call.cancel();
         }
+        boolean succeeded = false;
+        byte[] bytes = null;
         try (Response response = call.execute()) {
-            checkNotCancelled();
             if (!response.isSuccessful()) {
+                checkNotCancelled();
                 throw httpError(response.code());
             }
+            succeeded = true;
+            checkNotCancelled();
             ResponseBody body = response.body();
             if (body == null) {
                 throw safe(INVALID_RESPONSE);
             }
-            byte[] bytes = readBounded(body, enhancement, modelCatalog);
+            bytes = readBounded(body, enhancement, modelCatalog);
             checkNotCancelled();
+            succeeded = false; // Returned normally: the caller reports this request itself.
             return bytes;
         } catch (SafeIOException e) {
             throw e;
         } catch (IOException e) {
+            if (answeredCall.get() == call) succeeded = true;
             if (cancelled.get() || call.isCanceled()) {
                 throw safe(CANCELLED);
             }
             throw safe(CONNECTION_FAILED);
         } finally {
             activeCall.compareAndSet(call, null);
+            answeredCall.compareAndSet(call, null);
+            if (succeeded && undelivered != null) undelivered.report(bytes);
         }
     }
 
