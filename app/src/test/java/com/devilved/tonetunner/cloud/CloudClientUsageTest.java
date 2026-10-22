@@ -57,6 +57,31 @@ public class CloudClientUsageTest {
         assertFalse(transcriptions.get(1).reported);
     }
 
+    @Test public void successCancelledBeforeItIsReadIsStillCountedOnce() throws Exception {
+        server.enqueue(new MockResponse().setBody("{\"text\":\"already transcribed\",\"usage\":{\"seconds\":2}}"));
+        server.enqueue(new MockResponse().setBody("{\"choices\":[{\"finish_reason\":\"stop\","
+                + "\"message\":{\"content\":\"Hello.\"}}],\"usage\":{\"prompt_tokens\":30,\"completion_tokens\":2}}"));
+        CloudClient[] holder = new CloudClient[1];
+        holder[0] = client(chain -> {
+            okhttp3.Response response = chain.proceed(chain.request());
+            holder[0].cancel(); // The provider has answered (and billed) before the user cancels.
+            return response;
+        });
+        assertThrows(IOException.class, () -> holder[0].transcribe(new byte[64_000],
+                config(Provider.GROQ, "whisper-large-v3-turbo"), "en", false));
+        assertEquals(1, transcriptions.size());
+        assertEquals("billed by the recorded audio length", 2.0, audioSeconds.get(0), 1e-9);
+
+        holder[0] = client(chain -> {
+            okhttp3.Response response = chain.proceed(chain.request());
+            holder[0].cancel();
+            return response;
+        });
+        assertThrows(IOException.class, () ->
+                holder[0].enhance("hello", config(Provider.OPENAI, "gpt-4o-mini"), "", ""));
+        assertEquals(1, enhancements.size());
+    }
+
     @Test public void httpErrorsAreNotCounted() throws Exception {
         server.enqueue(new MockResponse().setResponseCode(500));
         CloudClient client = client();
@@ -110,11 +135,15 @@ public class CloudClientUsageTest {
     }
 
     private CloudClient client() {
+        return client(chain -> chain.proceed(chain.request()));
+    }
+
+    private CloudClient client(okhttp3.Interceptor after) {
         OkHttpClient.Builder builder = new OkHttpClient.Builder().addInterceptor(chain -> {
             Request request = chain.request();
             HttpUrl destination = server.url(request.url().encodedPath());
             return chain.proceed(request.newBuilder().url(destination).build());
-        });
+        }).addInterceptor(after);
         CloudClient client = new CloudClient(builder);
         client.setUsageListener(new Usage.Listener() {
             @Override public void onTranscription(Usage usage, long elapsedMs, double seconds) {

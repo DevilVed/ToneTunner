@@ -33,12 +33,24 @@ public class UsageTest {
         assertFalse(Usage.fromChat(null).reported);
         Usage negative = Usage.fromChat(new JSONObject(
                 "{\"usage\":{\"prompt_tokens\":-5,\"completion_tokens\":\"7\",\"cost\":-1}}"));
+        assertFalse("a negative count is not valid usage", negative.reported);
         assertEquals(0, negative.inputTokens);
         assertEquals(7, negative.outputTokens);
         assertTrue(Double.isNaN(negative.reportedCostUsd));
         Usage cachedAboveInput = Usage.fromChat(new JSONObject(
                 "{\"usage\":{\"prompt_tokens\":10,\"prompt_tokens_details\":{\"cached_tokens\":50}}}"));
         assertEquals("cached tokens can never exceed the prompt", 10, cachedAboveInput.cachedTokens);
+    }
+
+    @Test public void presentButInvalidTokenFieldsAreUnreported() throws Exception {
+        assertFalse(Usage.fromChat(new JSONObject(
+                "{\"usage\":{\"prompt_tokens\":null,\"completion_tokens\":\"broken\"}}")).reported);
+        assertFalse(Usage.fromChat(new JSONObject(
+                "{\"usage\":{\"prompt_tokens\":12,\"completion_tokens\":null}}")).reported);
+        assertTrue("one valid field and the other absent", Usage.fromChat(new JSONObject(
+                "{\"usage\":{\"prompt_tokens\":0}}")).reported);
+        assertFalse(Usage.fromTranscription(new JSONObject(
+                "{\"text\":\"hi\",\"usage\":{\"input_tokens\":\"x\",\"output_tokens\":3}}")).reported);
     }
 
     @Test public void tokenBasedTranscriptionUsage() throws Exception {

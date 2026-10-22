@@ -4,9 +4,10 @@ package com.devilved.tonetunner.asr;
  * In-place processing of 16-bit little-endian mono PCM between the microphone and the saved
  * recording: an 80 Hz high-pass filter, then an automatic gain control with a peak limiter.
  *
- * The gain only moves toward its target on speech-like frames (6 dB above a tracked noise floor),
- * falls fast and rises at most 40 dB/s on speech, and each frame is capped so its peak stays at -1 dBFS.
- * Loud speech is therefore never pushed into clipping and pauses never pump up background noise.
+ * The speech gain only moves toward its target on speech-like frames (6 dB above a tracked noise
+ * floor), falls fast and rises at most 40 dB/s. It is applied to speech-like frames only: pauses and
+ * background noise pass at unity gain. Every processed frame is then limited so its peak stays at
+ * -1 dBFS, which also catches overshoot from the high-pass filter itself.
  * Levels use the reference desktop app's meter: 20 * log10(max(x, 1e-6)).
  */
 public final class MicProcessor {
@@ -113,7 +114,8 @@ public final class MicProcessor {
             if (desired < gainDb) gainDb += (desired - gainDb) * 0.5;
             else gainDb = Math.min(desired, gainDb + RISE_DB_PER_SECOND * seconds);
         }
-        double frameGainDb = boost == Boost.OFF ? 0 : clamp(Math.min(gainDb, CEILING_DB - framePeakDb), 0, gainDb);
+        // The limiter may attenuate (negative gain): the filter can overshoot an in-range input.
+        double frameGainDb = Math.min(boost != Boost.OFF && speech ? gainDb : 0, CEILING_DB - framePeakDb);
         if (speech) {
             speechFrames++;
             speechLevelSumDb += levelDb;

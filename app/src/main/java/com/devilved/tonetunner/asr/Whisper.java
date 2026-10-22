@@ -306,11 +306,12 @@ public class Whisper {
                 }
             }
             if (!isCurrent(token)) return;
-            recordUsage(meter, SessionMetric.COMPLETED, text, startedNanos);
-            recorded = true;
             WhisperResult result = new WhisperResult(text,
                     detectedLanguage == null ? requestedLanguage : detectedLanguage, requestedAction, warning);
             new RecoveryStore(context).prepareDelivery(session);
+            // Recorded once the outcome is final: a failure above records this attempt as failed.
+            recordUsage(meter, SessionMetric.COMPLETED, text, startedNanos);
+            recorded = true;
             closeRecording(input);
             input = null;
             main.post(() -> {
@@ -351,7 +352,7 @@ public class Whisper {
                     resumeOffset = 0;
                     overlap = false;
                 }
-                recordUsage(meter, SessionMetric.FAILED, null, startedNanos);
+                if (!recorded) recordUsage(meter, SessionMetric.FAILED, null, startedNanos);
                 recorded = true;
                 preserveAndReport(token, input, session, resumeOffset, transcript.toString(),
                         requestedLanguage, detectedLanguage, requestedAction, overlap, message, code);

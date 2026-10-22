@@ -55,6 +55,30 @@ public class DashboardStatsTest {
         assertEquals("totals still include older dictations", 5, all.words);
     }
 
+    @Test public void todayFollowsDaylightSavingChanges() {
+        TimeZone newYork = TimeZone.getTimeZone("America/New_York");
+        long springAt0330 = java.time.ZonedDateTime.parse("2026-03-08T03:30:00-04:00[America/New_York]")
+                .toInstant().toEpochMilli();
+        SessionMetric m = new SessionMetric();
+        m.timestamp = springAt0330;
+        m.words = 10;
+        DashboardStats spring = DashboardStats.compute(Collections.singletonList(m), DashboardStats.Period.TODAY,
+                springAt0330 + 1_000, newYork, prices);
+        assertEquals("the clock skips 02:00", 23, spring.buckets.size());
+        DashboardStats.Bucket bar = null;
+        for (DashboardStats.Bucket b : spring.buckets) if (b.words == 10) bar = b;
+        assertEquals("3", bar.label);
+
+        long fallNoon = java.time.ZonedDateTime.parse("2026-11-01T12:00:00-05:00[America/New_York]")
+                .toInstant().toEpochMilli();
+        DashboardStats fall = DashboardStats.compute(Collections.emptyList(), DashboardStats.Period.TODAY,
+                fallNoon, newYork, prices);
+        assertEquals("01:00 happens twice", 25, fall.buckets.size());
+        assertEquals("1", fall.buckets.get(1).label);
+        assertEquals("1", fall.buckets.get(2).label);
+        assertEquals("23", fall.buckets.get(24).label);
+    }
+
     @Test public void wordsAndCostLandInTheirBuckets() {
         List<SessionMetric> all = new ArrayList<>();
         SessionMetric groq = local(at(2026, Calendar.OCTOBER, 20, 9, 0), 100);

@@ -72,6 +72,32 @@ public class MicProcessorTest {
         assertTrue(processor.getCurrentGainDb() <= gainAfterSpeech + 0.01);
     }
 
+    @Test public void noiseAfterSpeechIsNotAmplified() {
+        MicProcessor processor = new MicProcessor(RATE, false, MicProcessor.Boost.MAXIMUM);
+        processAll(processor, speechLike(-42, 5 * RATE, 9), FRAME);
+        assertTrue("quiet speech was boosted", processor.getCurrentGainDb() > 20);
+        short[] s = new short[3 * RATE];
+        Random random = new Random(123);
+        for (int i = 0; i < s.length; i++) s[i] = (short) (random.nextInt(41) - 20);
+        byte[] pause = bytes(s);
+        double before = rmsDb(pause, 0, s.length);
+        processAll(processor, pause, FRAME);
+        assertEquals("pause noise must stay at its raw level", before, rmsDb(pause, 0, s.length), 3);
+    }
+
+    @Test public void limiterCatchesHighPassOvershootOfInRangeInput() {
+        for (MicProcessor.Boost boost : MicProcessor.Boost.values()) {
+            MicProcessor processor = new MicProcessor(RATE, true, boost);
+            short[] s = new short[FRAME];
+            for (int i = 0; i < FRAME; i++) s[i] = (short) (i < FRAME / 2 ? 30_000 : -30_000);
+            byte[] audio = bytes(s);
+            processor.process(audio, 0, audio.length);
+            assertEquals(0, processor.getClippedRatio(), 0);
+            assertTrue(boost + ": filter overshoot must be limited to -1 dBFS",
+                    peakDb(audio, 0, FRAME) <= -0.99);
+        }
+    }
+
     @Test public void highPassRemovesDcOffsetAndKeepsSpeechFrequencies() {
         MicProcessor processor = new MicProcessor(RATE, true, MicProcessor.Boost.OFF);
         byte[] dc = constant(5000, RATE);

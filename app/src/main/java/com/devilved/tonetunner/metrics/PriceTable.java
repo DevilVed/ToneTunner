@@ -6,9 +6,9 @@ import java.util.Locale;
 import java.util.Map;
 
 /**
- * API prices in USD. A provider-reported cost always wins; otherwise usage is multiplied by the
- * user's edited rate or the built-in rate (verified 21 October 2026, see the design document).
- * Models without a rate are reported as unpriced instead of being counted as free.
+ * API prices in USD. A provider-reported cost is used for the requests it covers; the usage of the
+ * other requests is multiplied by the user's edited rate or the built-in rate (verified 21 October
+ * 2026, see the design document). Usage without any rate is reported as unpriced, never as free.
  */
 public final class PriceTable {
 
@@ -27,6 +27,11 @@ public final class PriceTable {
 
         boolean hasTokenRates() {
             return inputPerMillion > 0 || outputPerMillion > 0;
+        }
+
+        /** An explicit rate of zero everywhere: the model is known to be free. */
+        boolean isFree() {
+            return inputPerMillion == 0 && cachedPerMillion == 0 && outputPerMillion == 0 && audioPerHour == 0;
         }
 
         public String encode() {
@@ -120,17 +125,23 @@ public final class PriceTable {
 
     public Cost transcriptionCost(SessionMetric m) {
         if (m.isLocalTranscription()) return new Cost(0, true);
-        if (!Double.isNaN(m.transcriptionCostUsd)) return new Cost(m.transcriptionCostUsd, true);
+        double reported = Double.isNaN(m.transcriptionCostUsd) ? 0 : m.transcriptionCostUsd;
+        // Usage of the requests whose cost was not reported.
+        int requests = m.transcriptionRequests - m.costedTranscriptionRequests;
+        double seconds = m.billedAudioSeconds - m.costedBilledAudioSeconds;
+        long input = m.transcriptionInputTokens - m.costedTranscriptionInputTokens;
+        long output = m.transcriptionOutputTokens - m.costedTranscriptionOutputTokens;
+        boolean tokens = input > 0 || output > 0;
+        if (requests <= 0 && seconds <= 0 && !tokens) return new Cost(reported, true);
         Price price = price(m.transcriptionProvider, m.transcriptionModel);
-        boolean tokens = m.transcriptionInputTokens > 0 || m.transcriptionOutputTokens > 0;
         if (price != null && tokens && price.hasTokenRates()) {
-            return new Cost(perMillion(m.transcriptionInputTokens, price.inputPerMillion)
-                    + perMillion(m.transcriptionOutputTokens, price.outputPerMillion), true);
+            return new Cost(reported + perMillion(input, price.inputPerMillion)
+                    + perMillion(output, price.outputPerMillion), true);
         }
-        if (price != null && price.audioPerHour > 0) {
-            return new Cost(m.billedAudioSeconds / 3600.0 * price.audioPerHour, true);
+        if (price != null && (price.audioPerHour > 0 || price.isFree())) {
+            return new Cost(reported + Math.max(0, seconds) / 3600.0 * price.audioPerHour, true);
         }
-        return new Cost(0, m.transcriptionRequests == 0 && m.billedAudioSeconds <= 0 && !tokens);
+        return new Cost(reported, false);
     }
 
     public Cost enhancementCost(SessionMetric m) {
@@ -138,15 +149,17 @@ public final class PriceTable {
                 || "LOCAL".equals(m.enhancementProvider)) {
             return new Cost(0, true);
         }
-        if (!Double.isNaN(m.enhancementCostUsd)) return new Cost(m.enhancementCostUsd, true);
+        double reported = Double.isNaN(m.enhancementCostUsd) ? 0 : m.enhancementCostUsd;
+        int requests = m.enhancementRequests - m.costedEnhancementRequests;
+        long prompt = m.promptTokens - m.costedPromptTokens;
+        long cached = Math.min(m.cachedTokens - m.costedCachedTokens, prompt);
+        long completion = m.completionTokens - m.costedCompletionTokens;
+        if (requests <= 0 && prompt <= 0 && completion <= 0) return new Cost(reported, true);
         Price price = price(m.enhancementProvider, m.enhancementModel);
-        if (price == null) {
-            return new Cost(0, m.enhancementRequests == 0 && m.promptTokens == 0 && m.completionTokens == 0);
-        }
-        int cached = Math.min(m.cachedTokens, m.promptTokens);
-        return new Cost(perMillion(m.promptTokens - cached, price.inputPerMillion)
+        if (price == null) return new Cost(reported, false);
+        return new Cost(reported + perMillion(prompt - cached, price.inputPerMillion)
                 + perMillion(cached, price.cachedPerMillion)
-                + perMillion(m.completionTokens, price.outputPerMillion), true);
+                + perMillion(completion, price.outputPerMillion), true);
     }
 
     private static double perMillion(long tokens, double rate) {

@@ -41,7 +41,7 @@ public final class Usage {
         if (usage == null) return new Usage(false, 0, 0, 0, 0, 0, Double.NaN, Double.NaN);
         JSONObject prompt = usage.optJSONObject("prompt_tokens_details");
         JSONObject completion = usage.optJSONObject("completion_tokens_details");
-        return new Usage(usage.has("prompt_tokens") || usage.has("completion_tokens"),
+        return new Usage(reported(usage, "prompt_tokens", "completion_tokens"),
                 count(usage, "prompt_tokens"), count(prompt, "cached_tokens"),
                 count(usage, "completion_tokens"), count(completion, "reasoning_tokens"),
                 count(prompt, "audio_tokens"), Double.NaN, amount(usage, "cost"));
@@ -55,9 +55,23 @@ public final class Usage {
         if (Double.isNaN(seconds)) seconds = amount(response, "duration");
         if (usage == null) return new Usage(false, 0, 0, 0, 0, 0, seconds, Double.NaN);
         JSONObject details = usage.optJSONObject("input_token_details");
-        return new Usage(usage.has("input_tokens") || usage.has("output_tokens"),
+        return new Usage(reported(usage, "input_tokens", "output_tokens"),
                 count(usage, "input_tokens"), 0, count(usage, "output_tokens"), 0,
                 count(details, "audio_tokens"), seconds, amount(usage, "cost"));
+    }
+
+    /**
+     * Token usage counts as reported only when at least one of the fields is present and every
+     * present one is a valid count; null, text or negative values fall back to the estimate.
+     */
+    private static boolean reported(JSONObject usage, String input, String output) {
+        boolean any = false;
+        for (String key : new String[]{input, output}) {
+            if (!usage.has(key)) continue;
+            if (usage.optLong(key, -1) < 0) return false;
+            any = true;
+        }
+        return any;
     }
 
     private static int count(JSONObject json, String key) {

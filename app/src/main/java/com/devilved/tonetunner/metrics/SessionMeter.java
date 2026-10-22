@@ -50,28 +50,46 @@ public final class SessionMeter implements Usage.Listener {
         metric.transcriptionRequests++;
         metric.transcriptionMs += Math.max(0, elapsedMs);
         double seconds = Double.isNaN(usage.audioSeconds) ? audioSeconds : usage.audioSeconds;
-        metric.billedAudioSeconds += PriceTable.billedSeconds(metric.transcriptionProvider, seconds);
+        double billed = PriceTable.billedSeconds(metric.transcriptionProvider, seconds);
+        metric.billedAudioSeconds += billed;
         metric.transcriptionInputTokens += usage.inputTokens;
         metric.transcriptionOutputTokens += usage.outputTokens;
         metric.transcriptionAudioTokens += usage.audioTokens;
-        reportedTranscriptionCost = add(reportedTranscriptionCost, usage.reportedCostUsd);
+        if (!Double.isNaN(usage.reportedCostUsd)) {
+            reportedTranscriptionCost = add(reportedTranscriptionCost, usage.reportedCostUsd);
+            metric.costedTranscriptionRequests++;
+            metric.costedBilledAudioSeconds += billed;
+            metric.costedTranscriptionInputTokens += usage.inputTokens;
+            metric.costedTranscriptionOutputTokens += usage.outputTokens;
+        }
     }
 
     @Override public synchronized void onEnhancement(Usage usage, long elapsedMs,
                                                      int inputCharacters, int outputCharacters) {
         metric.enhancementRequests++;
         metric.enhancementMs += Math.max(0, elapsedMs);
+        int prompt, cached, completion;
         if (usage.reported) {
-            metric.promptTokens += usage.inputTokens;
-            metric.cachedTokens += usage.cachedTokens;
-            metric.completionTokens += usage.outputTokens;
+            prompt = usage.inputTokens;
+            cached = usage.cachedTokens;
+            completion = usage.outputTokens;
             metric.reasoningTokens += usage.reasoningTokens;
         } else {
             metric.tokensEstimated = true;
-            metric.promptTokens += Words.estimatedTokens(inputCharacters);
-            metric.completionTokens += Words.estimatedTokens(outputCharacters);
+            prompt = Words.estimatedTokens(inputCharacters);
+            cached = 0;
+            completion = Words.estimatedTokens(outputCharacters);
         }
-        reportedEnhancementCost = add(reportedEnhancementCost, usage.reportedCostUsd);
+        metric.promptTokens += prompt;
+        metric.cachedTokens += cached;
+        metric.completionTokens += completion;
+        if (!Double.isNaN(usage.reportedCostUsd)) {
+            reportedEnhancementCost = add(reportedEnhancementCost, usage.reportedCostUsd);
+            metric.costedEnhancementRequests++;
+            metric.costedPromptTokens += prompt;
+            metric.costedCachedTokens += cached;
+            metric.costedCompletionTokens += completion;
+        }
     }
 
     public synchronized boolean hasRequests() {
@@ -91,7 +109,6 @@ public final class SessionMeter implements Usage.Listener {
     }
 
     private static double add(double total, double value) {
-        if (Double.isNaN(value)) return total;
         return Double.isNaN(total) ? value : total + value;
     }
 }

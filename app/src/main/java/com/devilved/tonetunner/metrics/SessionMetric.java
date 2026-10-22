@@ -27,7 +27,13 @@ public final class SessionMetric {
     public int transcriptionInputTokens;
     public int transcriptionOutputTokens;
     public int transcriptionAudioTokens;
+    /** Sum of the costs providers reported; covers only the "costed" requests below. */
     public double transcriptionCostUsd = Double.NaN;
+    /** Requests (and their usage) whose cost the provider reported; the rest is priced by rate. */
+    public int costedTranscriptionRequests;
+    public double costedBilledAudioSeconds;
+    public int costedTranscriptionInputTokens;
+    public int costedTranscriptionOutputTokens;
 
     public String enhancementProvider;
     public String enhancementModel;
@@ -39,6 +45,10 @@ public final class SessionMetric {
     public int reasoningTokens;
     public boolean tokensEstimated;
     public double enhancementCostUsd = Double.NaN;
+    public int costedEnhancementRequests;
+    public int costedPromptTokens;
+    public int costedCachedTokens;
+    public int costedCompletionTokens;
 
     public String micDevice;
     public boolean micFellBack;

@@ -75,8 +75,35 @@ public class SessionMeterTest {
         SessionMetric m = meter.finish(SessionMetric.COMPLETED, "a", 0);
         assertEquals(0.03, m.transcriptionCostUsd, 1e-12);
         assertEquals(0.005, m.enhancementCostUsd, 1e-12);
+        assertEquals(2, m.costedTranscriptionRequests);
+        assertEquals(1, m.costedEnhancementRequests);
         SessionMetric none = new SessionMeter(0, "GROQ", "m", null, null).finish(SessionMetric.COMPLETED, "a", 0);
         assertTrue(Double.isNaN(none.transcriptionCostUsd));
+    }
+
+    @Test public void requestsWithoutAReportedCostAreKeptApart() throws Exception {
+        SessionMeter meter = new SessionMeter(0, "LOCAL", "w", "OPENAI", "gpt-4o-mini");
+        meter.onEnhancement(Usage.fromChat(new JSONObject(
+                "{\"usage\":{\"cost\":0.01,\"prompt_tokens\":1000,\"completion_tokens\":0}}")), 1, 0, 0);
+        meter.onEnhancement(Usage.fromChat(new JSONObject(
+                "{\"usage\":{\"prompt_tokens\":1000,\"completion_tokens\":0}}")), 1, 0, 0);
+        SessionMetric m = meter.finish(SessionMetric.COMPLETED, "x", 1);
+        assertEquals(2_000, m.promptTokens);
+        assertEquals(1_000, m.costedPromptTokens);
+        assertEquals(1, m.costedEnhancementRequests);
+        assertEquals(0.01015, new PriceTable(null).cost(m).usd, 1e-12);
+    }
+
+    @Test public void malformedTokenFieldsUseTheEstimate() throws Exception {
+        Usage usage = Usage.fromChat(new JSONObject(
+                "{\"usage\":{\"prompt_tokens\":null,\"completion_tokens\":\"broken\"}}"));
+        assertFalse(usage.reported);
+        SessionMeter meter = new SessionMeter(0, "LOCAL", "w", "CUSTOM", "m");
+        meter.onEnhancement(usage, 1, 400, 80);
+        SessionMetric m = meter.finish(SessionMetric.COMPLETED, "x", 1);
+        assertTrue(m.tokensEstimated);
+        assertEquals(100, m.promptTokens);
+        assertEquals(20, m.completionTokens);
     }
 
     @Test public void microphoneDetailsAreCopied() {

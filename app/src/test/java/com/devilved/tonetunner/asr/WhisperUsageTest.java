@@ -35,6 +35,9 @@ public class WhisperUsageTest {
     private Context context;
     private Whisper whisper;
     private boolean fail;
+    /** Claims the delivery before the pipeline does, so its own prepareDelivery() fails. */
+    private boolean claimDelivery;
+    private RecoveryStore.Entry claimed;
     private long readyAt;
     private long createdAt;
 
@@ -50,6 +53,11 @@ public class WhisperUsageTest {
                         throws IOException {
                     readyAt = System.nanoTime();
                     if (fail) throw new IOException("Synthetic local failure");
+                    if (claimDelivery) {
+                        RecoveryStore store = new RecoveryStore(context);
+                        claimed = store.list().get(0);
+                        store.prepareDelivery(claimed);
+                    }
                     return new CloudClient.Transcript("Four words right here.", "en");
                 }
                 public void close() { }
@@ -65,9 +73,10 @@ public class WhisperUsageTest {
         });
     }
 
-    @After public void tearDown() {
+    @After public void tearDown() throws Exception {
         whisper.unloadModel();
         Shadows.shadowOf(Looper.getMainLooper()).idle();
+        if (claimed != null) new RecoveryStore(context).finishDelivery(claimed, false);
     }
 
     @Test public void completedDictationIsRecordedWithoutItsText() throws Exception {
@@ -98,6 +107,15 @@ public class WhisperUsageTest {
         assertEquals(1, rows.size());
         assertEquals(SessionMetric.FAILED, rows.get(0).status);
         assertEquals(0, rows.get(0).words);
+    }
+
+    @Test public void deliveryPreparationFailureRecordsOneFailedRow() throws Exception {
+        claimDelivery = true;
+        startAndDrain(recording(1));
+        List<SessionMetric> rows = UsageStore.get(context).all();
+        assertEquals("one inference attempt, one row", 1, rows.size());
+        assertEquals(SessionMetric.FAILED, rows.get(0).status);
+        assertEquals(1, rows.get(0).transcriptionRequests);
     }
 
     private PcmRecording recording(int seconds) throws Exception {

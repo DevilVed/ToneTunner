@@ -55,14 +55,58 @@ public class PriceTableTest {
 
     @Test public void reportedCostWinsOverRates() {
         SessionMetric m = metric("OPENROUTER", "openai/whisper-large-v3");
+        m.transcriptionRequests = m.costedTranscriptionRequests = 1;
+        m.billedAudioSeconds = m.costedBilledAudioSeconds = 30;
         m.transcriptionCostUsd = 0.002;
         m.enhancementProvider = "OPENROUTER";
         m.enhancementModel = "anything/unknown";
-        m.promptTokens = 999;
+        m.enhancementRequests = m.costedEnhancementRequests = 1;
+        m.promptTokens = m.costedPromptTokens = 999;
         m.enhancementCostUsd = 0.001;
         PriceTable.Cost cost = table.cost(m);
         assertTrue(cost.priced);
         assertEquals(0.003, cost.usd, 1e-12);
+    }
+
+    @Test public void partlyReportedCostAddsTheRatedCostOfTheOtherRequests() {
+        SessionMetric m = metric("LOCAL", "");
+        m.enhancementProvider = "OPENAI";
+        m.enhancementModel = "gpt-4o-mini";
+        m.enhancementRequests = 2;
+        m.promptTokens = 2_000;
+        m.enhancementCostUsd = 0.01;
+        m.costedEnhancementRequests = 1;
+        m.costedPromptTokens = 1_000;
+        PriceTable.Cost cost = table.cost(m);
+        assertTrue(cost.priced);
+        assertEquals(0.01 + 1_000 * 0.15 / 1e6, cost.usd, 1e-12);
+
+        m.enhancementModel = "unknown/model";
+        PriceTable.Cost unknown = table.cost(m);
+        assertFalse("the request without a reported cost has no rate", unknown.priced);
+        assertEquals(0.01, unknown.usd, 1e-12);
+
+        SessionMetric t = metric("OPENROUTER", "openai/whisper-large-v3");
+        t.transcriptionRequests = 2;
+        t.billedAudioSeconds = 40;
+        t.transcriptionCostUsd = 0.002;
+        t.costedTranscriptionRequests = 1;
+        t.costedBilledAudioSeconds = 20;
+        assertFalse(table.cost(t).priced);
+    }
+
+    @Test public void explicitlyFreeTranscriptionModelIsPricedAtZero() {
+        Map<String, PriceTable.Price> edits = new HashMap<>();
+        edits.put(PriceTable.key("CUSTOM", "free-model"), new PriceTable.Price(0, 0, 0, 0));
+        SessionMetric m = metric("CUSTOM", "free-model");
+        m.transcriptionRequests = 1;
+        m.billedAudioSeconds = 10;
+        PriceTable.Cost cost = new PriceTable(edits).cost(m);
+        assertTrue(cost.priced);
+        assertEquals(0, cost.usd, 0);
+        edits.put(PriceTable.key("CUSTOM", "free-model"), new PriceTable.Price(1, 0, 1, 0));
+        assertFalse("token rates without reported tokens cannot price audio",
+                new PriceTable(edits).cost(m).priced);
     }
 
     @Test public void unknownModelIsUnpricedButKnownPartsStillCount() {

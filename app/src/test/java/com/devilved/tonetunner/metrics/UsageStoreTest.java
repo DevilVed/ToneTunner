@@ -1,6 +1,7 @@
 package com.devilved.tonetunner.metrics;
 
 import android.content.Context;
+import android.database.sqlite.SQLiteDatabase;
 
 import org.junit.Before;
 import org.junit.Test;
@@ -36,6 +37,10 @@ public class UsageStoreTest {
         later.reasoningTokens = 2;
         later.tokensEstimated = true;
         later.enhancementCostUsd = 0.0004;
+        later.costedEnhancementRequests = 1;
+        later.costedPromptTokens = 200;
+        later.costedCachedTokens = 128;
+        later.costedCompletionTokens = 4;
         later.micDevice = "builtin";
         later.micFellBack = true;
         later.micNoiseReduction = "maximum";
@@ -65,6 +70,11 @@ public class UsageStoreTest {
         assertEquals(2, second.reasoningTokens);
         assertTrue(second.tokensEstimated);
         assertEquals(0.0004, second.enhancementCostUsd, 1e-12);
+        assertEquals(1, second.costedEnhancementRequests);
+        assertEquals(200, second.costedPromptTokens);
+        assertEquals(128, second.costedCachedTokens);
+        assertEquals(4, second.costedCompletionTokens);
+        assertEquals(0, first.costedTranscriptionRequests);
         assertTrue(second.micFellBack);
         assertEquals(-31.5, second.micSpeechLevelDb, 0);
         assertEquals(-2.25, second.micPeakDb, 0);
@@ -83,6 +93,38 @@ public class UsageStoreTest {
         m.micPeakDb = Double.NEGATIVE_INFINITY;
         store.insert(m);
         assertTrue(Double.isNaN(store.all().get(0).micPeakDb));
+    }
+
+    @Test public void versionOneRowsKeepTheirReportedCostForTheWholeStage() {
+        Context context = RuntimeEnvironment.getApplication();
+        store.close();
+        context.deleteDatabase("usage.db");
+        SQLiteDatabase db = SQLiteDatabase.openOrCreateDatabase(context.getDatabasePath("usage.db"), null);
+        db.execSQL("CREATE TABLE sessions (id INTEGER PRIMARY KEY AUTOINCREMENT,"
+                + "timestamp INTEGER NOT NULL, status TEXT NOT NULL, words INTEGER, characters INTEGER,"
+                + "audio_ms INTEGER, processing_ms INTEGER,"
+                + "t_provider TEXT, t_model TEXT, t_requests INTEGER, t_ms INTEGER, load_ms INTEGER,"
+                + "billed_seconds REAL, t_input INTEGER, t_output INTEGER, t_audio INTEGER, t_cost REAL,"
+                + "e_provider TEXT, e_model TEXT, e_requests INTEGER, e_ms INTEGER, prompt INTEGER,"
+                + "cached INTEGER, completion INTEGER, reasoning INTEGER, estimated INTEGER, e_cost REAL,"
+                + "mic_device TEXT, mic_fell_back INTEGER, mic_noise TEXT, mic_boost TEXT,"
+                + "mic_level REAL, mic_peak REAL, mic_clipped REAL, mic_gain REAL)");
+        db.execSQL("INSERT INTO sessions (timestamp, status, words, characters, audio_ms, processing_ms,"
+                + " t_provider, t_model, t_requests, t_ms, load_ms, billed_seconds, t_input, t_output,"
+                + " t_audio, t_cost, e_provider, e_model, e_requests, e_ms, prompt, cached, completion,"
+                + " reasoning, estimated, e_cost, mic_fell_back, mic_clipped, mic_gain) VALUES"
+                + " (1, 'completed', 3, 10, 1000, 500, 'OPENROUTER', 'm', 2, 100, 0, 20, 0, 0, 0, 0.002,"
+                + " 'OPENAI', 'gpt-4o-mini', 1, 50, 900, 0, 30, 0, 0, NULL, 0, 0, 0)");
+        db.setVersion(1);
+        db.close();
+
+        SessionMetric old = UsageStore.get(context).all().get(0);
+        assertEquals(2, old.costedTranscriptionRequests);
+        assertEquals(20, old.costedBilledAudioSeconds, 0);
+        assertEquals("no reported enhancement cost: priced by rate", 0, old.costedEnhancementRequests);
+        PriceTable.Cost cost = new PriceTable(null).cost(old);
+        assertTrue(cost.priced);
+        assertEquals(0.002 + 900 * 0.15 / 1e6 + 30 * 0.60 / 1e6, cost.usd, 1e-12);
     }
 
     private static SessionMetric metric(long timestamp) {

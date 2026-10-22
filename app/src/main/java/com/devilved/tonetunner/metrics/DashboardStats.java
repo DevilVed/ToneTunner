@@ -19,6 +19,7 @@ public final class DashboardStats {
 
     private static final double TYPING_WORDS_PER_MINUTE = 40;
     private static final int MAX_MONTH_BARS = 36;
+    private static final long HOUR_MS = 3_600_000L;
 
     public static final class Bucket {
         public final String label;
@@ -283,10 +284,14 @@ public final class DashboardStats {
         String[] months = new DateFormatSymbols(locale).getShortMonths();
         switch (period) {
             case TODAY:
+                // One bar per elapsed hour until the next midnight: 23 or 25 on daylight-saving
+                // days, each labelled with the local hour it actually starts at.
                 c.setTimeInMillis(start);
-                for (int hour = 0; hour < 24; hour++) {
-                    buckets.add(new Bucket(String.valueOf(hour), c.getTimeInMillis()));
-                    c.add(Calendar.HOUR_OF_DAY, 1);
+                c.add(Calendar.DAY_OF_MONTH, 1);
+                long end = c.getTimeInMillis();
+                for (long hourStart = start; hourStart < end; hourStart += HOUR_MS) {
+                    c.setTimeInMillis(hourStart);
+                    buckets.add(new Bucket(String.valueOf(c.get(Calendar.HOUR_OF_DAY)), hourStart));
                 }
                 break;
             case WEEK:

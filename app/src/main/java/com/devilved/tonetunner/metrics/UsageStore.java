@@ -18,7 +18,7 @@ import java.util.List;
 public final class UsageStore extends SQLiteOpenHelper {
     private static final String TAG = "UsageStore";
     private static final String NAME = "usage.db";
-    private static final int VERSION = 1;
+    private static final int VERSION = 2;
     private static final String TABLE = "sessions";
     /** Oldest rows beyond this are dropped; at ~300 bytes a row this stays near 60 MB at most. */
     static final int MAX_ROWS = 200_000;
@@ -54,11 +54,33 @@ public final class UsageStore extends SQLiteOpenHelper {
                 + "mic_device TEXT, mic_fell_back INTEGER, mic_noise TEXT, mic_boost TEXT,"
                 + "mic_level REAL, mic_peak REAL, mic_clipped REAL, mic_gain REAL)");
         db.execSQL("CREATE INDEX sessions_timestamp ON " + TABLE + "(timestamp)");
+        addCostedColumns(db);
     }
 
     @Override public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {
-        // Version 1 is the first schema.
+        if (oldVersion < 2) {
+            addCostedColumns(db);
+            // Version 1 applied a reported cost to the whole stage, so keep those rows that way.
+            db.execSQL("UPDATE " + TABLE + " SET t_costed_requests = t_requests,"
+                    + " t_costed_seconds = billed_seconds, t_costed_input = t_input,"
+                    + " t_costed_output = t_output WHERE t_cost IS NOT NULL");
+            db.execSQL("UPDATE " + TABLE + " SET e_costed_requests = e_requests,"
+                    + " e_costed_prompt = prompt, e_costed_cached = cached,"
+                    + " e_costed_completion = completion WHERE e_cost IS NOT NULL");
+        }
     }
+
+    /** Version 2: the usage of requests whose cost the provider reported, per stage. */
+    private static void addCostedColumns(SQLiteDatabase db) {
+        for (String column : COSTED_COLUMNS) {
+            db.execSQL("ALTER TABLE " + TABLE + " ADD COLUMN " + column + " NOT NULL DEFAULT 0");
+        }
+    }
+
+    private static final String[] COSTED_COLUMNS = {
+            "t_costed_requests INTEGER", "t_costed_seconds REAL", "t_costed_input INTEGER",
+            "t_costed_output INTEGER", "e_costed_requests INTEGER", "e_costed_prompt INTEGER",
+            "e_costed_cached INTEGER", "e_costed_completion INTEGER"};
 
     /** Stores one dictation; failures are logged and ignored so metrics never break dictation. */
     public void insert(SessionMetric m) {
@@ -105,6 +127,10 @@ public final class UsageStore extends SQLiteOpenHelper {
         v.put("t_output", m.transcriptionOutputTokens);
         v.put("t_audio", m.transcriptionAudioTokens);
         putReal(v, "t_cost", m.transcriptionCostUsd);
+        v.put("t_costed_requests", m.costedTranscriptionRequests);
+        v.put("t_costed_seconds", m.costedBilledAudioSeconds);
+        v.put("t_costed_input", m.costedTranscriptionInputTokens);
+        v.put("t_costed_output", m.costedTranscriptionOutputTokens);
         v.put("e_provider", m.enhancementProvider);
         v.put("e_model", m.enhancementModel);
         v.put("e_requests", m.enhancementRequests);
@@ -115,6 +141,10 @@ public final class UsageStore extends SQLiteOpenHelper {
         v.put("reasoning", m.reasoningTokens);
         v.put("estimated", m.tokensEstimated ? 1 : 0);
         putReal(v, "e_cost", m.enhancementCostUsd);
+        v.put("e_costed_requests", m.costedEnhancementRequests);
+        v.put("e_costed_prompt", m.costedPromptTokens);
+        v.put("e_costed_cached", m.costedCachedTokens);
+        v.put("e_costed_completion", m.costedCompletionTokens);
         v.put("mic_device", m.micDevice);
         v.put("mic_fell_back", m.micFellBack ? 1 : 0);
         v.put("mic_noise", m.micNoiseReduction);
@@ -145,6 +175,10 @@ public final class UsageStore extends SQLiteOpenHelper {
         m.transcriptionOutputTokens = c.getInt(c.getColumnIndexOrThrow("t_output"));
         m.transcriptionAudioTokens = c.getInt(c.getColumnIndexOrThrow("t_audio"));
         m.transcriptionCostUsd = real(c, "t_cost", Double.NaN);
+        m.costedTranscriptionRequests = c.getInt(c.getColumnIndexOrThrow("t_costed_requests"));
+        m.costedBilledAudioSeconds = real(c, "t_costed_seconds", 0);
+        m.costedTranscriptionInputTokens = c.getInt(c.getColumnIndexOrThrow("t_costed_input"));
+        m.costedTranscriptionOutputTokens = c.getInt(c.getColumnIndexOrThrow("t_costed_output"));
         m.enhancementProvider = text(c, "e_provider");
         m.enhancementModel = text(c, "e_model");
         m.enhancementRequests = c.getInt(c.getColumnIndexOrThrow("e_requests"));
@@ -155,6 +189,10 @@ public final class UsageStore extends SQLiteOpenHelper {
         m.reasoningTokens = c.getInt(c.getColumnIndexOrThrow("reasoning"));
         m.tokensEstimated = c.getInt(c.getColumnIndexOrThrow("estimated")) != 0;
         m.enhancementCostUsd = real(c, "e_cost", Double.NaN);
+        m.costedEnhancementRequests = c.getInt(c.getColumnIndexOrThrow("e_costed_requests"));
+        m.costedPromptTokens = c.getInt(c.getColumnIndexOrThrow("e_costed_prompt"));
+        m.costedCachedTokens = c.getInt(c.getColumnIndexOrThrow("e_costed_cached"));
+        m.costedCompletionTokens = c.getInt(c.getColumnIndexOrThrow("e_costed_completion"));
         m.micDevice = text(c, "mic_device");
         m.micFellBack = c.getInt(c.getColumnIndexOrThrow("mic_fell_back")) != 0;
         m.micNoiseReduction = text(c, "mic_noise");
