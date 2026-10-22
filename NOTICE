@@ -25,7 +25,7 @@ This product includes third-party software:
 - whisperIME (https://github.com/woheller69/whisperIME), Copyright woheller69, MIT License.
 - Whisper-Android (https://github.com/vilassn/whisper_android), MIT License.
 - OpenAI Whisper (https://github.com/openai/whisper), MIT License.
-- Whisper ONNX models (https://huggingface.co/DocWolle/whisperOnnx), MIT License.
+- Whisper ONNX models (https://huggingface.co/DocWolle/whisperOnnx), Apache License 2.0.
   Mirrored unchanged for ToneTunner at
   https://huggingface.co/realSauron/ToneTunner-whisper-onnx.
 - FreeDroidWarn (https://github.com/DevilVed/FreeDroidWarn), a fork of
