@@ -9,9 +9,18 @@ ime="$pkg/com.devilved.tonetunner.WhisperInputMethodService"
 
 listed() { adb shell ime list -a -s | tr -d '\r' | grep -qxF "$ime"; }
 
+# Android updates its input method list asynchronously after a package change.
 wait_listed() {
     for _ in $(seq 1 20); do
         if listed; then return 0; fi
+        sleep 1
+    done
+    return 1
+}
+
+wait_unlisted() {
+    for _ in $(seq 1 20); do
+        if ! listed; then return 0; fi
         sleep 1
     done
     return 1
@@ -37,7 +46,8 @@ adb shell ime list -s | tr -d '\r' | grep -qxF "$ime" || fail "The keyboard coul
 echo "Keyboard enabled."
 
 adb uninstall "$pkg"
-if listed; then fail "The keyboard is still listed after uninstalling."; fi
+wait_unlisted || fail "The keyboard is still listed 20 s after uninstalling."
+echo "Uninstall: keyboard removed."
 
 adb install "$apk"
 wait_listed || fail "After uninstalling and reinstalling, the keyboard is not in Android's input method list."
