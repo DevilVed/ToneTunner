@@ -20,11 +20,18 @@ import java.util.ArrayList;
 
 public class Utils {
     public static double softmax(float input, float[] neuronValues) {
-        double total = 0;
+        // Optimized numerically stable softmax using max-subtraction to prevent arithmetic overflow (e.g. NaN from Math.exp(1000)).
+        float max = -Float.MAX_VALUE;
         for (float neuronValue : neuronValues) {
-            total += Math.exp(neuronValue);
+            if (neuronValue > max) {
+                max = neuronValue;
+            }
         }
-        return Math.exp(input) / total;
+        double sum = 0.0;
+        for (float neuronValue : neuronValues) {
+            sum += Math.exp(neuronValue - max);
+        }
+        return Math.exp(input - max) / sum;
     }
 
     public static double logSumExp(float[] neuronValues) {
