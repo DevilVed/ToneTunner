@@ -68,4 +68,5 @@ dependencies {
     implementation 'com.microsoft.onnxruntime:onnxruntime-android:1.19.0'  //latest.release
     implementation 'com.microsoft.onnxruntime:onnxruntime-extensions-android:0.12.4'   //latest.release
 
+    testImplementation 'junit:junit:4.13.2'
 }
