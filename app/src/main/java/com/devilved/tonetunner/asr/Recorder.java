@@ -9,6 +9,7 @@ import android.media.AudioManager;
 import android.media.AudioRecord;
 import android.media.MediaRecorder;
 import android.media.audiofx.NoiseSuppressor;
+import android.os.Build;
 import android.util.Log;
 
 import androidx.core.app.ActivityCompat;
@@ -228,18 +229,16 @@ public class Recorder {
                 mic.noiseReduction != MicSettings.NoiseReduction.OFF, mic.boost);
         AudioRecord audio = null;
         NoiseSuppressor suppressor = null;
-        boolean scoStarted = false;
+        int bluetoothLink = LINK_NONE;
         PcmRecording recording = null;
         boolean transferred = false;
         String terminalMessage = null;
         try {
             recording = PcmRecording.create(new File(mContext.getNoBackupFilesDir(), "dictation-audio"));
-            // Only the Bluetooth setting opens the headset's SCO link; otherwise a connected
+            // Only the Bluetooth setting opens the headset's voice link; otherwise a connected
             // headset would take over the phone microphone.
             if (route.useBluetoothSco) {
-                manager.startBluetoothSco();
-                manager.setBluetoothScoOn(true);
-                scoStarted = true;
+                bluetoothLink = openBluetooth(manager, MicDevices.find(microphones, route.input));
             }
             audio = new AudioRecord.Builder()
                     .setAudioSource(mic.noiseReduction == MicSettings.NoiseReduction.MAXIMUM
@@ -348,10 +347,7 @@ public class Recorder {
                 try { audio.stop(); } catch (IllegalStateException ignored) {}
                 audio.release();
             }
-            if (scoStarted) {
-                try { manager.stopBluetoothSco(); manager.setBluetoothScoOn(false); }
-                catch (RuntimeException ignored) {}
-            }
+            closeBluetooth(manager, bluetoothLink);
             if (useVAD) {
                 useVAD = false;
                 if (vad != null) { vad.close(); vad = null; }
@@ -362,6 +358,50 @@ public class Recorder {
     }
 
     /** The platform noise suppressor, when this phone has one; recording continues without it. */
+    private static final int LINK_NONE = 0;
+    private static final int LINK_COMMUNICATION_DEVICE = 1;
+    private static final int LINK_SCO = 2;
+
+    /**
+     * Opens the headset's voice link. Android 12+ selects it as the communication device, which
+     * covers classic SCO and LE Audio headsets; older versions (and a headset Android does not
+     * offer as a communication device) use the SCO calls.
+     */
+    private static int openBluetooth(AudioManager manager, AudioDeviceInfo input) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            AudioDeviceInfo device = MicDevices.communicationDevice(
+                    manager.getAvailableCommunicationDevices(), input);
+            if (device != null && manager.setCommunicationDevice(device)) return LINK_COMMUNICATION_DEVICE;
+        }
+        startLegacySco(manager);
+        return LINK_SCO;
+    }
+
+    private static void closeBluetooth(AudioManager manager, int link) {
+        try {
+            if (link == LINK_COMMUNICATION_DEVICE && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                manager.clearCommunicationDevice();
+            } else if (link == LINK_SCO) {
+                stopLegacySco(manager);
+            }
+        } catch (RuntimeException ignored) {
+            // Releasing the route must never hide the recording's own result.
+        }
+    }
+
+    /** The only way to open a headset microphone before Android 12, where these are not deprecated. */
+    @SuppressWarnings("deprecation")
+    private static void startLegacySco(AudioManager manager) {
+        manager.startBluetoothSco();
+        manager.setBluetoothScoOn(true);
+    }
+
+    @SuppressWarnings("deprecation")
+    private static void stopLegacySco(AudioManager manager) {
+        manager.stopBluetoothSco();
+        manager.setBluetoothScoOn(false);
+    }
+
     private static NoiseSuppressor createNoiseSuppressor(int sessionId) {
         NoiseSuppressor suppressor = null;
         try {

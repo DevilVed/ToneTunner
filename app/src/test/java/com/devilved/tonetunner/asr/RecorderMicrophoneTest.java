@@ -41,6 +41,7 @@ public class RecorderMicrophoneTest {
 
     private final AtomicReference<AudioRecord> microphone = new AtomicReference<>();
     private final AtomicBoolean scoDuringCapture = new AtomicBoolean();
+    private final AtomicReference<AudioDeviceInfo> communicationDuringCapture = new AtomicReference<>();
     private final List<byte[]> delivered = new ArrayList<>();
     private AudioManager audioManager;
 
@@ -86,6 +87,26 @@ public class RecorderMicrophoneTest {
             assertTrue(scoDuringCapture.get());
             assertFalse("SCO is closed again after the recording", audioManager.isBluetoothScoOn());
             assertEquals(7, microphone.get().getPreferredDevice().getId());
+            assertEquals("bluetooth", recording.getMicCapture().device);
+        } finally { recording.close(); }
+    }
+
+    @Config(sdk = 33)
+    @Test public void android12AndLaterSelectTheHeadsetAsCommunicationDeviceInsteadOfSco() throws Exception {
+        setPreference(MicSettings.KEY_INPUT, "bluetooth");
+        connect(device(AudioDeviceInfo.TYPE_BUILTIN_MIC, 3, "bottom"),
+                device(AudioDeviceInfo.TYPE_BLE_HEADSET, 8, "00:22"));
+        AudioDeviceInfo otherHeadset = device(AudioDeviceInfo.TYPE_BLUETOOTH_SCO, 20, "00:11");
+        AudioDeviceInfo sameHeadset = device(AudioDeviceInfo.TYPE_BLE_HEADSET, 21, "00:22");
+        Shadows.shadowOf(audioManager).setAvailableCommunicationDevices(Arrays.asList(
+                device(AudioDeviceInfo.TYPE_BUILTIN_SPEAKER, 2, ""), otherHeadset, sameHeadset));
+        PcmRecording recording = record();
+        try {
+            assertNotNull(communicationDuringCapture.get());
+            assertEquals("the headset whose microphone was chosen", 21, communicationDuringCapture.get().getId());
+            assertFalse("no deprecated SCO call on Android 12+", scoDuringCapture.get());
+            assertNull("released after the recording", audioManager.getCommunicationDevice());
+            assertEquals(8, microphone.get().getPreferredDevice().getId());
             assertEquals("bluetooth", recording.getMicCapture().device);
         } finally { recording.close(); }
     }
@@ -144,7 +165,12 @@ public class RecorderMicrophoneTest {
         ShadowAudioRecord.AudioRecordSource source = new ShadowAudioRecord.AudioRecordSource() {
             int reads;
             @Override public int readInByteArray(byte[] audio, int offset, int size, boolean blocking) {
-                if (reads == 0) scoDuringCapture.set(audioManager.isBluetoothScoOn());
+                if (reads == 0) {
+                    scoDuringCapture.set(audioManager.isBluetoothScoOn());
+                    if (android.os.Build.VERSION.SDK_INT >= 31) {
+                        communicationDuringCapture.set(audioManager.getCommunicationDevice());
+                    }
+                }
                 if (reads++ >= READS) {
                     done.countDown();
                     try { Thread.sleep(5); } catch (InterruptedException ignored) { }

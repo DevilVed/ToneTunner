@@ -5,6 +5,7 @@ import android.media.AudioManager;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 /** Maps Android's connected inputs to {@link MicRouter} inputs; only real microphones are offered. */
 final class MicDevices {
@@ -54,6 +55,24 @@ final class MicDevices {
             inputs.add(new MicRouter.Input(device.getId(), kindOf(device.getType()), device.getAddress()));
         }
         return inputs;
+    }
+
+    /**
+     * The Bluetooth communication device for a headset microphone: the same headset (type and
+     * address) when Android lists it, else the first Bluetooth one, else null.
+     */
+    static AudioDeviceInfo communicationDevice(List<AudioDeviceInfo> available, AudioDeviceInfo input) {
+        if (available == null) return null;
+        AudioDeviceInfo firstBluetooth = null;
+        for (AudioDeviceInfo device : available) {
+            if (device == null || kindOf(device.getType()) != MicRouter.Kind.BLUETOOTH) continue;
+            if (input != null && device.getType() == input.getType()
+                    && Objects.equals(device.getAddress(), input.getAddress())) {
+                return device;
+            }
+            if (firstBluetooth == null) firstBluetooth = device;
+        }
+        return firstBluetooth;
     }
 
     static AudioDeviceInfo find(List<AudioDeviceInfo> devices, MicRouter.Input input) {

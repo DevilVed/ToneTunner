@@ -102,7 +102,7 @@ public final class DashboardStats {
     public static DashboardStats compute(List<SessionMetric> all, Period period, long now,
                                          TimeZone zone, PriceTable prices) {
         DashboardStats s = new DashboardStats();
-        long start = periodStart(period, now, zone, all);
+        long start = periodStart(period, now, zone);
         long end = period == Period.ALL ? Long.MAX_VALUE : now + 1;
         s.buildBuckets(period, start, now, zone, all);
 
@@ -262,7 +262,7 @@ public final class DashboardStats {
         }
     }
 
-    private static long periodStart(Period period, long now, TimeZone zone, List<SessionMetric> all) {
+    private static long periodStart(Period period, long now, TimeZone zone) {
         Calendar c = Calendar.getInstance(zone);
         c.setTimeInMillis(now);
         c.set(Calendar.HOUR_OF_DAY, 0);
