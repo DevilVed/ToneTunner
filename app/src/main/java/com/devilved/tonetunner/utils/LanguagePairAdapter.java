@@ -41,10 +41,10 @@ public class LanguagePairAdapter extends ArrayAdapter<Pair<String, String>> {
     }
 
     public static List<Pair<String, String>> getLanguagePairs(Context context){
-        // Create pairs of code and display name, then sort by display name
-        List<Pair<String, String>> languagePairs = new ArrayList<>();
-        String[] sortedLanguages = Recognizer.LANGUAGES.clone();
-        for (String code : sortedLanguages) {
+        // Pre-allocate initial capacity (LANGUAGES count + 1 for "auto") to avoid list resizing allocations
+        List<Pair<String, String>> languagePairs = new ArrayList<>(Recognizer.LANGUAGES.length + 1);
+        // Iterate directly over LANGUAGES array to avoid unnecessary array cloning
+        for (String code : Recognizer.LANGUAGES) {
             Locale locale = new Locale(code);
             languagePairs.add(new Pair<>(code, locale.getDisplayLanguage()));
         }
@@ -59,8 +59,12 @@ public class LanguagePairAdapter extends ArrayAdapter<Pair<String, String>> {
 
     // Helper method to find index by language code
     public int getIndexByCode(String langCode) {
-        for (int i = 0; i < languagePairs.size(); i++) {
-            if (languagePairs.get(i).first.equals(langCode)) {
+        if (langCode == null) {
+            return 0;
+        }
+        // Cache list size to avoid repeated method invocations in loop condition
+        for (int i = 0, size = languagePairs.size(); i < size; i++) {
+            if (langCode.equals(languagePairs.get(i).first)) {
                 return i;
             }
         }
